@@ -4059,7 +4059,7 @@ async function loadLuminaFromSupabase(){
     luminaDb.from('projects').select('id,name,reporting_date,status,companies(name)').limit(10),
     luminaDb.from('tasks').select('id,source_number,work_status,review_status,internal_comment,due_date_override,updated_at').order('source_number'),
     luminaDb.from('responsibility_roles').select('id,role_key,display_name,first_name,last_name,email').order('role_key'),
-    luminaDb.from('project_source_states').select('project_id,state,source_sha256').limit(1),
+    luminaDb.rpc('get_lumina_source_state'),
     luminaDb.from('documents').select('id,task_id,folder_id,display_name,document_status,created_at,document_versions(id,version_number,storage_bucket,storage_path,original_file_name,mime_type,file_size,upload_comment,created_at)').is('archived_at',null).order('created_at')
   ]);
   if(projectError)throw projectError;if(taskError)throw taskError;if(roleError)throw roleError;if(sourceError)throw sourceError;if(documentError)throw documentError;
