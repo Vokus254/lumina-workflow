@@ -61,3 +61,49 @@ footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1
   .phaseCard h3 { margin-top: 22px; }
   footer { flex-direction: column; }
 }
+
+/* Anmeldung und geschützter Workflow */
+.authPage { min-height: 100vh; display: grid; grid-template-columns: minmax(0,1.15fr) minmax(420px,.85fr); }
+.authIntro { min-height: 100vh; padding: clamp(30px,5vw,72px); display: flex; flex-direction: column; justify-content: space-between; background: radial-gradient(circle at 72% 24%,rgba(47,169,129,.14),transparent 25rem),var(--page); }
+.authBrand { display: flex; align-items: center; gap: 13px; }
+.authBrand strong { display: block; font-size: 17px; }
+.authBrand div>span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.authIntro h1,.workflowHero h1 { font-size: clamp(48px,7vw,92px); }
+.authNotice { color: var(--muted); font-size: 11px; }
+.loginPanel { min-height: 100vh; padding: 32px; display: grid; place-items: center; background: var(--surface); border-left: 1px solid var(--line); }
+.loginCard { width: min(430px,100%); }
+.loginCard h2 { font-size: 34px; }
+.formIntro { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 14px 0 30px; }
+.loginCard label { display: grid; gap: 8px; margin: 17px 0; color: #555d5a; font-size: 12px; font-weight: 700; }
+.loginCard input { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: #fff; color: var(--ink); font: inherit; }
+.loginCard input:focus { outline: 3px solid rgba(47,169,129,.14); border-color: var(--accent); }
+.primaryButton,.secondaryButton { border: 0; border-radius: 9px; padding: 12px 17px; font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; }
+.primaryButton { width: 100%; min-height: 49px; margin-top: 8px; background: var(--accent); color: #fff; }
+.primaryButton:disabled { cursor: wait; opacity: .68; }
+.secondaryButton { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+.formError { padding: 11px 12px; border-radius: 8px; background: #fff0ee; color: #a52a1e; font-size: 12px; }
+.formHelp { color: var(--muted); font-size: 11px; text-align: center; margin-top: 18px; }
+
+.workflowShell { width: min(1240px,calc(100% - 40px)); margin: 0 auto; min-height: 100vh; }
+.workflowHeader { min-height: 104px; display: flex; align-items: center; justify-content: space-between; gap: 22px; border-bottom: 1px solid var(--line); }
+.accountBox { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+.workflowHero { min-height: 430px; display: flex; align-items: center; justify-content: space-between; gap: 32px; border-bottom: 1px solid var(--line); }
+.migrationCard { margin: 52px 0; display: grid; grid-template-columns: minmax(0,1.2fr) minmax(340px,.8fr); gap: 60px; padding: clamp(28px,5vw,60px); background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.migrationCard h2 { max-width: 620px; font-size: clamp(28px,4vw,45px); }
+.migrationCard>div>p:last-child { max-width: 630px; color: var(--muted); line-height: 1.6; }
+.migrationCard ol { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.migrationCard li { display: grid; grid-template-columns: 42px 1fr; gap: 8px; padding: 19px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.migrationCard li span { color: var(--accent); font-size: 11px; font-weight: 800; }
+
+@media (max-width: 850px) {
+  .authPage { grid-template-columns: 1fr; }
+  .authIntro { min-height: 48vh; }
+  .loginPanel { min-height: 52vh; border-left: 0; border-top: 1px solid var(--line); }
+  .workflowHero { align-items: flex-start; flex-direction: column; justify-content: center; }
+  .migrationCard { grid-template-columns: 1fr; gap: 34px; }
+}
+@media (max-width: 560px) {
+  .workflowHeader { align-items: flex-start; flex-direction: column; padding: 22px 0; }
+  .accountBox { width: 100%; justify-content: space-between; }
+  .authIntro,.loginPanel { padding: 24px; }
+}
