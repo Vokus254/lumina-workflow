@@ -82,6 +82,9 @@ footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1
 .primaryButton:disabled { cursor: wait; opacity: .68; }
 .secondaryButton { background: #fff; border: 1px solid var(--line); color: var(--ink); }
 .formError { padding: 11px 12px; border-radius: 8px; background: #fff0ee; color: #a52a1e; font-size: 12px; }
+.formSuccess { padding: 11px 12px; border-radius: 8px; background: var(--accent-soft); color: #267c60; font-size: 12px; }
+.textButton { width: 100%; margin-top: 12px; padding: 8px; border: 0; background: transparent; color: #267c60; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.textButton:hover { text-decoration: underline; }
 .formHelp { color: var(--muted); font-size: 11px; text-align: center; margin-top: 18px; }
 
 .workflowShell { width: min(1240px,calc(100% - 40px)); margin: 0 auto; min-height: 100vh; }

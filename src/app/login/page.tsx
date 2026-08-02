@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -9,15 +9,50 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
+
+  useEffect(() => {
+    const requestedMode = new URLSearchParams(window.location.search).get("mode");
+    const timer = window.setTimeout(() => {
+      if (requestedMode === "reset") setMode("reset");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setMessage("");
     setPending(true);
 
     try {
       const supabase = createClient();
+      if (mode === "forgot") {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+          email.trim(),
+          { redirectTo: `${window.location.origin}/login?mode=reset` },
+        );
+        if (resetError) throw resetError;
+        setMessage("Wir haben Ihnen eine E-Mail zum Zurücksetzen des Passworts gesendet.");
+        return;
+      }
+
+      if (mode === "reset") {
+        if (password.length < 8) {
+          setError("Das neue Passwort muss mindestens 8 Zeichen lang sein.");
+          return;
+        }
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+        if (updateError) throw updateError;
+        setMessage("Ihr Passwort wurde geändert. Sie können sich jetzt anmelden.");
+        setPassword("");
+        setMode("login");
+        window.history.replaceState({}, "", "/login");
+        return;
+      }
+
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -64,14 +99,19 @@ export default function LoginPage() {
 
       <section className="loginPanel" aria-labelledby="login-title">
         <form className="loginCard" onSubmit={handleSubmit}>
-          <p className="eyebrow">Anmeldung</p>
-          <h2 id="login-title">LUMINA öffnen</h2>
+          <p className="eyebrow">{mode === "login" ? "Anmeldung" : "Passwort"}</p>
+          <h2 id="login-title">
+            {mode === "forgot" ? "Passwort zurücksetzen" : mode === "reset" ? "Neues Passwort festlegen" : "LUMINA öffnen"}
+          </h2>
           <p className="formIntro">
-            Melden Sie sich mit der in Supabase hinterlegten E-Mail-Adresse
-            und Ihrem persönlichen Passwort an.
+            {mode === "forgot"
+              ? "Geben Sie Ihre E-Mail-Adresse ein. Sie erhalten anschließend einen sicheren Link."
+              : mode === "reset"
+                ? "Geben Sie ein neues persönliches Passwort mit mindestens 8 Zeichen ein."
+                : "Melden Sie sich mit der in Supabase hinterlegten E-Mail-Adresse und Ihrem persönlichen Passwort an."}
           </p>
 
-          <label>
+          {mode !== "reset" && <label>
             E-Mail-Adresse
             <input
               type="email"
@@ -81,25 +121,36 @@ export default function LoginPage() {
               onChange={(event) => setEmail(event.target.value)}
               required
             />
-          </label>
+          </label>}
 
-          <label>
-            Passwort
+          {mode !== "forgot" && <label>
+            {mode === "reset" ? "Neues Passwort" : "Passwort"}
             <input
               type="password"
               name="password"
-              autoComplete="current-password"
+              autoComplete={mode === "reset" ? "new-password" : "current-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
             />
-          </label>
+          </label>}
 
           {error && <p className="formError" role="alert">{error}</p>}
+          {message && <p className="formSuccess" role="status">{message}</p>}
 
           <button className="primaryButton" type="submit" disabled={pending}>
-            {pending ? "Anmeldung wird geprüft …" : "Anmelden"}
+            {pending ? "Bitte warten …" : mode === "forgot" ? "E-Mail anfordern" : mode === "reset" ? "Passwort speichern" : "Anmelden"}
           </button>
+
+          {mode === "login" ? (
+            <button className="textButton" type="button" onClick={() => { setMode("forgot"); setError(""); setMessage(""); }}>
+              Passwort vergessen?
+            </button>
+          ) : (
+            <button className="textButton" type="button" onClick={() => { setMode("login"); setError(""); setMessage(""); }}>
+              Zurück zur Anmeldung
+            </button>
+          )}
 
           <p className="formHelp">
             Der Zugang wird durch die LUMINA-Administration eingerichtet.
