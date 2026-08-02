@@ -28,7 +28,11 @@ export default function LoginPage() {
         return;
       }
 
-      router.replace("/workflow");
+      const requestedTarget = new URLSearchParams(window.location.search).get("next");
+      const target = requestedTarget?.startsWith("/workflow")
+        ? requestedTarget
+        : "/workflow";
+      router.replace(target);
       router.refresh();
     } catch {
       setError("Die Anmeldung ist momentan nicht erreichbar.");

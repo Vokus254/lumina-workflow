@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export function LegacyDashboard() {
+export function LegacyDashboard({ query }: { query: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
   const [error, setError] = useState("");
@@ -39,13 +39,27 @@ export function LegacyDashboard() {
     return () => window.removeEventListener("message", handleMessage);
   }, [router]);
 
+  const handleSignOut = useCallback(async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }, [router]);
+
+  const frameSource = query
+    ? `/legacy/lumina.html?${query}`
+    : "/legacy/lumina.html";
+
   return (
     <main className="legacyDashboard">
       {error && <div className="legacyError" role="alert">{error}</div>}
+      <button className="dashboardSignOut" type="button" onClick={handleSignOut}>
+        Abmelden
+      </button>
       <iframe
         ref={frameRef}
         className="legacyFrame"
-        src="/legacy/lumina.html"
+        src={frameSource}
         title="LUMINA Abschluss-Cockpit"
         onLoad={sendSession}
       />
