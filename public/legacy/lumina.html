@@ -641,11 +641,21 @@
   /* ---------- Kopf-Toolbar (JSON / Ordner) ---------- */
   .top-toolbar{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .top-toolbar .btn-secondary{ white-space: nowrap; }
+  .btn-day{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn-admin-notify{background:#172b24;color:#fff;border-color:#172b24;display:none}
   .top-export-note{
     font-size: 12.5px; color: var(--done-text); margin: 0 0 18px; display: none;
     background: var(--done-bg); padding: 8px 12px; border-radius: 8px;
   }
   .top-export-note.is-error{ color: #C0392B; background: #FBE9E9; }
+  .digest-modal-backdrop{position:fixed;inset:0;z-index:1200;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.5);backdrop-filter:blur(3px)}
+  .digest-modal-backdrop.open{display:flex}.digest-modal{width:min(980px,calc(100vw - 32px));max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:18px;box-shadow:0 30px 90px rgba(15,23,42,.3);overflow:hidden}
+  .digest-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:21px 24px;border-bottom:1px solid var(--border)}.digest-title{font-size:20px;font-weight:750}.digest-sub{font-size:12.5px;color:var(--text-secondary);margin-top:5px}.digest-close{all:unset;cursor:pointer;font-size:24px;color:var(--text-secondary)}
+  .digest-content{padding:20px 24px;overflow:auto}.digest-summary{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:18px}.digest-chip{padding:6px 10px;border-radius:999px;background:var(--done-bg);color:var(--done-text);font-size:11.5px;font-weight:700}
+  .digest-day-group,.digest-role-group{border-top:1px solid var(--border);padding:15px 0}.digest-day-group:first-child,.digest-role-group:first-child{border-top:0}.digest-group-title{display:flex;justify-content:space-between;gap:15px;font-weight:750;margin-bottom:8px}.digest-group-meta{font-size:11.5px;color:var(--text-secondary)}
+  .digest-task{display:grid;grid-template-columns:72px minmax(0,1fr) 120px 142px;gap:12px;align-items:center;padding:9px 0;border-top:1px solid #f0f1f2;font-size:12px}.digest-task:first-of-type{border-top:0}.digest-task-title{font-weight:650}.digest-task-sub{font-size:10.5px;color:var(--text-faint);margin-top:2px}.digest-task a{color:var(--accent);font-weight:700;text-decoration:none}.digest-empty{padding:36px 12px;text-align:center;color:var(--text-secondary)}
+  .digest-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 24px;border-top:1px solid var(--border);background:#fafafb}.digest-status{font-size:12px;color:var(--text-secondary)}.digest-footer-actions{display:flex;gap:8px}.digest-send:disabled{opacity:.5;cursor:not-allowed}
+  @media(max-width:720px){.digest-task{grid-template-columns:52px 1fr}.digest-task>div:nth-child(3),.digest-task>a{grid-column:2}.digest-footer{align-items:flex-start;flex-direction:column}.digest-footer-actions{width:100%}.digest-footer-actions button{flex:1}}
 
 
   /* ===== LUMINA Aufgaben- & Datenraum-MVP ===== */
@@ -908,6 +918,8 @@
       </div>
     </div>
     <div class="top-toolbar">
+      <button class="btn-secondary btn-day" id="btn-my-day" type="button">Mein Tag</button>
+      <button class="btn-secondary btn-admin-notify" id="btn-notify-all" type="button">Alle benachrichtigen</button>
       <button class="btn-secondary" id="btn-json-export">JSON Export</button>
       <button class="btn-secondary" id="btn-json-import">JSON Import</button>
       <input type="file" id="json-import-input" accept=".json" style="display:none;">
@@ -940,6 +952,14 @@
     <div class="task-modal-head"><div><div class="task-modal-title" id="task-modal-title">Maßnahme</div><div class="task-modal-sub" id="task-modal-sub"></div></div><button class="task-modal-close" id="task-modal-close" title="Schließen">×</button></div>
     <div class="task-modal-body"><div class="task-main" id="task-modal-main"></div><aside class="task-side" id="task-modal-side"></aside></div>
     <div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-save" id="task-modal-save">Speichern</button></div></div>
+  </div>
+</div>
+
+<div class="digest-modal-backdrop" id="digest-modal-backdrop" aria-hidden="true">
+  <div class="digest-modal" role="dialog" aria-modal="true" aria-labelledby="digest-modal-title">
+    <div class="digest-head"><div><div class="digest-title" id="digest-modal-title">Mein Tag</div><div class="digest-sub" id="digest-modal-sub"></div></div><button class="digest-close" id="digest-modal-close" type="button" title="SchlieÃŸen">Ã—</button></div>
+    <div class="digest-content" id="digest-modal-content"></div>
+    <div class="digest-footer"><span class="digest-status" id="digest-modal-status"></span><div class="digest-footer-actions"><button class="btn-secondary" id="digest-modal-cancel" type="button">SchlieÃŸen</button><button class="btn-save digest-send" id="digest-modal-send" type="button" style="display:none">Jetzt an alle senden</button></div></div>
   </div>
 </div>
 
@@ -4113,8 +4133,27 @@ async function saveLuminaTaskToSupabase(row,state){
   setLuminaSyncState('In Supabase gespeichert');
 }
 
+function digestTodayISO(){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function digestAddDays(iso,days){const date=new Date(`${iso}T12:00:00Z`);date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);}
+function digestOpen(title,sub){document.getElementById('digest-modal-title').textContent=title;document.getElementById('digest-modal-sub').textContent=sub||'';document.getElementById('digest-modal-status').textContent='';document.getElementById('digest-modal-backdrop').classList.add('open');document.getElementById('digest-modal-backdrop').setAttribute('aria-hidden','false');}
+function digestClose(){document.getElementById('digest-modal-backdrop').classList.remove('open');document.getElementById('digest-modal-backdrop').setAttribute('aria-hidden','true');}
+function myDayEntries(){const pbc=luminaPbcRows();if(!pbc)return[];return pbc.rows.map((row,ri)=>{const state=ensureTaskState(pbc.sub.data,row,ri);return{row,ri,state,due:taskEffectiveDate(row),title:row[3]||row[1]||'Maßnahme',roomUrl:taskPrimaryDataRoomLink(state)};}).filter(entry=>!['Abgeschlossen','Nicht relevant'].includes(entry.state.workStatus)).sort((left,right)=>(left.due||'9999-12-31').localeCompare(right.due||'9999-12-31')||String(left.row[0]||'').localeCompare(String(right.row[0]||''),'de',{numeric:true}));}
+function renderMyDay(){
+  const today=digestTodayISO(),soon=digestAddDays(today,14),entries=myDayEntries();
+  const groups=[{title:'Überfällig',items:entries.filter(entry=>entry.due&&entry.due<today)},{title:'Heute fällig',items:entries.filter(entry=>entry.due===today)},{title:'In den nächsten 14 Tagen',items:entries.filter(entry=>entry.due>today&&entry.due<=soon)},{title:'Später anstehend',items:entries.filter(entry=>entry.due>soon)},{title:'Ohne festen Termin',items:entries.filter(entry=>!entry.due)}],visible=groups.filter(group=>group.items.length);
+  digestOpen('Mein Tag',`Persönliche Aufgabenübersicht · ${formatDateDE(today)}`);document.getElementById('digest-modal-send').style.display='none';
+  document.getElementById('digest-modal-content').innerHTML=visible.length?`<div class="digest-summary"><span class="digest-chip">${entries.length} offene Aufgaben</span>${groups.slice(0,3).map(group=>`<span class="digest-chip">${luminaEsc(group.title)}: ${group.items.length}</span>`).join('')}</div>${visible.map(group=>`<section class="digest-day-group"><div class="digest-group-title"><span>${luminaEsc(group.title)}</span><span class="digest-group-meta">${group.items.length} Aufgabe${group.items.length===1?'':'n'}</span></div>${group.items.map(entry=>`<div class="digest-task"><strong>${luminaEsc(entry.row[0]||'–')}</strong><div><div class="digest-task-title">${luminaEsc(entry.title)}</div><div class="digest-task-sub">${luminaEsc(entry.row[5]||'')}</div></div><div>${luminaEsc(entry.due?formatDateDE(entry.due):'ohne Termin')}</div><a href="${luminaEsc(entry.roomUrl||'#')}" ${entry.roomUrl?'':'aria-disabled="true"'}>Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`:'<div class="digest-empty">Aktuell stehen keine offenen Aufgaben an.</div>';
+}
+let adminDigestPreview=null;
+async function renderAdminDigestPreview(){
+  digestOpen('Alle benachrichtigen','Rollenweise Sammel-E-Mails · nach Fälligkeit sortiert');const content=document.getElementById('digest-modal-content'),send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');content.innerHTML='<div class="digest-empty">Vorschau wird geladen …</div>';send.style.display='none';
+  try{const response=await fetch('/api/notifications/role-digests',{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Vorschau konnte nicht geladen werden.');adminDigestPreview=payload;const taskCount=payload.digests.reduce((sum,digest)=>sum+digest.tasks.length,0);content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${payload.digests.length} Empfänger</span><span class="digest-chip">${taskCount} offene Aufgaben</span></div>${payload.digests.map(digest=>`<section class="digest-role-group"><div class="digest-group-title"><span>${luminaEsc(digest.recipientName)} · ${luminaEsc(digest.role)}</span><span class="digest-group-meta">${luminaEsc(digest.email)} · ${digest.tasks.length} Aufgaben</span></div>${digest.tasks.map(task=>`<div class="digest-task"><strong>${luminaEsc(task.number)}</strong><div><div class="digest-task-title">${luminaEsc(task.title)}</div><div class="digest-task-sub">${luminaEsc(task.requiredDocuments)}</div></div><div>${luminaEsc(task.dueDate?formatDateDE(task.dueDate):'ohne Termin')}</div><a href="${luminaEsc(task.link)}" target="_blank" rel="noopener">Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`;status.textContent=payload.smtpConfigured?'Versand ist eingerichtet. Bitte prüfen Sie die Vorschau vor dem Senden.':'Vorschau bereit. Der IONOS-Versand muss in Vercel noch eingerichtet werden.';send.style.display='inline-flex';send.disabled=!payload.smtpConfigured;}catch(error){content.innerHTML=`<div class="digest-empty">${luminaEsc(error.message||'Vorschau konnte nicht geladen werden.')}</div>`;status.textContent='';}
+}
+async function sendAdminDigests(){if(!adminDigestPreview||!confirm(`Jetzt ${adminDigestPreview.digests.length} rollenbezogene E-Mails versenden?`))return;const send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');send.disabled=true;send.textContent='E-Mails werden gesendet …';status.textContent='Bitte warten. Das Fenster nicht schließen.';try{const response=await fetch('/api/notifications/role-digests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true})}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Versand fehlgeschlagen.');status.textContent=`${payload.sent.length} E-Mails wurden erfolgreich versendet.`;send.style.display='none';}catch(error){status.textContent=error.message||'Versand fehlgeschlagen.';send.disabled=false;}finally{send.textContent='Jetzt an alle senden';}}
+
 async function startLuminaForSession(session){
   document.getElementById('lumina-session-email').textContent=session.user.email||'';
+  document.getElementById('btn-notify-all').style.display=session.user.email?.toLowerCase()==='admin@volkerkusch.de'?'inline-flex':'none';
   await loadLuminaFromSupabase();
   document.body.classList.add('lumina-authenticated');
   render();
@@ -4143,6 +4182,12 @@ document.getElementById('lumina-auth-form').addEventListener('submit',async even
   finally{button.disabled=false;button.textContent='Anmelden';}
 });
 document.getElementById('lumina-signout').addEventListener('click',async()=>{if(window.parent!==window){window.parent.postMessage({type:'lumina-signout'},location.origin);return;}await luminaDb.auth.signOut();location.reload();});
+document.getElementById('btn-my-day').addEventListener('click',renderMyDay);
+document.getElementById('btn-notify-all').addEventListener('click',renderAdminDigestPreview);
+document.getElementById('digest-modal-close').addEventListener('click',digestClose);
+document.getElementById('digest-modal-cancel').addEventListener('click',digestClose);
+document.getElementById('digest-modal-backdrop').addEventListener('click',event=>{if(event.target.id==='digest-modal-backdrop')digestClose();});
+document.getElementById('digest-modal-send').addEventListener('click',sendAdminDigests);
 
 
 document.getElementById("btn-json-export").addEventListener("click", exportStateAsJson);
