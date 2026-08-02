@@ -11,8 +11,11 @@ export function LegacyDashboard({ query }: { query: string }) {
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
-    const { data, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !data.session) {
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    const fallback = refreshed.session ? null : await supabase.auth.getSession();
+    const session = refreshed.session ?? fallback?.data.session ?? null;
+    const sessionError = refreshError && !session ? refreshError : fallback?.error;
+    if (sessionError || !session) {
       setError("Die Sitzung konnte nicht an das Dashboard übergeben werden.");
       return;
     }
@@ -20,8 +23,8 @@ export function LegacyDashboard({ query }: { query: string }) {
     frameRef.current?.contentWindow?.postMessage(
       {
         type: "lumina-session",
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token,
       },
       window.location.origin,
     );
@@ -29,7 +32,12 @@ export function LegacyDashboard({ query }: { query: string }) {
 
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "lumina-signout") return;
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "lumina-refresh-session") {
+        await sendSession();
+        return;
+      }
+      if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
       await supabase.auth.signOut();
       router.replace("/login");
@@ -37,7 +45,7 @@ export function LegacyDashboard({ query }: { query: string }) {
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [router]);
+  }, [router, sendSession]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
