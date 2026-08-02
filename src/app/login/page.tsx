@@ -14,9 +14,16 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
 
   useEffect(() => {
-    const requestedMode = new URLSearchParams(window.location.search).get("mode");
+    const params = new URLSearchParams(window.location.search);
+    const requestedMode = params.get("mode");
+    const requestedTarget = params.get("next");
+    const targetEmail = requestedTarget
+      ? new URLSearchParams(requestedTarget.split("?")[1] || "").get("email")
+      : null;
+    const requestedEmail = params.get("email") || targetEmail;
     const timer = window.setTimeout(() => {
       if (requestedMode === "reset") setMode("reset");
+      if (requestedEmail) setEmail(requestedEmail);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
