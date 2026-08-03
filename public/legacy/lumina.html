@@ -3919,7 +3919,49 @@ function explorerFormatBytes(n){const v=Number(n)||0;if(!v)return "–";if(v<102
 function explorerFileKind(doc){const n=(doc.name||"").toLowerCase();if(n.endsWith('.pdf'))return 'PDF';if(/\.(xlsx?|csv)$/.test(n))return 'XLS';if(/\.(docx?)$/.test(n))return 'DOC';if(/\.(png|jpe?g|gif|webp)$/.test(n))return 'IMG';return 'FILE';}
 async function explorerDownload(doc){try{if(doc.storagePath){showTopNote('Dokument wird geladen ...');const {data,error}=await luminaDb.storage.from(doc.storageBucket||'lumina-datarooms').download(doc.storagePath);if(error)throw error;const objectUrl=URL.createObjectURL(data),a=document.createElement('a');a.href=objectUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),30000);showTopNote('Dokument heruntergeladen.');return;}if(doc.dataUrl){const a=document.createElement('a');a.href=doc.dataUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();return;}if(doc.url){window.open(doc.url,'_blank','noopener');return;}showTopNote('Für diese Metadatei ist kein Dateiinhalt gespeichert.',true);}catch(error){showTopNote('Dokument konnte nicht geladen werden: '+(error.message||error),true);}}
 function explorerRemoveDocument(doc){if(doc.persisted){showTopNote('Das dauerhafte Löschen wird separat freigeschaltet. Das Dokument bleibt sicher in Supabase gespeichert.',true);return;}if(!confirm(`Dokument „${doc.name}“ entfernen?`))return;const list=doc._state.documents||[];const idx=list.findIndex(x=>x.id===doc.id);if(idx>=0)list.splice(idx,1);addActivity(doc._state,`Dokument entfernt: ${doc.name}`);renderTaskModal();}
-async function explorerAddDocument(st,row){const file=document.getElementById('explorer-file')?.files?.[0],url=(document.getElementById('explorer-url')?.value||'').trim(),name=(document.getElementById('explorer-name')?.value||'').trim(),comment=(document.getElementById('explorer-comment')?.value||'').trim(),folder=ensureExplorerFolder(st);if(!file&&!url){showTopNote('Bitte eine Datei auswählen oder einen Link eingeben.',true);return;}if(url&&!/^https?:\/\//i.test(url)){showTopNote('Bitte einen gültigen Link eingeben.',true);return;}if(!file){const doc={id:'link-'+Date.now().toString(36),name:name||url,size:0,mime:'link',url,comment,folderPath:folder.key,taskId:row[12],taskNumber:row[0]||'',taskTitle:row[3]||row[1]||'',uploadedAt:luminaNow(),version:1};st.documents.push(doc);addActivity(st,`Externer Link im Datenraum abgelegt: ${doc.name}`);renderTaskModal();return;}if(!st.remoteTaskId){showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true);return;}const button=document.getElementById('explorer-save-document');if(button){button.disabled=true;button.textContent='Wird hochgeladen ...';}let prepared=null;try{const {data,error}=await luminaDb.rpc('prepare_document_upload',{p_task_id:st.remoteTaskId,p_original_file_name:file.name,p_mime_type:file.type||'application/octet-stream',p_file_size:file.size,p_upload_comment:comment||null});if(error)throw error;prepared=Array.isArray(data)?data[0]:data;if(!prepared?.storage_path)throw new Error('Supabase hat keinen Speicherpfad geliefert.');const {error:uploadError}=await luminaDb.storage.from(prepared.storage_bucket||'lumina-datarooms').upload(prepared.storage_path,file,{contentType:file.type||'application/octet-stream',upsert:false});if(uploadError)throw uploadError;st.documents.push({id:prepared.document_id,remoteDocumentId:prepared.document_id,remoteVersionId:prepared.version_id,name:file.name,size:file.size,mime:file.type||'application/octet-stream',comment,folderPath:folder.key,taskId:row[12],taskNumber:row[0]||'',taskTitle:row[3]||row[1]||'',uploadedAt:luminaNow(),version:1,storageBucket:prepared.storage_bucket||'lumina-datarooms',storagePath:prepared.storage_path,persisted:true});st.workStatus='Eingereicht';addActivity(st,`Dokument dauerhaft in Supabase abgelegt: ${file.name}`);try{await saveLuminaTaskToSupabase(row,st);}catch(statusError){console.warn('Status konnte nicht gespeichert werden',statusError);}showTopNote('Dokument dauerhaft gespeichert.');renderTaskModal();}catch(error){if(prepared?.document_id)await luminaDb.rpc('cancel_document_upload',{p_document_id:prepared.document_id});showTopNote('Upload fehlgeschlagen: '+(error.message||error),true);if(button){button.disabled=false;button.textContent='Im Datenraum ablegen';}}}
+async function explorerAddDocument(st,row){
+  const file=document.getElementById('explorer-file')?.files?.[0],url=(document.getElementById('explorer-url')?.value||'').trim(),name=(document.getElementById('explorer-name')?.value||'').trim(),comment=(document.getElementById('explorer-comment')?.value||'').trim(),folder=ensureExplorerFolder(st);
+  if(!file&&!url){showTopNote('Bitte eine Datei auswählen oder einen Link eingeben.',true);return;}
+  if(url&&!/^https?:\/\//i.test(url)){showTopNote('Bitte einen gültigen Link eingeben.',true);return;}
+  if(!file){const doc={id:'link-'+Date.now().toString(36),name:name||url,size:0,mime:'link',url,comment,folderPath:folder.key,taskId:row[12],taskNumber:row[0]||'',taskTitle:row[3]||row[1]||'',uploadedAt:luminaNow(),version:1};st.documents.push(doc);addActivity(st,`Externer Link im Datenraum abgelegt: ${doc.name}`);renderTaskModal();return;}
+  if(!st.remoteTaskId){showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true);return;}
+  const button=document.getElementById('explorer-save-document');
+  if(button){button.disabled=true;button.textContent='Wird hochgeladen ...';}
+  let prepared=null;
+  let storageUploaded=false;
+  try{
+    const {data,error}=await luminaDb.rpc('prepare_document_upload',{p_task_id:st.remoteTaskId,p_original_file_name:file.name,p_mime_type:file.type||'application/octet-stream',p_file_size:file.size,p_upload_comment:comment||null});
+    if(error)throw error;
+    prepared=Array.isArray(data)?data[0]:data;
+    if(!prepared?.storage_path)throw new Error('Supabase hat keinen Speicherpfad geliefert.');
+    const {error:uploadError}=await luminaDb.storage.from(prepared.storage_bucket||'lumina-datarooms').upload(prepared.storage_path,file,{contentType:file.type||'application/octet-stream',upsert:false});
+    if(uploadError)throw uploadError;
+    storageUploaded=true;
+  }catch(error){
+    if(prepared?.document_id&&!storageUploaded){
+      try{await luminaDb.rpc('cancel_document_upload',{p_document_id:prepared.document_id});}catch(cancelError){console.warn('Fehlgeschlagenen Upload konnte nicht bereinigt werden',cancelError);}
+    }
+    showTopNote('Upload fehlgeschlagen: '+(error.message||error),true);
+    if(button){button.disabled=false;button.textContent='Im Datenraum ablegen';}
+    return;
+  }
+
+  const persistedDocument={id:prepared.document_id,remoteDocumentId:prepared.document_id,remoteVersionId:prepared.version_id,name:file.name,size:file.size,mime:file.type||'application/octet-stream',comment,folderPath:folder.key,taskId:row[12],taskNumber:row[0]||'',taskTitle:row[3]||row[1]||'',uploadedAt:luminaNow(),version:1,storageBucket:prepared.storage_bucket||'lumina-datarooms',storagePath:prepared.storage_path,persisted:true};
+  st.documents=Array.isArray(st.documents)?st.documents:[];
+  if(!st.documents.some(document=>document.id===persistedDocument.id))st.documents.push(persistedDocument);
+  st.workStatus='Eingereicht';
+  addActivity(st,`Dokument dauerhaft in Supabase abgelegt: ${file.name}`);
+  try{await saveLuminaTaskToSupabase(row,st);}catch(statusError){console.warn('Status konnte nicht gespeichert werden',statusError);}
+  try{
+    const {data:verified,error:verifyError}=await luminaDb.from('documents').select('id,document_versions(id,storage_path)').eq('id',prepared.document_id).single();
+    if(verifyError||!verified?.document_versions?.length)throw verifyError||new Error('Dokumentversion ist noch nicht lesbar.');
+    showTopNote('Dokument dauerhaft gespeichert und geprüft.');
+  }catch(verifyError){
+    console.warn('Upload ist gespeichert, konnte aber noch nicht erneut geprüft werden',verifyError);
+    showTopNote('Die Datei wurde gespeichert. Die erneute Prüfung folgt beim nächsten Laden.',true);
+  }
+  try{renderTaskModal();}catch(renderError){console.error('Datenraum konnte nach dem Upload nicht neu dargestellt werden',renderError);}
+}
 
 function getNodeAtPath(nodes,path){let list=nodes,node=null;for(const idx of path){node=list?.[idx];if(node==null)return null;list=explorerNodeChildren(node);}return node;}
 let explorerExpandedFolders=new Set();
