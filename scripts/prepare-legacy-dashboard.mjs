@@ -137,6 +137,19 @@ html = html.replace(
 );
 
 
+// Approval actions are persisted exclusively by act_task_approval. The generic
+// task-state RPC is intentionally not called from the approval tab, because an
+// approver may be allowed to approve without being allowed to edit task fields.
+html = html.replace(
+  "  document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});\n  if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(String(row[0]||'')==='82')loadTaskApproval(st).catch(console.warn);if(taskActiveTab==='review')loadTaskAiInteractions(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);if(taskActiveTab==='approval')bindTaskApproval(st);}",
+  "  document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});\n  const modalSaveButton=document.getElementById('task-modal-save');\n  if(modalSaveButton){\n    const approvalOnlyView=!activeTaskContext.globalRoom&&taskActiveTab==='approval';\n    modalSaveButton.style.display=approvalOnlyView?'none':'inline-flex';\n  }\n  if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(String(row[0]||'')==='82')loadTaskApproval(st).catch(console.warn);if(taskActiveTab==='review')loadTaskAiInteractions(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);if(taskActiveTab==='approval')bindTaskApproval(st);}",
+);
+html = html.replace(
+  "document.getElementById(\"task-modal-save\").addEventListener(\"click\", async () => { const button=document.getElementById('task-modal-save');button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById(\"task-internal-comment\"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,\"Aufgabe in Supabase gespeichert\"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });",
+  "document.getElementById(\"task-modal-save\").addEventListener(\"click\", async () => { const button=document.getElementById('task-modal-save');if(taskActiveTab==='approval'){closeTaskModal();render();return;}button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById(\"task-internal-comment\"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,\"Aufgabe in Supabase gespeichert\"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });",
+);
+
+
 // Keep the embedded dashboard on an access-token-only client. The refresh token
 // remains in the parent Next.js application and is never exposed to legacy code.
 html = html.replace(
