@@ -905,7 +905,7 @@
     <div class="lumina-auth-brand"><div class="brand-icon"></div><div><h2>LUMINA</h2><p>Abschluss-Cockpit</p></div></div>
     <p>Melden Sie sich mit Ihrem freigeschalteten Konto an.</p>
     <form class="lumina-auth-form" id="lumina-auth-form">
-      <label>E-Mail<input id="lumina-auth-email" type="email" autocomplete="username" required value="admin@volkerkusch.de"></label>
+      <label>E-Mail<input id="lumina-auth-email" type="email" autocomplete="username" required></label>
       <label>Passwort<input id="lumina-auth-password" type="password" autocomplete="current-password" required></label>
       <div class="lumina-auth-error" id="lumina-auth-error" role="alert"></div>
       <button class="lumina-auth-submit" id="lumina-auth-submit" type="submit">Anmelden</button>
@@ -4242,6 +4242,9 @@ function setLuminaAuthError(message){document.getElementById('lumina-auth-error'
 function setLuminaSyncState(message,isError=false){const el=document.getElementById('lumina-sync-state');if(!el)return;el.textContent=message;el.style.color=isError?'#b42318':'';}
 function luminaPbcRows(){const sub=getPbcSub();return sub&&sub.data&&Array.isArray(sub.data.rows)?{sub,rows:sub.data.rows}:null;}
 
+let currentLuminaProjectId='';
+let currentLuminaCanNotifyAll=false;
+
 async function loadLuminaFromSupabase(){
   setLuminaSyncState('Daten werden geladen ...');
   const [{data:projects,error:projectError},{data:tasks,error:taskError},{data:roles,error:roleError},{data:sourceStates,error:sourceError},{data:documents,error:documentError}]=await Promise.all([
@@ -4256,6 +4259,12 @@ async function loadLuminaFromSupabase(){
   if(!sourceStates||!sourceStates.length||!Array.isArray(sourceStates[0].state))throw new Error('Der geschützte LUMINA-Projektstand fehlt.');
   stations.splice(0,stations.length,...sourceStates[0].state);
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
+  currentLuminaProjectId=project.id;
+  const {data:{user:currentUser}}=await luminaDb.auth.getUser();
+  const {data:adminMembership,error:adminMembershipError}=currentUser?await luminaDb.from('project_members').select('security_role').eq('project_id',project.id).eq('user_id',currentUser.id).eq('active',true).in('security_role',['owner','manager']).maybeSingle():{data:null,error:null};
+  if(adminMembershipError)console.warn('Projektberechtigung für Sammelversand konnte nicht geprüft werden',adminMembershipError);
+  currentLuminaCanNotifyAll=Boolean(adminMembership);
+  document.getElementById('btn-notify-all').style.display=currentLuminaCanNotifyAll?'inline-flex':'none';
   const master=findFirstSubOfType('form');
   const masterSub=stations.flatMap(s=>s.measures||[]).flatMap(m=>m.subitems||[]).find(sub=>Array.isArray(sub.fields)&&sub.fields.some(field=>field.key==='firmierung'));
   if(masterSub){masterSub.data=masterSub.data||{};masterSub.data.firmierung=companyName;if(project.reporting_date)masterSub.data.stichtag=project.reporting_date;}
@@ -4325,14 +4334,15 @@ async function renderMyDay(){
 }
 let adminDigestPreview=null;
 async function renderAdminDigestPreview(){
+  if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}
   digestOpen('Alle benachrichtigen','Rollenweise Sammel-E-Mails · nach Fälligkeit sortiert');const content=document.getElementById('digest-modal-content'),send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');content.innerHTML='<div class="digest-empty">Vorschau wird geladen …</div>';send.style.display='none';
-  try{const response=await fetch('/api/notifications/role-digests',{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Vorschau konnte nicht geladen werden.');adminDigestPreview=payload;const taskCount=payload.digests.reduce((sum,digest)=>sum+digest.tasks.length,0);content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${payload.digests.length} Empfänger</span><span class="digest-chip">${taskCount} offene Aufgaben</span></div>${payload.digests.map(digest=>`<section class="digest-role-group"><div class="digest-group-title"><span>${luminaEsc(digest.recipientName)} · ${luminaEsc(digest.role)}</span><span class="digest-group-meta">${luminaEsc(digest.email)} · ${digest.tasks.length} Aufgaben</span></div>${digest.tasks.map(task=>`<div class="digest-task"><strong>${luminaEsc(task.number)}</strong><div><div class="digest-task-title">${luminaEsc(task.title)}</div><div class="digest-task-sub">${luminaEsc(task.requiredDocuments)}</div></div><div>${luminaEsc(task.dueDate?formatDateDE(task.dueDate):'ohne Termin')}</div><a href="${luminaEsc(task.link)}" target="_blank" rel="noopener">Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`;status.textContent=payload.smtpConfigured?'Versand ist eingerichtet. Bitte prüfen Sie die Vorschau vor dem Senden.':'Vorschau bereit. Der IONOS-Versand muss in Vercel noch eingerichtet werden.';send.style.display='inline-flex';send.disabled=!payload.smtpConfigured;}catch(error){content.innerHTML=`<div class="digest-empty">${luminaEsc(error.message||'Vorschau konnte nicht geladen werden.')}</div>`;status.textContent='';}
+  try{const response=await fetch(`/api/notifications/role-digests?projectId=${encodeURIComponent(currentLuminaProjectId)}`,{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Vorschau konnte nicht geladen werden.');adminDigestPreview=payload;const taskCount=payload.digests.reduce((sum,digest)=>sum+digest.tasks.length,0);content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${payload.digests.length} Empfänger</span><span class="digest-chip">${taskCount} offene Aufgaben</span></div>${payload.digests.map(digest=>`<section class="digest-role-group"><div class="digest-group-title"><span>${luminaEsc(digest.recipientName)} · ${luminaEsc(digest.role)}</span><span class="digest-group-meta">${luminaEsc(digest.email)} · ${digest.tasks.length} Aufgaben</span></div>${digest.tasks.map(task=>`<div class="digest-task"><strong>${luminaEsc(task.number)}</strong><div><div class="digest-task-title">${luminaEsc(task.title)}</div><div class="digest-task-sub">${luminaEsc(task.requiredDocuments)}</div></div><div>${luminaEsc(task.dueDate?formatDateDE(task.dueDate):'ohne Termin')}</div><a href="${luminaEsc(task.link)}" target="_blank" rel="noopener">Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`;status.textContent=payload.smtpConfigured?'Versand ist eingerichtet. Bitte prüfen Sie die Vorschau vor dem Senden.':'Vorschau bereit. Der IONOS-Versand muss in Vercel noch eingerichtet werden.';send.style.display='inline-flex';send.disabled=!payload.smtpConfigured;}catch(error){content.innerHTML=`<div class="digest-empty">${luminaEsc(error.message||'Vorschau konnte nicht geladen werden.')}</div>`;status.textContent='';}
 }
-async function sendAdminDigests(){if(!adminDigestPreview||!confirm(`Jetzt ${adminDigestPreview.digests.length} rollenbezogene E-Mails versenden?`))return;const send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');send.disabled=true;send.textContent='E-Mails werden gesendet …';status.textContent='Bitte warten. Das Fenster nicht schließen.';try{const response=await fetch('/api/notifications/role-digests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true})}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Versand fehlgeschlagen.');status.textContent=`${payload.sent.length} E-Mails wurden erfolgreich versendet.`;send.style.display='none';}catch(error){status.textContent=error.message||'Versand fehlgeschlagen.';send.disabled=false;}finally{send.textContent='Jetzt an alle senden';}}
+async function sendAdminDigests(){if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}if(!adminDigestPreview||!confirm(`Jetzt ${adminDigestPreview.digests.length} rollenbezogene E-Mails versenden?`))return;const send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');send.disabled=true;send.textContent='E-Mails werden gesendet …';status.textContent='Bitte warten. Das Fenster nicht schließen.';try{const response=await fetch('/api/notifications/role-digests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true,projectId:currentLuminaProjectId})}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Versand fehlgeschlagen.');status.textContent=`${payload.sent.length} E-Mails wurden erfolgreich versendet.`;send.style.display='none';}catch(error){status.textContent=error.message||'Versand fehlgeschlagen.';send.disabled=false;}finally{send.textContent='Jetzt an alle senden';}}
 
 async function startLuminaForSession(session){
   document.getElementById('lumina-session-email').textContent=session.user.email||'';
-  document.getElementById('btn-notify-all').style.display=session.user.email?.toLowerCase()==='admin@volkerkusch.de'?'inline-flex':'none';
+  document.getElementById('btn-notify-all').style.display='none';
   await loadLuminaFromSupabase();
   document.body.classList.add('lumina-authenticated');
   render();

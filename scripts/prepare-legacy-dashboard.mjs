@@ -77,6 +77,44 @@ html = html.replace(
   "document.getElementById('lumina-signout').addEventListener('click',async()=>{if(window.parent!==window){window.parent.postMessage({type:'lumina-signout'},location.origin);return;}await luminaDb.auth.signOut();location.reload();});",
 );
 
+
+// Keep the project-scoped notification authorization when regenerating the legacy dashboard.
+html = html.replace('required value="admin@volkerkusch.de"', 'required');
+html = html.replace(
+  "async function loadLuminaFromSupabase(){",
+  "let currentLuminaProjectId='';\\nlet currentLuminaCanNotifyAll=false;\\n\\nasync function loadLuminaFromSupabase(){",
+);
+html = html.replace(
+  "  const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';",
+  `  const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
+  currentLuminaProjectId=project.id;
+  const {data:{user:currentUser}}=await luminaDb.auth.getUser();
+  const {data:adminMembership,error:adminMembershipError}=currentUser?await luminaDb.from('project_members').select('security_role').eq('project_id',project.id).eq('user_id',currentUser.id).eq('active',true).in('security_role',['owner','manager']).maybeSingle():{data:null,error:null};
+  if(adminMembershipError)console.warn('Projektberechtigung für Sammelversand konnte nicht geprüft werden',adminMembershipError);
+  currentLuminaCanNotifyAll=Boolean(adminMembership);
+  document.getElementById('btn-notify-all').style.display=currentLuminaCanNotifyAll?'inline-flex':'none';`,
+);
+html = html.replace(
+  "fetch('/api/notifications/role-digests',{cache:'no-store'})",
+  "fetch(`/api/notifications/role-digests?projectId=${encodeURIComponent(currentLuminaProjectId)}`,{cache:'no-store'})",
+);
+html = html.replace(
+  "body:JSON.stringify({confirmed:true})",
+  "body:JSON.stringify({confirmed:true,projectId:currentLuminaProjectId})",
+);
+html = html.replace(
+  "  document.getElementById('btn-notify-all').style.display=session.user.email?.toLowerCase()==='admin@volkerkusch.de'?'inline-flex':'none';",
+  "  document.getElementById('btn-notify-all').style.display='none';",
+);
+html = html.replace(
+  "async function renderAdminDigestPreview(){\\n  digestOpen",
+  "async function renderAdminDigestPreview(){\\n  if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}\\n  digestOpen",
+);
+html = html.replace(
+  "async function sendAdminDigests(){if(!adminDigestPreview",
+  "async function sendAdminDigests(){if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}if(!adminDigestPreview",
+);
+
 const bridge = `
 window.addEventListener('message',async event=>{
   if(event.origin!==location.origin||event.data?.type!=='lumina-session')return;
