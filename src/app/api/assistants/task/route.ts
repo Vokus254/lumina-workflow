@@ -7,7 +7,9 @@ export const maxDuration = 60;
 type AssistantKey = "KAI" | "KIRA";
 type FileContent = { type: "input_file"; filename: string; file_data: string };
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-5.6";
+// Keep this latency-sensitive route below Vercel's 60 second function limit.
+const MODEL = process.env.OPENAI_ASSISTANT_MODEL || "gpt-5.6-terra";
+const OPENAI_TIMEOUT_MS = 48_000;
 const MAX_FILES = 3;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
@@ -139,23 +141,40 @@ export async function POST(request: Request) {
     `Fälligkeit: ${task.due_date_override || task.due_date || "nicht angegeben"}\nArbeitsstatus: ${task.work_status}\nPrüfstatus: ${task.review_status}`,
     `ARBEITSANLEITUNG\n${JSON.stringify(guide.guide || {})}\nSchritte: ${JSON.stringify(guide.steps || [])}`,
     analyzedDocuments.length ? `Zur Analyse beigefügte Dateien: ${analyzedDocuments.join(", ")}` : "Es konnte keine unterstützte aktuelle Datei beigefügt werden.",
-    history?.length ? `Bisheriger KAI/KIRA-Verlauf (nur Kontext):\n${history.map((entry) => `${entry.assistant_key}: ${entry.response_text}`).join("\n\n")}` : "Noch kein KAI/KIRA-Verlauf.",
+    history?.length ? `Bisheriger KAI/KIRA-Verlauf (nur Kontext):\n${history.map((entry) => `${entry.assistant_key}: ${String(entry.response_text || "").slice(0, 1400)}`).join("\n\n")}` : "Noch kein KAI/KIRA-Verlauf.",
     `ANFRAGE DES BENUTZERS\n${question}`,
   ].join("\n\n");
 
-  const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      store: false,
-      reasoning: { effort: "medium" },
-      input: [
-        { role: "developer", content: [{ type: "input_text", text: assistantInstruction(assistant) }] },
-        { role: "user", content: [...fileContent, { type: "input_text", text: context }] },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+  const startedAt = Date.now();
+  let openAiResponse: Response;
+  try {
+    openAiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: MODEL,
+        store: false,
+        max_output_tokens: 2200,
+        reasoning: { effort: "low" },
+        input: [
+          { role: "developer", content: [{ type: "input_text", text: assistantInstruction(assistant) }] },
+          { role: "user", content: [...fileContent, { type: "input_text", text: context }] },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn("LUMINA assistant timed out", { assistant, model: MODEL, durationMs: Date.now() - startedAt });
+      return jsonError("Die Analyse hat diesmal zu lange gedauert. Bitte starten Sie sie erneut – Ihre Datei bleibt erhalten.", 504);
+    }
+    console.error("LUMINA assistant request failed", error);
+    return jsonError("KAI/KIRA konnte den Analysedienst gerade nicht erreichen. Bitte versuchen Sie es erneut.", 502);
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await openAiResponse.json();
   if (!openAiResponse.ok) {
     console.error("OpenAI assistant error", openAiResponse.status, payload);
