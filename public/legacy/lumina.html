@@ -1137,7 +1137,7 @@ function renderGrid(){
       tile.className = "tile" + (complete ? " is-complete" : "");
       tile.innerHTML = `
         <span class="tile-num">${complete ? "✓" : String(i+1).padStart(2,"0")}</span>
-        <span class="tile-title">${s.title}</span>
+        <span class="tile-title">${luminaEsc(s.title)}</span>
         <div class="tile-bottom">
           <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
           <span class="tile-frac">${d}/${s.measures.length}</span>
@@ -1158,7 +1158,7 @@ function renderGrid(){
       tile.className = "tile" + (complete ? " is-complete" : "");
       tile.innerHTML = `
         <span class="tile-num">${complete ? "✓" : String(j+1).padStart(2,"0")}</span>
-        <span class="tile-title">${m.title}</span>
+        <span class="tile-title">${luminaEsc(m.title)}</span>
         <div class="tile-bottom">
           <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
           <span class="tile-frac">${d}/${m.subitems.length}</span>
@@ -1183,26 +1183,26 @@ function renderGrid(){
       const tile = document.createElement("button");
       tile.className = "tile tile-leaf" + (sub.done ? " is-complete" : "");
       tile.innerHTML = sub.fields
-        ? `<span class="tile-form-badge">Formular</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Formular</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "roles"
-        ? `<span class="tile-form-badge">Rollen</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Rollen</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "tree"
-        ? `<span class="tile-form-badge">Struktur</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Struktur</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "table"
-        ? `<span class="tile-form-badge">Tabelle</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Tabelle</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "import"
-        ? `<span class="tile-form-badge">Import</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Import</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "mapping"
-        ? `<span class="tile-form-badge">Mapping</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Mapping</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "pbc"
-        ? `<span class="tile-form-badge">Liste</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Liste</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "kontenmapping"
-        ? `<span class="tile-form-badge">Zuordnung</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Zuordnung</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "statement"
-        ? `<span class="tile-form-badge">Auswertung</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Auswertung</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
         : sub.type === "milestones"
-        ? `<span class="tile-form-badge">Zeitplan</span><span class="tile-title">${sub.text}</span>`
-        : `<span class="tile-check"></span><span class="tile-title">${sub.text}</span>`;
+        ? `<span class="tile-form-badge">Zeitplan</span><span class="tile-title">${luminaEsc(sub.text)}</span>`
+        : `<span class="tile-check"></span><span class="tile-title">${luminaEsc(sub.text)}</span>`;
       tile.addEventListener("click", () => {
         if(sub.fields){
           view = { level: "form", station: view.station, measure: view.measure, sub: k };
@@ -1263,16 +1263,16 @@ function renderForm(){
     const val = sub.data[f.key] || "";
     if(f.type === "select"){
       wrap.innerHTML = `
-        <label>${f.label}</label>
-        <select data-key="${f.key}">
+        <label>${luminaEsc(f.label)}</label>
+        <select data-key="${luminaEsc(f.key)}">
           <option value="" ${val === "" ? "selected" : ""}>Bitte wählen …</option>
-          ${f.options.map(o => `<option value="${o}" ${val === o ? "selected" : ""}>${o}</option>`).join("")}
+          ${f.options.map(o => `<option value="${luminaEsc(o)}" ${val === o ? "selected" : ""}>${luminaEsc(o)}</option>`).join("")}
         </select>
       `;
     } else {
       wrap.innerHTML = `
-        <label>${f.label}</label>
-        <input type="${f.type}" data-key="${f.key}" placeholder="${f.placeholder || ""}" value="${val}">
+        <label>${luminaEsc(f.label)}</label>
+        <input type="${f.type}" data-key="${luminaEsc(f.key)}" placeholder="${luminaEsc(f.placeholder || "")}" value="${luminaEsc(val)}">
       `;
     }
     fg.appendChild(wrap);
@@ -1319,7 +1319,7 @@ function renderRoles(){
           ${columnDefs.map(c => `
             <label class="pbc-columns-item">
               <input type="checkbox" data-col="${c.key}" ${sub.data.hiddenColumns.has(c.key) ? "" : "checked"}>
-              ${c.label}
+              ${luminaEsc(c.label)}
             </label>
           `).join("")}
         </div>
@@ -1329,7 +1329,7 @@ function renderRoles(){
           <colgroup>
             ${visibleDefs.map(c => `<col data-colkey="${c.key}" style="width:${widthOf(c.key)}px;">`).join("")}
           </colgroup>
-          <thead><tr>${visibleDefs.map(c => `<th><span class="th-label">${c.label}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}<th class="col-del"></th></tr></thead>
+          <thead><tr>${visibleDefs.map(c => `<th><span class="th-label">${luminaEsc(c.label)}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}<th class="col-del"></th></tr></thead>
           <tbody id="roles-body"></tbody>
         </table>
       </div>
@@ -1626,8 +1626,8 @@ function renderTree(){
 function buildAspiegelRows(rows){
   return rows.map(r => {
     const cls = r.section ? "section" : r.total ? "total" : r.subtotal ? "subtotal" : "";
-    const cells = (r.values || []).map(v => `<td>${v}</td>`).join("");
-    return `<tr class="${cls}"><td>${r.label}</td>${r.values ? cells : ""}</tr>`;
+    const cells = (r.values || []).map(v => `<td>${luminaEsc(v)}</td>`).join("");
+    return `<tr class="${cls}"><td>${luminaEsc(r.label)}</td>${r.values ? cells : ""}</tr>`;
   }).join("");
 }
 
@@ -1637,11 +1637,11 @@ function renderTable(){
   const container = document.getElementById("form-container");
 
   let html = `<div class="table-card">`;
-  if(d.caption) html += `<div class="table-caption">${d.caption}</div>`;
+  if(d.caption) html += `<div class="table-caption">${luminaEsc(d.caption)}</div>`;
   html += `
     <div class="aspiegel-wrap">
       <table class="aspiegel-table">
-        <thead><tr>${d.columns.map(c => `<th>${c}</th>`).join("")}</tr></thead>
+        <thead><tr>${d.columns.map(c => `<th>${luminaEsc(c)}</th>`).join("")}</tr></thead>
         <tbody>${buildAspiegelRows(d.rows)}</tbody>
       </table>
     </div>
@@ -1651,14 +1651,14 @@ function renderTable(){
     const rec = d.reconciliation;
     html += `
       <div class="recon-block">
-        <div class="recon-heading">${rec.heading}</div>
+        <div class="recon-heading">${luminaEsc(rec.heading)}</div>
         <div class="aspiegel-wrap">
           <table class="aspiegel-table">
-            <thead><tr>${d.columns.map(c => `<th>${c}</th>`).join("")}</tr></thead>
+            <thead><tr>${d.columns.map(c => `<th>${luminaEsc(c)}</th>`).join("")}</tr></thead>
             <tbody>${buildAspiegelRows(rec.rows)}</tbody>
           </table>
         </div>
-        <ul class="recon-notes">${rec.notes.map(n => `<li>${n}</li>`).join("")}</ul>
+        <ul class="recon-notes">${rec.notes.map(n => `<li>${luminaEsc(n)}</li>`).join("")}</ul>
       </div>
     `;
   }
@@ -1702,7 +1702,7 @@ function renderImportDropzone(sub){
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       </div>
       <div class="hint">Excel-Datei (.xlsx) im TFS-SuSa-Format hochladen. Erwartete Spalten:</div>
-      <div class="cols">${sub.data.expectedColumns.join(" · ")}</div>
+      <div class="cols">${sub.data.expectedColumns.map(luminaEsc).join(" · ")}</div>
       <label class="btn-choose-file" for="import-file-input">Datei auswählen</label>
       <input type="file" id="import-file-input" accept=".xlsx,.xls" style="display:none;">
     </div>
@@ -1758,26 +1758,26 @@ function renderImport(){
       <div class="import-summary">
         <span class="import-badge ${headersMatch ? "ok" : "warn"}">${headersMatch ? "Spalten erkannt" : "Spalten weichen ab"}</span>
         <span class="import-badge ok">${imp.rowCount} Konten importiert</span>
-        <span class="import-filename">Datei: <strong>${imp.fileName}</strong> · Blatt „${imp.sheetName}"</span>
+        <span class="import-filename">Datei: <strong>${luminaEsc(imp.fileName)}</strong> · Blatt „${luminaEsc(imp.sheetName)}"</span>
       </div>
       <div class="import-table-wrap">
         <table class="import-table">
           <colgroup>
             <col class="col-konto"><col class="col-bez"><col class="col-num"><col class="col-num">
           </colgroup>
-          <thead><tr>${imp.headers.map((h, i) => `<th class="${i >= 2 ? "num" : ""}">${h}</th>`).join("")}</tr></thead>
+          <thead><tr>${imp.headers.map((h, i) => `<th class="${i >= 2 ? "num" : ""}">${luminaEsc(h)}</th>`).join("")}</tr></thead>
           <tbody>
             ${previewRows.map(r => `<tr>${imp.headers.map((_, i) => {
               const raw = r[i] !== undefined ? r[i] : "";
               const isNum = i >= 2;
               const num = isNum ? parseFloat(raw) : NaN;
               const display = isNum && !isNaN(num) ? fmt(num) : raw;
-              return `<td class="${isNum ? "num" : ""}" title="${raw}">${display}</td>`;
+              return `<td class="${isNum ? "num" : ""}" title="${luminaEsc(raw)}">${luminaEsc(display)}</td>`;
             }).join("")}</tr>`).join("")}
           </tbody>
         </table>
       </div>
-      <div class="import-more-note">Summe Spalte 3 (${imp.headers[2] || ""}): ${fmt(sum2)} über ${numeric2} numerische Werte · Summe Spalte 4 (${imp.headers[3] || ""}): ${fmt(sum3)} über ${numeric3} numerische Werte.</div>
+      <div class="import-more-note">Summe Spalte 3 (${luminaEsc(imp.headers[2] || "")}): ${fmt(sum2)} über ${numeric2} numerische Werte · Summe Spalte 4 (${luminaEsc(imp.headers[3] || "")}): ${fmt(sum3)} über ${numeric3} numerische Werte.</div>
       <div class="form-actions" style="margin-top:22px;">
         <button class="btn-save" id="btn-save-import">Speichern</button>
         <button class="btn-secondary" id="btn-reimport">Andere Datei wählen</button>
@@ -1829,8 +1829,8 @@ function renderMappingTreeNode(node, path, depth, container, expandedSet, rows){
   const zielschluessel = node.rowIndices.map(i => rows[i][7]).filter(v => v && v !== "(Leer)");
   row.innerHTML = `
     <span class="tree-chevron${hasChildren ? "" : " spacer"}">${pbcChevronSvg()}</span>
-    <span class="tree-name">${node.label}</span>
-    ${zielschluessel.length ? `<span class="mapping-leaf-tag">${zielschluessel.join(", ")}</span>` : ""}
+    <span class="tree-name">${luminaEsc(node.label)}</span>
+    ${zielschluessel.length ? `<span class="mapping-leaf-tag">${zielschluessel.map(luminaEsc).join(", ")}</span>` : ""}
   `;
   container.appendChild(row);
 
@@ -1988,7 +1988,7 @@ function renderMapping(){
           ${visibleIdx.map(i => `<col data-colkey="${i}" style="width:${widthOf(i)}px;">`).join("")}
         </colgroup>
         <thead>
-          <tr>${visibleIdx.map(i => `<th><span class="th-label">${d.columns[i]}</span><span class="col-resize-handle" data-colkey="${i}"></span></th>`).join("")}<th class="col-del"></th></tr>
+          <tr>${visibleIdx.map(i => `<th><span class="th-label">${luminaEsc(d.columns[i])}</span><span class="col-resize-handle" data-colkey="${i}"></span></th>`).join("")}<th class="col-del"></th></tr>
         </thead>
         <tbody id="mapping-body"></tbody>
       </table>
@@ -2471,7 +2471,7 @@ function renderPbcTable(sub, visible){
         ${columnDefs.map(c => `
           <label class="pbc-columns-item">
             <input type="checkbox" data-col="${c.key}" ${d.hiddenColumns.has(c.key) ? "" : "checked"}>
-            ${c.label}
+            ${luminaEsc(c.label)}
           </label>
         `).join("")}
       </div>
@@ -2481,7 +2481,7 @@ function renderPbcTable(sub, visible){
         <colgroup>
           ${visibleDefs.map(c => `<col data-colkey="${c.key}" style="width:${widthOf(c.key)}px;">`).join("")}
         </colgroup>
-        <thead><tr>${visibleDefs.map(c => `<th><span class="th-label">${c.label}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}<th class="col-del"></th></tr></thead>
+        <thead><tr>${visibleDefs.map(c => `<th><span class="th-label">${luminaEsc(c.label)}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}<th class="col-del"></th></tr></thead>
         <tbody id="pbc-body"></tbody>
       </table>
     </div>
@@ -2561,7 +2561,7 @@ function renderPbcTable(sub, visible){
     const roleNames = roles.map(r => r.role);
     const current = row[4] || "";
     const options = current && !roleNames.includes(current) ? [current, ...roleNames] : roleNames;
-    sel.innerHTML = `<option value="">–</option>` + options.map(o => `<option value="${o}" ${current === o ? "selected" : ""}>${o}</option>`).join("");
+    sel.innerHTML = `<option value="">–</option>` + options.map(o => `<option value="${luminaEsc(o)}" ${current === o ? "selected" : ""}>${luminaEsc(o)}</option>`).join("");
     const nameSpan = document.createElement("span");
     nameSpan.className = "pbc-abt-name";
     const updateName = () => {
@@ -2913,7 +2913,7 @@ function renderKontenMapping(){
           ${kmColumnDefs.map(c => `
             <label class="pbc-columns-item">
               <input type="checkbox" data-col="${c.key}" ${sub.data.hiddenColumns.has(c.key) ? "" : "checked"}>
-              ${c.label}
+              ${luminaEsc(c.label)}
             </label>
           `).join("")}
         </div>
@@ -2921,7 +2921,7 @@ function renderKontenMapping(){
       <div class="km-wrap" id="km-wrap">
         <table class="km-table pbc-table-resizable">
           <colgroup>${kmVisibleDefs.map(c => `<col data-colkey="${c.key}" style="width:${kmWidthOf(c.key)}px;">`).join("")}</colgroup>
-          <thead><tr>${kmVisibleDefs.map(c => `<th><span class="th-label">${c.label}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}</tr></thead>
+          <thead><tr>${kmVisibleDefs.map(c => `<th><span class="th-label">${luminaEsc(c.label)}</span><span class="col-resize-handle" data-colkey="${c.key}"></span></th>`).join("")}</tr></thead>
           <tbody id="km-body"></tbody>
         </table>
       </div>
@@ -3179,7 +3179,7 @@ function renderStatementNode(node, path, depth, container, expandedSet){
       <span class="stmt-chevron${hasContent ? "" : " spacer"}">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
       </span>
-      <span class="tree-name">${node.label}</span>
+      <span class="tree-name">${luminaEsc(node.label)}</span>
     </span>
     <span class="stmt-num">${kmFormatNum(node.sumBerichtsjahr)}</span>
     <span class="stmt-num">${kmFormatNum(node.sumVorjahr)}</span>
@@ -3496,14 +3496,14 @@ function renderMilestones(){
           ${columnDefs.map(c => `
             <label class="pbc-columns-item">
               <input type="checkbox" data-col="${c.key}" ${sub.data.hiddenColumns.has(c.key) ? "" : "checked"}>
-              ${c.label}
+              ${luminaEsc(c.label)}
             </label>
           `).join("")}
         </div>
       </div>
       <div class="ms-scroll-wrap">
         <div class="ms-head-row" style="grid-template-columns:${gridTemplate};">
-          ${visibleDefs.map(c => `<span>${c.label}<span class="ms-resize-handle" data-colkey="${c.key}"></span></span>`).join("")}<span></span>
+          ${visibleDefs.map(c => `<span>${luminaEsc(c.label)}<span class="ms-resize-handle" data-colkey="${c.key}"></span></span>`).join("")}<span></span>
         </div>
         <div id="ms-list"></div>
       </div>
@@ -3588,7 +3588,7 @@ function renderMilestones(){
     if(has("date")) html += `<input type="date" data-role="date" value="${m.date || ""}">`;
     if(has("weekday")) html += `<span class="weekday-badge${wd && isWeekendISO(m.date) ? " is-weekend" : ""}" style="${wd ? "" : "visibility:hidden;"}">${wd || "–"}</span>`;
     if(has("toffset")) html += `<input type="number" data-role="toffset" class="t-offset-input" value="${tVal === "" ? "" : tVal}" placeholder="${stichtag ? "" : "kein Stichtag"}" ${stichtag ? "" : "disabled"}>`;
-    if(has("abteilung")) html += `<select data-role="abteilung"><option value="">–</option>${options.map(o => `<option value="${o}" ${m.abteilung === o ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+    if(has("abteilung")) html += `<select data-role="abteilung"><option value="">–</option>${options.map(o => `<option value="${luminaEsc(o)}" ${m.abteilung === o ? "selected" : ""}>${luminaEsc(o)}</option>`).join("")}</select>`;
     if(has("zustaendig")) html += `<span class="pbc-abt-name ${resolveRoleName(m.abteilung) ? "" : "is-empty"}">${resolveRoleName(m.abteilung) || "– kein Name –"}</span>`;
     if(has("status")) html += `<span class="ms-status ${st.cls}">${st.label}</span>`;
     if(has("fertig")) html += `<input type="checkbox" class="ms-done-check" data-role="done" ${m.done ? "checked" : ""}>`;
@@ -3877,6 +3877,7 @@ let activeCommunicationReply=null,activeCommunicationMessageId=null;
 
 function luminaNow(){ return new Date().toISOString(); }
 function luminaEsc(v){ return String(v ?? "").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function luminaSafeUrl(value,{allowMailto=false}={}){try{const raw=String(value??'').trim();if(!raw)return '#';if(allowMailto&&raw.toLowerCase().startsWith('mailto:'))return raw;const url=new URL(raw,location.origin);if(url.protocol!=='https:'&&url.protocol!=='http:')return '#';return url.href;}catch{return '#';}}
 function luminaId(){ return "task-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,9); }
 function ensureTaskState(d,row,ri){
   if(!row[12]) row[12]=luminaId();
@@ -3923,7 +3924,7 @@ function allExplorerDocuments(){const sub=getPbcSub(),out=[];if(!sub)return out;
 function explorerDocsInFolder(key,taskId){return allExplorerDocuments().filter(d=>d.folderPath===key&&String(d._taskId||d.taskId||'')===String(taskId||''));}
 function explorerFormatBytes(n){const v=Number(n)||0;if(!v)return "–";if(v<1024)return v+" B";if(v<1048576)return (v/1024).toFixed(1)+" KB";return (v/1048576).toFixed(1)+" MB";}
 function explorerFileKind(doc){const n=(doc.name||"").toLowerCase();if(n.endsWith('.pdf'))return 'PDF';if(/\.(xlsx?|csv)$/.test(n))return 'XLS';if(/\.(docx?)$/.test(n))return 'DOC';if(/\.(png|jpe?g|gif|webp)$/.test(n))return 'IMG';return 'FILE';}
-async function explorerDownload(doc){try{if(doc.storagePath){showTopNote('Dokument wird geladen ...');const {data,error}=await luminaDb.storage.from(doc.storageBucket||'lumina-datarooms').download(doc.storagePath);if(error)throw error;const objectUrl=URL.createObjectURL(data),a=document.createElement('a');a.href=objectUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),30000);showTopNote('Dokument heruntergeladen.');return;}if(doc.dataUrl){const a=document.createElement('a');a.href=doc.dataUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();return;}if(doc.url){window.open(doc.url,'_blank','noopener');return;}showTopNote('Für diese Metadatei ist kein Dateiinhalt gespeichert.',true);}catch(error){showTopNote('Dokument konnte nicht geladen werden: '+(error.message||error),true);}}
+async function explorerDownload(doc){try{if(doc.storagePath){showTopNote('Dokument wird geladen ...');const {data,error}=await luminaDb.storage.from(doc.storageBucket||'lumina-datarooms').download(doc.storagePath);if(error)throw error;const objectUrl=URL.createObjectURL(data),a=document.createElement('a');a.href=objectUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),30000);showTopNote('Dokument heruntergeladen.');return;}if(doc.dataUrl){const a=document.createElement('a');a.href=doc.dataUrl;a.download=doc.name||'Dokument';document.body.appendChild(a);a.click();a.remove();return;}if(doc.url){const safeUrl=luminaSafeUrl(doc.url);if(safeUrl==='#'){showTopNote('Der externe Link wurde aus Sicherheitsgründen blockiert.',true);return;}window.open(safeUrl,'_blank','noopener,noreferrer');return;}showTopNote('Für diese Metadatei ist kein Dateiinhalt gespeichert.',true);}catch(error){showTopNote('Dokument konnte nicht geladen werden: '+(error.message||error),true);}}
 function explorerRemoveDocument(doc){if(doc.persisted){showTopNote('Das dauerhafte Löschen wird separat freigeschaltet. Das Dokument bleibt sicher in Supabase gespeichert.',true);return;}if(!confirm(`Dokument „${doc.name}“ entfernen?`))return;const list=doc._state.documents||[];const idx=list.findIndex(x=>x.id===doc.id);if(idx>=0)list.splice(idx,1);addActivity(doc._state,`Dokument entfernt: ${doc.name}`);renderTaskModal();}
 async function explorerAddDocument(st,row){
   const file=document.getElementById('explorer-file')?.files?.[0],url=(document.getElementById('explorer-url')?.value||'').trim(),name=(document.getElementById('explorer-name')?.value||'').trim(),comment=(document.getElementById('explorer-comment')?.value||'').trim(),folder=ensureExplorerFolder(st);
@@ -4203,7 +4204,7 @@ function renderTaskModal(){
     const kind=st.emailKind==='reminder'?'reminder':'invite',e=emailText(row,st,kind),company=getStammdaten().gesellschaft||'Serafin GmbH',recipient=p.name||'Empfänger',taskTitle=row[3]||row[1]||'Maßnahme',docs=row[5]||'–',dueText=due?formatDateDE(due):(row[8]||'–'),folder=ensureExplorerFolder(st),docCount=(st.documents||[]).length,roomUrl=recipientDataRoomLoginLink(row,st,p.email);
     const mailtoHref=`mailto:${encodeURIComponent(e.to)}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body)}`;
     const outlookHref=`https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(e.to)}&subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body)}`;
-    content=`<div class="email-compose"><div class="email-meta-card"><div class="task-field"><label>Empfänger</label><input value="${luminaEsc(e.to)}" disabled></div><div class="task-field"><label>Versandart</label><select id="email-kind"><option value="invite" ${kind==='invite'?'selected':''}>Aufgabeneinladung</option><option value="reminder" ${kind==='reminder'?'selected':''}>Terminerinnerung</option></select></div><div class="task-field email-subject"><label>Betreff</label><input value="${luminaEsc(e.subject)}" disabled></div></div><div class="email-letter"><div class="email-letter-head"><div class="email-letter-title">${luminaEsc(e.subject)}</div><div class="email-letter-to">An ${luminaEsc(recipient)} · ${luminaEsc(e.to)}</div></div><div class="email-letter-body"><p>Guten Tag ${luminaEsc(recipient)},</p><p>${kind==='reminder'?'wir erinnern Sie an die folgende noch offene Aufgabe im Abschlussprozess:':'im Rahmen des Jahresabschlusses wurde Ihnen die folgende Aufgabe zugeordnet:'}</p><div class="email-task-box"><div class="email-task-row"><span>Aufgabe</span><strong>${luminaEsc(taskTitle)}</strong></div><div class="email-task-row"><span>Benötigte Unterlagen</span><strong>${luminaEsc(docs)}</strong></div><div class="email-task-row"><span>Gesellschaft</span><strong>${luminaEsc(company)}</strong></div><div class="email-task-row"><span>Liefertermin</span><strong>${luminaEsc(dueText)}</strong></div><div class="email-task-row"><span>Datenraumordner</span><strong>${luminaEsc(folder.names.join(' › '))}</strong></div><div class="email-task-row"><span>Datenraum-Link</span><strong>${roomUrl?`<a href="${luminaEsc(roomUrl)}" target="_blank" rel="noopener">Aufgabe im Datenraum öffnen</a>`:'Noch nicht verfügbar'}</strong></div><div class="email-task-row"><span>Dokumente</span><strong>${docCount}</strong></div></div><p>Bitte öffnen Sie die Aufgabe in LUMINA und stellen Sie die benötigten Unterlagen im zugeordneten Datenraumordner bereit.</p><p>Freundliche Grüße<br>Abschlusskoordination</p></div></div><div class="email-actions"><span class="email-hint">Es wird nur ein Entwurf geöffnet. Der Versand erfolgt erst nach Ihrer Bestätigung in Outlook.</span><a class="btn-secondary" href="${luminaEsc(mailtoHref)}">Standard-Mail-App</a><a class="btn-save" href="${luminaEsc(outlookHref)}" target="_blank" rel="noopener noreferrer">Outlook Web öffnen</a></div></div>`;
+    content=`<div class="email-compose"><div class="email-meta-card"><div class="task-field"><label>Empfänger</label><input value="${luminaEsc(e.to)}" disabled></div><div class="task-field"><label>Versandart</label><select id="email-kind"><option value="invite" ${kind==='invite'?'selected':''}>Aufgabeneinladung</option><option value="reminder" ${kind==='reminder'?'selected':''}>Terminerinnerung</option></select></div><div class="task-field email-subject"><label>Betreff</label><input value="${luminaEsc(e.subject)}" disabled></div></div><div class="email-letter"><div class="email-letter-head"><div class="email-letter-title">${luminaEsc(e.subject)}</div><div class="email-letter-to">An ${luminaEsc(recipient)} · ${luminaEsc(e.to)}</div></div><div class="email-letter-body"><p>Guten Tag ${luminaEsc(recipient)},</p><p>${kind==='reminder'?'wir erinnern Sie an die folgende noch offene Aufgabe im Abschlussprozess:':'im Rahmen des Jahresabschlusses wurde Ihnen die folgende Aufgabe zugeordnet:'}</p><div class="email-task-box"><div class="email-task-row"><span>Aufgabe</span><strong>${luminaEsc(taskTitle)}</strong></div><div class="email-task-row"><span>Benötigte Unterlagen</span><strong>${luminaEsc(docs)}</strong></div><div class="email-task-row"><span>Gesellschaft</span><strong>${luminaEsc(company)}</strong></div><div class="email-task-row"><span>Liefertermin</span><strong>${luminaEsc(dueText)}</strong></div><div class="email-task-row"><span>Datenraumordner</span><strong>${luminaEsc(folder.names.join(' › '))}</strong></div><div class="email-task-row"><span>Datenraum-Link</span><strong>${roomUrl?`<a href="${luminaSafeUrl(roomUrl)}" target="_blank" rel="noopener">Aufgabe im Datenraum öffnen</a>`:'Noch nicht verfügbar'}</strong></div><div class="email-task-row"><span>Dokumente</span><strong>${docCount}</strong></div></div><p>Bitte öffnen Sie die Aufgabe in LUMINA und stellen Sie die benötigten Unterlagen im zugeordneten Datenraumordner bereit.</p><p>Freundliche Grüße<br>Abschlusskoordination</p></div></div><div class="email-actions"><span class="email-hint">Es wird nur ein Entwurf geöffnet. Der Versand erfolgt erst nach Ihrer Bestätigung in Outlook.</span><a class="btn-secondary" href="${luminaSafeUrl(mailtoHref,{allowMailto:true})}">Standard-Mail-App</a><a class="btn-save" href="${luminaSafeUrl(outlookHref)}" target="_blank" rel="noopener noreferrer">Outlook Web öffnen</a></div></div>`;
   }
   document.getElementById('task-modal-main').innerHTML=tabs+content;
   document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});
@@ -4337,13 +4338,13 @@ async function renderMyDay(){
   const groups=[{title:'Überfällig',items:entries.filter(entry=>entry.due&&entry.due<today)},{title:'Heute fällig',items:entries.filter(entry=>entry.due===today)},{title:'In den nächsten 14 Tagen',items:entries.filter(entry=>entry.due>today&&entry.due<=soon)},{title:'Später anstehend',items:entries.filter(entry=>entry.due>soon)},{title:'Ohne festen Termin',items:entries.filter(entry=>!entry.due)}],visible=groups.filter(group=>group.items.length);
   digestOpen('Mein Tag',`Persönliche Aufgabenübersicht · ${formatDateDE(today)}`);document.getElementById('digest-modal-send').style.display='none';
   const content=document.getElementById('digest-modal-content');content.innerHTML='<div class="digest-empty">Übersicht wird geladen …</div>';let inbox=[];try{[inbox]=await Promise.all([getInboxMessages(),refreshPendingApprovals()]);}catch(error){console.warn(error);}const unread=inbox.filter(message=>!message.is_read),messageSection=unread.length?`<section class="digest-day-group"><div class="digest-group-title"><span>Neue Nachrichten</span><span class="digest-group-meta">${unread.length} ungelesen</span></div>${unread.map(inboxMessageHtml).join('')}</section>`:'';
-  content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${entries.length} offene Aufgaben</span><span class="digest-chip">Freigaben: ${myPendingApprovals.length}</span><span class="digest-chip">Neue Nachrichten: ${unread.length}</span>${groups.slice(0,3).map(group=>`<span class="digest-chip">${luminaEsc(group.title)}: ${group.items.length}</span>`).join('')}</div>${pendingApprovalsHtml()}${messageSection}${visible.map(group=>`<section class="digest-day-group"><div class="digest-group-title"><span>${luminaEsc(group.title)}</span><span class="digest-group-meta">${group.items.length} Aufgabe${group.items.length===1?'':'n'}</span></div>${group.items.map(entry=>`<div class="digest-task"><strong>${luminaEsc(entry.row[0]||'–')}</strong><div><div class="digest-task-title">${luminaEsc(entry.title)}</div><div class="digest-task-sub">${luminaEsc(entry.row[5]||'')}</div></div><div>${luminaEsc(entry.due?formatDateDE(entry.due):'ohne Termin')}</div><a href="${luminaEsc(entry.roomUrl||'#')}" ${entry.roomUrl?'':'aria-disabled="true"'}>Datenraum öffnen</a></div>`).join('')}</section>`).join('')||'<div class="digest-empty">Aktuell stehen keine offenen Aufgaben an.</div>'}`;bindInboxLinks();bindPendingApprovals();
+  content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${entries.length} offene Aufgaben</span><span class="digest-chip">Freigaben: ${myPendingApprovals.length}</span><span class="digest-chip">Neue Nachrichten: ${unread.length}</span>${groups.slice(0,3).map(group=>`<span class="digest-chip">${luminaEsc(group.title)}: ${group.items.length}</span>`).join('')}</div>${pendingApprovalsHtml()}${messageSection}${visible.map(group=>`<section class="digest-day-group"><div class="digest-group-title"><span>${luminaEsc(group.title)}</span><span class="digest-group-meta">${group.items.length} Aufgabe${group.items.length===1?'':'n'}</span></div>${group.items.map(entry=>`<div class="digest-task"><strong>${luminaEsc(entry.row[0]||'–')}</strong><div><div class="digest-task-title">${luminaEsc(entry.title)}</div><div class="digest-task-sub">${luminaEsc(entry.row[5]||'')}</div></div><div>${luminaEsc(entry.due?formatDateDE(entry.due):'ohne Termin')}</div><a href="${luminaSafeUrl(entry.roomUrl||'#')}" ${entry.roomUrl?'':'aria-disabled="true"'}>Datenraum öffnen</a></div>`).join('')}</section>`).join('')||'<div class="digest-empty">Aktuell stehen keine offenen Aufgaben an.</div>'}`;bindInboxLinks();bindPendingApprovals();
 }
 let adminDigestPreview=null;
 async function renderAdminDigestPreview(){
   if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}
   digestOpen('Alle benachrichtigen','Rollenweise Sammel-E-Mails · nach Fälligkeit sortiert');const content=document.getElementById('digest-modal-content'),send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');content.innerHTML='<div class="digest-empty">Vorschau wird geladen …</div>';send.style.display='none';
-  try{const response=await fetch(`/api/notifications/role-digests?projectId=${encodeURIComponent(currentLuminaProjectId)}`,{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Vorschau konnte nicht geladen werden.');adminDigestPreview=payload;const taskCount=payload.digests.reduce((sum,digest)=>sum+digest.tasks.length,0);content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${payload.digests.length} Empfänger</span><span class="digest-chip">${taskCount} offene Aufgaben</span></div>${payload.digests.map(digest=>`<section class="digest-role-group"><div class="digest-group-title"><span>${luminaEsc(digest.recipientName)} · ${luminaEsc(digest.role)}</span><span class="digest-group-meta">${luminaEsc(digest.email)} · ${digest.tasks.length} Aufgaben</span></div>${digest.tasks.map(task=>`<div class="digest-task"><strong>${luminaEsc(task.number)}</strong><div><div class="digest-task-title">${luminaEsc(task.title)}</div><div class="digest-task-sub">${luminaEsc(task.requiredDocuments)}</div></div><div>${luminaEsc(task.dueDate?formatDateDE(task.dueDate):'ohne Termin')}</div><a href="${luminaEsc(task.link)}" target="_blank" rel="noopener">Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`;status.textContent=payload.smtpConfigured?'Versand ist eingerichtet. Bitte prüfen Sie die Vorschau vor dem Senden.':'Vorschau bereit. Der IONOS-Versand muss in Vercel noch eingerichtet werden.';send.style.display='inline-flex';send.disabled=!payload.smtpConfigured;}catch(error){content.innerHTML=`<div class="digest-empty">${luminaEsc(error.message||'Vorschau konnte nicht geladen werden.')}</div>`;status.textContent='';}
+  try{const response=await fetch(`/api/notifications/role-digests?projectId=${encodeURIComponent(currentLuminaProjectId)}`,{cache:'no-store'}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Vorschau konnte nicht geladen werden.');adminDigestPreview=payload;const taskCount=payload.digests.reduce((sum,digest)=>sum+digest.tasks.length,0);content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${payload.digests.length} Empfänger</span><span class="digest-chip">${taskCount} offene Aufgaben</span></div>${payload.digests.map(digest=>`<section class="digest-role-group"><div class="digest-group-title"><span>${luminaEsc(digest.recipientName)} · ${luminaEsc(digest.role)}</span><span class="digest-group-meta">${luminaEsc(digest.email)} · ${digest.tasks.length} Aufgaben</span></div>${digest.tasks.map(task=>`<div class="digest-task"><strong>${luminaEsc(task.number)}</strong><div><div class="digest-task-title">${luminaEsc(task.title)}</div><div class="digest-task-sub">${luminaEsc(task.requiredDocuments)}</div></div><div>${luminaEsc(task.dueDate?formatDateDE(task.dueDate):'ohne Termin')}</div><a href="${luminaSafeUrl(task.link)}" target="_blank" rel="noopener">Datenraum öffnen</a></div>`).join('')}</section>`).join('')}`;status.textContent=payload.smtpConfigured?'Versand ist eingerichtet. Bitte prüfen Sie die Vorschau vor dem Senden.':'Vorschau bereit. Der IONOS-Versand muss in Vercel noch eingerichtet werden.';send.style.display='inline-flex';send.disabled=!payload.smtpConfigured;}catch(error){content.innerHTML=`<div class="digest-empty">${luminaEsc(error.message||'Vorschau konnte nicht geladen werden.')}</div>`;status.textContent='';}
 }
 async function sendAdminDigests(){if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}if(!adminDigestPreview||!confirm(`Jetzt ${adminDigestPreview.digests.length} rollenbezogene E-Mails versenden?`))return;const send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');send.disabled=true;send.textContent='E-Mails werden gesendet …';status.textContent='Bitte warten. Das Fenster nicht schließen.';try{const response=await fetch('/api/notifications/role-digests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true,projectId:currentLuminaProjectId})}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Versand fehlgeschlagen.');status.textContent=`${payload.sent.length} E-Mails wurden erfolgreich versendet.`;send.style.display='none';}catch(error){status.textContent=error.message||'Versand fehlgeschlagen.';send.disabled=false;}finally{send.textContent='Jetzt an alle senden';}}
 
