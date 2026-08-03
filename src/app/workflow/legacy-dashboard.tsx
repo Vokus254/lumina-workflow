@@ -11,10 +11,12 @@ export function LegacyDashboard({ query }: { query: string }) {
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
-    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-    const fallback = refreshed.session ? null : await supabase.auth.getSession();
-    const session = refreshed.session ?? fallback?.data.session ?? null;
-    const sessionError = refreshError && !session ? refreshError : fallback?.error;
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    let session = data.session;
+    if (session?.expires_at && session.expires_at <= Math.floor(Date.now() / 1000) + 30) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError && refreshed.session) session = refreshed.session;
+    }
     if (sessionError || !session) {
       setError("Die Sitzung konnte nicht an das Dashboard übergeben werden.");
       return;
