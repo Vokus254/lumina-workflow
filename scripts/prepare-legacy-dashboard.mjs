@@ -116,6 +116,27 @@ html = html.replace(
 );
 
 
+// Keep document lists and actions scoped to the currently opened task. Documents
+// assigned to other tasks may share the same data-room folder, but must not be
+// shown or removable from this task dialog.
+html = html.replace(
+  "function explorerDocsInFolder(key){return allExplorerDocuments().filter(d=>d.folderPath===key);}",
+  "function explorerDocsInFolder(key,taskId){return allExplorerDocuments().filter(d=>d.folderPath===key&&String(d._taskId||d.taskId||'')===String(taskId||''));}",
+);
+html = html.replace(
+  "function renderExplorerRoom(row,st){const folders=flattenDataroomFolders(),folder=ensureExplorerFolder(st),docs=explorerDocsInFolder(folder.key);",
+  "function renderExplorerRoom(row,st){const folders=flattenDataroomFolders(),folder=ensureExplorerFolder(st),docs=explorerDocsInFolder(folder.key,row[12]);",
+);
+html = html.replace(
+  "<span>${docs.length} Dokument${docs.length===1?'':'e'} im Ordner</span>",
+  "<span>${docs.length} Dokument${docs.length===1?'':'e'} für diese Aufgabe</span>",
+);
+html = html.replace(
+  "const docs=allExplorerDocuments();document.querySelectorAll('[data-download]')",
+  "const docs=explorerDocsInFolder(ensureExplorerFolder(st).key,row[12]);document.querySelectorAll('[data-download]')",
+);
+
+
 // Keep the embedded dashboard on an access-token-only client. The refresh token
 // remains in the parent Next.js application and is never exposed to legacy code.
 html = html.replace(
