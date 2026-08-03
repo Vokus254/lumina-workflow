@@ -4207,6 +4207,11 @@ function renderTaskModal(){
   }
   document.getElementById('task-modal-main').innerHTML=tabs+content;
   document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});
+  const modalSaveButton=document.getElementById('task-modal-save');
+  if(modalSaveButton){
+    const approvalOnlyView=!activeTaskContext.globalRoom&&taskActiveTab==='approval';
+    modalSaveButton.style.display=approvalOnlyView?'none':'inline-flex';
+  }
   if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(String(row[0]||'')==='82')loadTaskApproval(st).catch(console.warn);if(taskActiveTab==='review')loadTaskAiInteractions(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);if(taskActiveTab==='approval')bindTaskApproval(st);}
   if(activeTaskContext.globalRoom && taskActiveTab!=='room')bindGlobalTaskOverview(sub);
   if(taskActiveTab==='room')bindExplorerRoom(row,st);
@@ -4402,7 +4407,7 @@ document.getElementById("btn-local-reset").addEventListener("click", () => { if(
 document.getElementById("task-modal-close").addEventListener("click", closeTaskModal);
 document.getElementById("task-modal-cancel").addEventListener("click", closeTaskModal);
 document.getElementById("task-modal-backdrop").addEventListener("click", e => { if(e.target.id === "task-modal-backdrop") closeTaskModal(); });
-document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById('task-modal-save');button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });
+document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById('task-modal-save');if(taskActiveTab==='approval'){closeTaskModal();render();return;}button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });
 document.getElementById("task-modal-delete-state").addEventListener("click", () => { if(activeTaskContext && !activeTaskContext.globalRoom && confirm("Status, Einreichungen und Verlauf dieser Aufgabe zurücksetzen?")){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri]; if(sub.data.taskStates && row[12]) delete sub.data.taskStates[row[12]]; renderTaskModal(); scheduleLuminaSave(); } });
 document.addEventListener("input", scheduleLuminaSave, true);
 document.addEventListener("change", scheduleLuminaSave, true);
