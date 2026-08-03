@@ -4232,7 +4232,9 @@ const _luminaRender=render;render=function(){_luminaRender();renderDashboard();s
 const LUMINA_SUPABASE_URL='https://pmdpjftonhlvcdvxmnky.supabase.co';
 const LUMINA_SUPABASE_KEY='sb_publishable_YafkXvraaaJl-O5hF4H2SQ_MUpiBvUP';
 const LUMINA_PUBLIC_APP_URL='https://lumina-workflow.vercel.app/workflow';
-const luminaDb=window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+let luminaDb=window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+let currentLuminaUser=null;
+function createEmbeddedLuminaClient(accessToken){return window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{headers:{Authorization:`Bearer ${accessToken}`}}});}
 const LUMINA_WORK_TO_REMOTE={'Offen':'open','Angenommen':'accepted','In Bearbeitung':'in_progress','Eingereicht':'submitted','Abgeschlossen':'completed','Nicht relevant':'not_relevant'};
 const LUMINA_WORK_FROM_REMOTE={open:'Offen',accepted:'Angenommen',in_progress:'In Bearbeitung',submitted:'Eingereicht',completed:'Abgeschlossen',not_relevant:'Nicht relevant'};
 const LUMINA_REVIEW_TO_REMOTE={'Ungeprüft':'unreviewed','Rückfrage':'question','Nachbesserung erforderlich':'changes_required','Akzeptiert':'accepted'};
@@ -4260,7 +4262,7 @@ async function loadLuminaFromSupabase(){
   stations.splice(0,stations.length,...sourceStates[0].state);
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
   currentLuminaProjectId=project.id;
-  const {data:{user:currentUser}}=await luminaDb.auth.getUser();
+  const currentUser=currentLuminaUser||(await luminaDb.auth.getUser()).data.user;
   const {data:adminMembership,error:adminMembershipError}=currentUser?await luminaDb.from('project_members').select('security_role').eq('project_id',project.id).eq('user_id',currentUser.id).eq('active',true).in('security_role',['owner','manager']).maybeSingle():{data:null,error:null};
   if(adminMembershipError)console.warn('Projektberechtigung für Sammelversand konnte nicht geprüft werden',adminMembershipError);
   currentLuminaCanNotifyAll=Boolean(adminMembership);
@@ -4406,11 +4408,13 @@ document.addEventListener("input", scheduleLuminaSave, true);
 document.addEventListener("change", scheduleLuminaSave, true);
 
 window.addEventListener('message',async event=>{
-  if(event.origin!==location.origin||event.data?.type!=='lumina-session')return;
+  if(event.origin!==location.origin||event.source!==window.parent||event.data?.type!=='lumina-session'||typeof event.data.accessToken!=='string')return;
   try{
-    const {data,error}=await luminaDb.auth.setSession({access_token:event.data.accessToken,refresh_token:event.data.refreshToken});
-    if(error)throw error;
-    if(data.session&&!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession(data.session);
+    luminaDb=createEmbeddedLuminaClient(event.data.accessToken);
+    const {data,error}=await luminaDb.auth.getUser(event.data.accessToken);
+    if(error||!data.user)throw error||new Error('Die Sitzung ist ungültig.');
+    currentLuminaUser=data.user;
+    if(!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession({user:data.user});
   }catch(error){setLuminaAuthError(error.message||'LUMINA konnte nicht geladen werden.');}
 });
 if(window.parent!==window){

@@ -115,13 +115,27 @@ html = html.replace(
   "async function sendAdminDigests(){if(!currentLuminaProjectId||!currentLuminaCanNotifyAll){showTopNote('Für dieses Projekt fehlt Ihnen die Berechtigung zum Sammelversand.',true);return;}if(!adminDigestPreview",
 );
 
+
+// Keep the embedded dashboard on an access-token-only client. The refresh token
+// remains in the parent Next.js application and is never exposed to legacy code.
+html = html.replace(
+  "const luminaDb=window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});",
+  "let luminaDb=window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});\nlet currentLuminaUser=null;\nfunction createEmbeddedLuminaClient(accessToken){return window.supabase.createClient(LUMINA_SUPABASE_URL,LUMINA_SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{headers:{Authorization:`Bearer ${accessToken}`}}});}",
+);
+html = html.replace(
+  "  const {data:{user:currentUser}}=await luminaDb.auth.getUser();",
+  "  const currentUser=currentLuminaUser||(await luminaDb.auth.getUser()).data.user;",
+);
+
 const bridge = `
 window.addEventListener('message',async event=>{
-  if(event.origin!==location.origin||event.data?.type!=='lumina-session')return;
+  if(event.origin!==location.origin||event.source!==window.parent||event.data?.type!=='lumina-session'||typeof event.data.accessToken!=='string')return;
   try{
-    const {data,error}=await luminaDb.auth.setSession({access_token:event.data.accessToken,refresh_token:event.data.refreshToken});
-    if(error)throw error;
-    if(data.session&&!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession(data.session);
+    luminaDb=createEmbeddedLuminaClient(event.data.accessToken);
+    const {data,error}=await luminaDb.auth.getUser(event.data.accessToken);
+    if(error||!data.user)throw error||new Error('Die Sitzung ist ungültig.');
+    currentLuminaUser=data.user;
+    if(!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession({user:data.user});
   }catch(error){setLuminaAuthError(error.message||'LUMINA konnte nicht geladen werden.');}
 });
 if(window.parent!==window){
