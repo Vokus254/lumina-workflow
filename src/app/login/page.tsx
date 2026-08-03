@@ -16,6 +16,7 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requestedMode = params.get("mode");
+    const recoveryError = params.get("recovery_error");
     const requestedTarget = params.get("next");
     const targetEmail = requestedTarget
       ? new URLSearchParams(requestedTarget.split("?")[1] || "").get("email")
@@ -23,6 +24,7 @@ export default function LoginPage() {
     const requestedEmail = params.get("email") || targetEmail;
     const timer = window.setTimeout(() => {
       if (requestedMode === "reset") setMode("reset");
+      if (recoveryError) setError("Der Link zum Zurücksetzen ist ungültig oder abgelaufen. Bitte fordern Sie eine neue E-Mail an.");
       if (requestedEmail) setEmail(requestedEmail);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -39,7 +41,7 @@ export default function LoginPage() {
       if (mode === "forgot") {
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(
           email.trim(),
-          { redirectTo: `${window.location.origin}/login?mode=reset` },
+          { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/login?mode=reset")}` },
         );
         if (resetError) throw resetError;
         setMessage("Wir haben Ihnen eine E-Mail zum Zurücksetzen des Passworts gesendet.");

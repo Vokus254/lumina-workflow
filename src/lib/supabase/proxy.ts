@@ -34,7 +34,8 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isAuthenticated && path === "/login" && !request.nextUrl.searchParams.has("next")) {
+  const isPasswordReset = request.nextUrl.searchParams.get("mode") === "reset";
+  if (isAuthenticated && path === "/login" && !request.nextUrl.searchParams.has("next") && !isPasswordReset) {
     const url = request.nextUrl.clone();
     url.pathname = "/workflow";
     return NextResponse.redirect(url);
