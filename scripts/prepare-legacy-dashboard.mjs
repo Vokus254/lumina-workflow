@@ -97,6 +97,40 @@ const initializeIndex = html.lastIndexOf(initializeMarker);
 if (initializeIndex < 0) throw new Error("Initialization marker not found");
 html = html.slice(0, initializeIndex) + bridge + html.slice(initializeIndex);
 
+
+// Bilanz-/GuV-Akkordeon: gespeicherte Set-Zustände robust normalisieren.
+html = html.replace(
+  `function anyRootLevelOpen(rootKeys, expandedSet){
+  return rootKeys.some(k => expandedSet.has(k));
+}`,
+  `function normalizeExpandedSet(value){
+  if(value instanceof Set) return value;
+  if(Array.isArray(value)) return new Set(value);
+  if(value && Array.isArray(value.values)) return new Set(value.values);
+  if(value && value.__isSet && Array.isArray(value.values)) return new Set(value.values);
+  return new Set();
+}
+
+function anyRootLevelOpen(rootKeys, expandedSet){
+  const normalized = normalizeExpandedSet(expandedSet);
+  return rootKeys.some(k => normalized.has(k));
+}`,
+);
+
+html = html.replace(
+  `function renderStatement(){
+  const sub = stations[view.station].measures[view.measure].subitems[view.sub];
+  const container = document.getElementById("form-container");
+  const tree = buildStatementTree();`,
+  `function renderStatement(){
+  const sub = stations[view.station].measures[view.measure].subitems[view.sub];
+  const container = document.getElementById("form-container");
+  sub.data = sub.data || {};
+  sub.data.expanded = normalizeExpandedSet(sub.data.expanded);
+  container.innerHTML = "";
+  const tree = buildStatementTree();`,
+);
+
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, html, "utf8");
 console.log(`Prepared ${outputPath}`);

@@ -1421,8 +1421,17 @@ function renderRoles(){
   });
 }
 
+function normalizeExpandedSet(value){
+  if(value instanceof Set) return value;
+  if(Array.isArray(value)) return new Set(value);
+  if(value && Array.isArray(value.values)) return new Set(value.values);
+  if(value && value.__isSet && Array.isArray(value.values)) return new Set(value.values);
+  return new Set();
+}
+
 function anyRootLevelOpen(rootKeys, expandedSet){
-  return rootKeys.some(k => expandedSet.has(k));
+  const normalized = normalizeExpandedSet(expandedSet);
+  return rootKeys.some(k => normalized.has(k));
 }
 
 function treeLabel(path){
@@ -3224,6 +3233,9 @@ function flattenStatement(node, path, out){
 function renderStatement(){
   const sub = stations[view.station].measures[view.measure].subitems[view.sub];
   const container = document.getElementById("form-container");
+  sub.data = sub.data || {};
+  sub.data.expanded = normalizeExpandedSet(sub.data.expanded);
+  container.innerHTML = "";
   const tree = buildStatementTree();
 
   if(!tree){
