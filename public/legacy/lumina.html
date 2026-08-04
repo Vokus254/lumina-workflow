@@ -3826,16 +3826,77 @@ function resolveRoleName(abteilung){
   return name;
 }
 
+function projectFolderMajorFromRow(row){
+  const step = String((row && row[1]) || "").trim();
+  const match = step.match(/^(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+// Eigenständiges Laufzeitmodell für den Projektordner-Export: 1 Ordner je
+// Station (stations-Array, in Reihenfolge) + 1 Unterordner je Maßnahme,
+// gruppiert über row[1]. Rührt sub.data.tree (Datenraum-Baum) nicht an.
+function buildProjectFolderModel(){
+  const pbc = luminaPbcRows();
+  const rows = pbc ? pbc.rows : [];
+  const stationNodes = stations.map(station => ({ name: sanitizeFileName(station.title || "Station"), children: [] }));
+  const unassigned = { name: "0. Ohne Prozessschritt", children: [] };
+  rows.forEach((row, index) => {
+    const major = projectFolderMajorFromRow(row);
+    const target = (major && stationNodes[major - 1]) ? stationNodes[major - 1] : unassigned;
+    const label = row[0] || String(index + 1);
+    const title = row[3] || row[1] || "Maßnahme";
+    target.children.push({ name: sanitizeFileName(`${label} ${title}`) });
+  });
+  const nodes = unassigned.children.length ? [...stationNodes, unassigned] : stationNodes;
+  return { nodes, rowCount: rows.length, unassignedCount: unassigned.children.length, stationCount: stationNodes.length };
+}
+
+async function createSimpleFolderRecursive(parentHandle, node){
+  const dirHandle = await parentHandle.getDirectoryHandle(node.name, { create: true });
+  for(const child of node.children || []){
+    await createSimpleFolderRecursive(dirHandle, child);
+  }
+}
+
+function buildSimpleZipFolder(zipFolder, node){
+  const sub = zipFolder.folder(node.name);
+  (node.children || []).forEach(child => buildSimpleZipFolder(sub, child));
+}
+
 async function saveProjectFolderFromToolbar(){
-  const treeSub = findFirstSubOfType("tree");
-  if(!treeSub){
-    showTopNote("Keine Ordnerstruktur im Cockpit gefunden.", true);
+  const model = buildProjectFolderModel();
+  if(!model.rowCount){
+    showTopNote("Es ist noch keine Maßnahmenliste importiert. Bitte zuerst die PBC-Maßnahmenliste importieren, bevor der Projektordner angelegt wird.", true);
     return;
   }
+  const { gesellschaft, jahr } = getStammdaten();
+  const projectName = sanitizeFileName(`Jahresabschluss ${jahr} ${gesellschaft}`);
+  const summary = `${model.stationCount} Stationsordner, ${model.rowCount} Maßnahmenordner`;
+  const warning = model.unassignedCount
+    ? ` Achtung: ${model.unassignedCount} Maßnahme${model.unassignedCount === 1 ? "" : "n"} ohne erkennbaren Prozessschritt ${model.unassignedCount === 1 ? "wurde" : "wurden"} unter „Ohne Prozessschritt“ abgelegt.`
+    : "";
+
   if(!window.showDirectoryPicker){
-    showTopNote("Dieser Browser unterstützt das direkte Anlegen von Ordnern nicht (nur Chrome/Edge Desktop). Bitte den ZIP-Export in der Ordnerstruktur-Kachel nutzen.", true);
+    try{
+      const zip = new JSZip();
+      model.nodes.forEach(node => buildSimpleZipFolder(zip, node));
+      const blob = await zip.generateAsync({ type: "blob" });
+      const filename = projectName + ".zip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showTopNote(`Dieser Browser unterstützt das direkte Anlegen von Ordnern nicht (nur Chrome/Edge Desktop). ZIP heruntergeladen: ${filename} (${summary}).${warning}`, !!model.unassignedCount);
+    } catch(err){
+      showTopNote("ZIP konnte nicht erzeugt werden: " + err.message, true);
+    }
     return;
   }
+
   let rootHandle;
   try{
     rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
@@ -3845,13 +3906,11 @@ async function saveProjectFolderFromToolbar(){
     return;
   }
   try{
-    const { gesellschaft, jahr } = getStammdaten();
-    const projectName = sanitizeFileName(`Jahresabschluss ${jahr} ${gesellschaft}`);
     const projectHandle = await rootHandle.getDirectoryHandle(projectName, { create: true });
-    for(let i = 0; i < treeSub.data.tree.length; i++){
-      await createFolderRecursive(projectHandle, treeSub.data.tree[i], [i]);
+    for(const node of model.nodes){
+      await createSimpleFolderRecursive(projectHandle, node);
     }
-    showTopNote(`Projektordner angelegt in „${rootHandle.name}/${projectName}“.`, false);
+    showTopNote(`Projektordner angelegt in „${rootHandle.name}/${projectName}“ (${summary}).${warning}`, !!model.unassignedCount);
   } catch(err){
     showTopNote("Fehler beim Anlegen der Ordner: " + err.message, true);
   }
