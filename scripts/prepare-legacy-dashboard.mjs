@@ -159,7 +159,7 @@ html = html.replace(
 );
 html = html.replace(
   '<div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-save" id="task-modal-save">Speichern</button></div></div>',
-  '<div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-secondary" id="task-modal-save">Speichern</button><button class="btn-save" id="task-modal-complete">Als erledigt markieren</button></div></div>',
+  '<div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><span class="task-action-feedback" id="task-action-feedback" role="status" aria-live="polite"></span><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-secondary" id="task-modal-save">Speichern</button><button class="btn-save" id="task-modal-complete">Als erledigt markieren</button></div></div>',
 );
 html = html.replace(
   '<div class="task-field span-2"><label>Interner Kommentar</label><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||\'\')}</textarea></div>',
@@ -181,24 +181,35 @@ html = html.replace(
   'document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById(\'task-modal-save\');if(taskActiveTab===\'approval\'){closeTaskModal();render();return;}button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState(\'Speichern fehlgeschlagen\',true);showTopNote(\'Supabase-Speichern fehlgeschlagen: \'+error.message,true);}finally{button.disabled=false;} });',
   `async function persistActiveTask({complete=false}={}){
   if(!activeTaskContext||activeTaskContext.globalRoom||taskActiveTab==='approval')return;
-  const saveButton=document.getElementById('task-modal-save'),completeButton=document.getElementById('task-modal-complete'),{sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),previousStatus=st.workStatus,comment=document.getElementById('task-internal-comment');
+  const saveButton=document.getElementById('task-modal-save'),completeButton=document.getElementById('task-modal-complete'),feedback=document.getElementById('task-action-feedback'),{sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),previousStatus=st.workStatus,comment=document.getElementById('task-internal-comment');
+  const activeButton=complete?completeButton:saveButton,defaultLabel=complete?'Als erledigt markieren':'Speichern';
+  const setFeedback=(text,type='')=>{if(feedback){feedback.textContent=text;feedback.className='task-action-feedback'+(type?' '+type:'');}};
   if(comment)st.internalComment=comment.value.trim();
   if(complete)st.workStatus='Abgeschlossen';
   if(saveButton)saveButton.disabled=true;if(completeButton)completeButton.disabled=true;
+  if(activeButton)activeButton.textContent=complete?'Wird erledigt …':'Wird gespeichert …';
+  setFeedback(complete?'Aufgabe wird abgeschlossen …':'Kommentar wird gespeichert …','busy');
   try{
-    await saveLuminaTaskToSupabase(row,st);
+    await Promise.race([saveLuminaTaskToSupabase(row,st,{complete}),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Zeitüberschreitung beim Speichern.')),15000))]);
     addActivity(st,complete?'Aufgabe als erledigt markiert':'Bearbeitungsnotiz gespeichert');
     saveLuminaLocal();render();
+    if(activeButton){activeButton.textContent=complete?'Erledigt ✓':'Gespeichert ✓';activeButton.classList.add('is-success');}
+    setFeedback(complete?'Aufgabe erfolgreich erledigt.':'Kommentar erfolgreich gespeichert.','success');
+    showTopNote(complete?'Aufgabe wurde als erledigt markiert.':'Kommentar und Aufgabenstand wurden gespeichert.');
     if(complete){
+      await new Promise(resolve=>setTimeout(resolve,700));
       closeTaskModal();
       if(document.getElementById('digest-modal-backdrop')?.classList.contains('open'))await renderMyDay();
-      showTopNote('Aufgabe wurde als erledigt markiert.');
     }else{
+      await new Promise(resolve=>setTimeout(resolve,900));
+      if(activeButton?.isConnected){activeButton.textContent=defaultLabel;activeButton.classList.remove('is-success');}
+      if(feedback?.isConnected)setFeedback('');
       renderTaskModal();
-      showTopNote('Kommentar und Aufgabenstand wurden gespeichert.');
     }
   }catch(error){
     st.workStatus=previousStatus;
+    if(activeButton)activeButton.textContent=defaultLabel;
+    setFeedback((complete?'Erledigen fehlgeschlagen: ':'Speichern fehlgeschlagen: ')+(error.message||error),'error');
     setLuminaSyncState(complete?'Erledigen fehlgeschlagen':'Speichern fehlgeschlagen',true);
     showTopNote((complete?'Aufgabe konnte nicht erledigt werden: ':'Supabase-Speichern fehlgeschlagen: ')+(error.message||error),true);
   }finally{
@@ -233,6 +244,7 @@ window.addEventListener('message',async event=>{
   }catch(error){setLuminaAuthError(error.message||'LUMINA konnte nicht geladen werden.');}
 });
 if(window.parent!==window){
+  window.parent.postMessage({type:'lumina-ready'},location.origin);
   document.querySelector('.lumina-auth-card h2').textContent='Dashboard wird geladen …';
   document.querySelector('.lumina-auth-form').style.display='none';
 }
@@ -248,6 +260,31 @@ html = html.slice(0, initializeIndex) + bridge + html.slice(initializeIndex);
 html = html.replace(/function luminaEsc\(v\)\{ return String\(v \?\? ""\)\.replace\(\/\[&<>\\"\'\]\/g,c=>\(\{.*?\}\[c\]\)\); \}/, `function luminaEsc(v){ return String(v ?? "").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }\nfunction luminaSafeUrl(value,{allowMailto=false}={}){try{const raw=String(value??'').trim();if(!raw)return '#';if(allowMailto&&raw.toLowerCase().startsWith('mailto:'))return raw;const url=new URL(raw,location.origin);if(url.protocol!=='https:'&&url.protocol!=='http:')return '#';return url.href;}catch{return '#';}}`);
 const xssReplacements = [["${s.title}", "${luminaEsc(s.title)}"], ["${m.title}", "${luminaEsc(m.title)}"], ["${sub.text}", "${luminaEsc(sub.text)}"], ["${f.label}", "${luminaEsc(f.label)}"], ["data-key=\"${f.key}\"", "data-key=\"${luminaEsc(f.key)}\""], ["value=\"${o}\"", "value=\"${luminaEsc(o)}\""], [">${o}</option>", ">${luminaEsc(o)}</option>"], ["placeholder=\"${f.placeholder || \"\"}\"", "placeholder=\"${luminaEsc(f.placeholder || \"\")}\""], ["value=\"${val}\"", "value=\"${luminaEsc(val)}\""], ["${r.label}", "${luminaEsc(r.label)}"], ["<td>${v}</td>", "<td>${luminaEsc(v)}</td>"], ["${d.caption}", "${luminaEsc(d.caption)}"], ["<th>${c}</th>", "<th>${luminaEsc(c)}</th>"], ["${rec.heading}", "${luminaEsc(rec.heading)}"], ["<li>${n}</li>", "<li>${luminaEsc(n)}</li>"], ["${sub.data.expectedColumns.join(\" · \")}", "${sub.data.expectedColumns.map(luminaEsc).join(\" · \")}"], ["${imp.fileName}", "${luminaEsc(imp.fileName)}"], ["${imp.sheetName}", "${luminaEsc(imp.sheetName)}"], [">${h}</th>", ">${luminaEsc(h)}</th>"], ["title=\"${raw}\"", "title=\"${luminaEsc(raw)}\""], [">${display}</td>", ">${luminaEsc(display)}</td>"], ["${imp.headers[2] || \"\"}", "${luminaEsc(imp.headers[2] || \"\")}"], ["${imp.headers[3] || \"\"}", "${luminaEsc(imp.headers[3] || \"\")}"], ["${node.label}", "${luminaEsc(node.label)}"], ["${zielschluessel.join(\", \")}", "${zielschluessel.map(luminaEsc).join(\", \")}"], ["${d.columns[i]}", "${luminaEsc(d.columns[i])}"], ["${c.label}", "${luminaEsc(c.label)}"], ["href=\"${luminaEsc(entry.roomUrl||'#')}\"", "href=\"${luminaSafeUrl(entry.roomUrl||'#')}\""], ["href=\"${luminaEsc(task.link)}\"", "href=\"${luminaSafeUrl(task.link)}\""], ["href=\"${luminaEsc(roomUrl)}\"", "href=\"${luminaSafeUrl(roomUrl)}\""], ["href=\"${luminaEsc(mailtoHref)}\"", "href=\"${luminaSafeUrl(mailtoHref,{allowMailto:true})}\""], ["href=\"${luminaEsc(outlookHref)}\"", "href=\"${luminaSafeUrl(outlookHref)}\""], ["if(doc.url){window.open(doc.url,'_blank','noopener');return;}", "if(doc.url){const safeUrl=luminaSafeUrl(doc.url);if(safeUrl==='#'){showTopNote('Der externe Link wurde aus Sicherheitsgründen blockiert.',true);return;}window.open(safeUrl,'_blank','noopener,noreferrer');return;}"]];
 for (const [unsafe,safe] of xssReplacements) html = html.split(unsafe).join(safe);
+
+
+// Paket 7B-2: role-safe task progress RPC and deterministic iframe handshake.
+html = html.replace(/async function saveLuminaTaskToSupabase\(row,state\)\{[\s\S]*?\n\}\n\nfunction digestTodayISO\(\)/,
+`async function saveLuminaTaskToSupabase(row,state,{complete=false}={}){
+  if(!state.remoteTaskId)throw new Error('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.');
+  setLuminaSyncState(complete?'Aufgabe wird erledigt ...':'Kommentar wird gespeichert ...');
+  const {data,error}=await luminaRpc('save_task_progress',{
+    p_task_id:state.remoteTaskId,
+    p_internal_comment:state.internalComment||null,
+    p_complete:Boolean(complete)
+  });
+  if(error)throw error;
+  if(data){
+    state.workStatus=LUMINA_WORK_FROM_REMOTE[data.work_status]||state.workStatus;
+    state.reviewStatus=LUMINA_REVIEW_FROM_REMOTE[data.review_status]||state.reviewStatus;
+    state.internalComment=data.internal_comment||'';
+    state.remoteUpdatedAt=data.updated_at;
+  }
+  setLuminaSyncState(complete?'Aufgabe erledigt':'In Supabase gespeichert');
+}
+
+function digestTodayISO()`);
+html = html.split('await Promise.race([saveLuminaTaskToSupabase(row,st),').join('await Promise.race([saveLuminaTaskToSupabase(row,st,{complete}),');
+html = html.replace("if(window.parent!==window){\\n  document.querySelector('.lumina-auth-card h2').textContent='Dashboard wird geladen …';","if(window.parent!==window){\\n  window.parent.postMessage({type:'lumina-ready'},location.origin);\\n  document.querySelector('.lumina-auth-card h2').textContent='Dashboard wird geladen …';");
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, html, "utf8");

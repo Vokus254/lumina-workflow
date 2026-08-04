@@ -35,7 +35,8 @@ export function LegacyDashboard({ query }: { query: string }) {
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== frameRef.current?.contentWindow) return;
-      if (event.data?.type === "lumina-refresh-session") {
+      if (event.data?.type === "lumina-ready" || event.data?.type === "lumina-refresh-session") {
+        setError("");
         await sendSession();
         return;
       }
