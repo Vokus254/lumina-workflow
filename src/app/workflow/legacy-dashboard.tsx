@@ -26,6 +26,7 @@ export function LegacyDashboard({ query }: { query: string }) {
       {
         type: "lumina-session",
         accessToken: session.access_token,
+        refreshToken: session.refresh_token,
       },
       window.location.origin,
     );
@@ -34,9 +35,7 @@ export function LegacyDashboard({ query }: { query: string }) {
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.source !== frameRef.current?.contentWindow) return;
-      if (event.data?.type === "lumina-ready" || event.data?.type === "lumina-refresh-session") {
-        setError("");
+      if (event.data?.type === "lumina-refresh-session") {
         await sendSession();
         return;
       }
