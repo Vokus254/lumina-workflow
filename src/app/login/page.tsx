@@ -62,31 +62,13 @@ export default function LoginPage() {
         return;
       }
 
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
 
-      if (signInError || !signInData.session) {
+      if (signInError) {
         setError("E-Mail-Adresse oder Passwort ist nicht korrekt.");
-        return;
-      }
-
-      // Warten, bis die von @supabase/ssr verwaltete Sitzung auch für die
-      // nachfolgende Server-Anfrage verfügbar ist. Eine vollständige Navigation
-      // vermeidet den bisherigen ersten, hängenbleibenden Login-Versuch.
-      const deadline = Date.now() + 5000;
-      let confirmed = false;
-      while (Date.now() < deadline) {
-        const { data: current } = await supabase.auth.getSession();
-        if (current.session?.access_token === signInData.session.access_token) {
-          confirmed = true;
-          break;
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
-      }
-      if (!confirmed) {
-        setError("Die Sitzung konnte nicht vollständig eingerichtet werden. Bitte erneut versuchen.");
         return;
       }
 
@@ -94,7 +76,8 @@ export default function LoginPage() {
       const target = requestedTarget?.startsWith("/workflow")
         ? requestedTarget
         : "/workflow";
-      window.location.replace(target);
+      router.replace(target);
+      router.refresh();
     } catch {
       setError("Die Anmeldung ist momentan nicht erreichbar.");
     } finally {
