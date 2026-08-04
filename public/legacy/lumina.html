@@ -715,7 +715,7 @@
   .email-task-row{display:grid;grid-template-columns:145px 1fr;gap:12px;font-size:12.5px}.email-task-row span{color:var(--text-secondary)}
   .email-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .email-hint{font-size:11.5px;color:var(--text-faint)}
-  .task-footer{padding:14px 24px}.task-footer-actions{display:flex;gap:8px}
+  .task-footer{padding:14px 24px}.task-footer-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.task-note-section{padding:14px;border:1px solid var(--border);border-radius:12px;background:#fff}.task-note-section textarea{min-height:96px}.task-note-hint{margin-top:7px;font-size:10.5px;line-height:1.4;color:var(--text-faint)}#task-modal-complete:disabled{cursor:default;opacity:.72}
   .task-action-btn{font-size:10.5px;padding:6px 9px;border-radius:7px;box-shadow:0 1px 1px rgba(15,23,42,.04)}
   .task-actions{display:grid;grid-template-columns:auto 1fr 1fr;gap:5px;align-items:center;padding:6px 7px;min-width:230px}
   .task-actions .task-status-mini{grid-column:1/-1;justify-self:start;margin-bottom:1px}
@@ -959,7 +959,7 @@
   <div class="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
     <div class="task-modal-head"><div><div class="task-modal-title" id="task-modal-title">Maßnahme</div><div class="task-modal-sub" id="task-modal-sub"></div></div><button class="task-modal-close" id="task-modal-close" title="Schließen">×</button></div>
     <div class="task-modal-body"><div class="task-main" id="task-modal-main"></div><aside class="task-side" id="task-modal-side"></aside></div>
-    <div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-save" id="task-modal-save">Speichern</button></div></div>
+    <div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-secondary" id="task-modal-save">Speichern</button><button class="btn-save" id="task-modal-complete">Als erledigt markieren</button></div></div>
   </div>
 </div>
 
@@ -4134,12 +4134,12 @@ async function loadTaskAiInteractions(st,force=false){
   }
 }
 function renderTaskGuide(row,st,p,due){
-  const pkg=taskWorkPackage(st),fallback=`<div class="task-fields"><div class="task-field"><label>Verantwortlich</label><input value="${luminaEsc(p.name)}" disabled></div><div class="task-field"><label>Liefertermin</label><input value="${luminaEsc(due?formatDateDE(due):row[8]||'–')}" disabled></div><div class="task-field span-2"><label>Benötigte Unterlagen / Beschreibung</label><textarea disabled>${luminaEsc(row[5]||'')}</textarea></div><div class="task-field span-2"><label>Interner Kommentar</label><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div></div>`;
+  const pkg=taskWorkPackage(st),fallback=`<div class="task-fields"><div class="task-field"><label>Verantwortlich</label><input value="${luminaEsc(p.name)}" disabled></div><div class="task-field"><label>Liefertermin</label><input value="${luminaEsc(due?formatDateDE(due):row[8]||'–')}" disabled></div><div class="task-field span-2"><label>Benötigte Unterlagen / Beschreibung</label><textarea disabled>${luminaEsc(row[5]||'')}</textarea></div></div>`;
   if(!pkg||pkg.loading)return `<div class="work-package-empty">Die Arbeitsanleitung wird geladen …</div>${fallback}`;
   if(pkg.error)return `<div class="work-package-empty">${luminaEsc(pkg.error)}</div>${fallback}`;
   if(!pkg.guide)return `<div class="work-package-empty">Für diese Aufgabe ist noch keine geführte Arbeitsanleitung hinterlegt.</div>${fallback}`;
   const steps=pkg.steps||[],done=steps.filter(step=>step.completed).length,errors=pkg.guide.common_errors||[];
-  return `<div class="work-guide"><section class="work-guide-hero"><div class="work-guide-kicker">Ihr Ziel</div><h3>${luminaEsc(pkg.guide.objective)}</h3><p>${luminaEsc(pkg.guide.rationale||'')}</p></section><section class="work-guide-card"><h3>Schritt für Schritt</h3><div class="work-progress">${done} von ${steps.length} Schritten erledigt</div><div class="work-steps">${steps.map(step=>`<label class="work-step"><input type="checkbox" data-work-step="${luminaEsc(step.id)}" ${step.completed?'checked':''}><span><strong>${step.step_number}. ${luminaEsc(step.title)}</strong><p>${luminaEsc(step.instruction)}</p></span></label>`).join('')}</div></section><section class="work-guide-card"><h3>Erwartetes finales Ergebnis</h3><p>${luminaEsc(pkg.guide.expected_result)}</p></section><section class="work-guide-card"><h3>Typische Fehler vermeiden</h3><ul class="work-guide-errors">${errors.map(item=>`<li>${luminaEsc(item)}</li>`).join('')}</ul></section><section class="work-guide-card"><h3>Interner Kommentar</h3><div class="task-field"><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div></section></div>`;
+  return `<div class="work-guide"><section class="work-guide-hero"><div class="work-guide-kicker">Ihr Ziel</div><h3>${luminaEsc(pkg.guide.objective)}</h3><p>${luminaEsc(pkg.guide.rationale||'')}</p></section><section class="work-guide-card"><h3>Schritt für Schritt</h3><div class="work-progress">${done} von ${steps.length} Schritten erledigt</div><div class="work-steps">${steps.map(step=>`<label class="work-step"><input type="checkbox" data-work-step="${luminaEsc(step.id)}" ${step.completed?'checked':''}><span><strong>${step.step_number}. ${luminaEsc(step.title)}</strong><p>${luminaEsc(step.instruction)}</p></span></label>`).join('')}</div></section><section class="work-guide-card"><h3>Erwartetes finales Ergebnis</h3><p>${luminaEsc(pkg.guide.expected_result)}</p></section><section class="work-guide-card"><h3>Typische Fehler vermeiden</h3><ul class="work-guide-errors">${errors.map(item=>`<li>${luminaEsc(item)}</li>`).join('')}</ul></section></div>`;
 }
 function renderTaskPriorYear(st){
   const pkg=taskWorkPackage(st);if(!pkg||pkg.loading)return '<div class="work-package-empty">Vorjahresakte wird gesucht …</div>';if(pkg.error)return `<div class="work-package-empty">${luminaEsc(pkg.error)}</div>`;
@@ -4208,10 +4208,14 @@ function renderTaskModal(){
   }
   document.getElementById('task-modal-main').innerHTML=tabs+content;
   document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});
-  const modalSaveButton=document.getElementById('task-modal-save');
-  if(modalSaveButton){
-    const approvalOnlyView=!activeTaskContext.globalRoom&&taskActiveTab==='approval';
-    modalSaveButton.style.display=approvalOnlyView?'none':'inline-flex';
+  const modalSaveButton=document.getElementById('task-modal-save'),modalCompleteButton=document.getElementById('task-modal-complete');
+  const taskActionsHidden=activeTaskContext.globalRoom||taskActiveTab==='approval';
+  if(modalSaveButton)modalSaveButton.style.display=taskActionsHidden?'none':'inline-flex';
+  if(modalCompleteButton){
+    modalCompleteButton.style.display=taskActionsHidden?'none':'inline-flex';
+    const isCompleted=st.workStatus==='Abgeschlossen';
+    modalCompleteButton.disabled=isCompleted;
+    modalCompleteButton.textContent=isCompleted?'Erledigt':'Als erledigt markieren';
   }
   if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(String(row[0]||'')==='82')loadTaskApproval(st).catch(console.warn);if(taskActiveTab==='review')loadTaskAiInteractions(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);if(taskActiveTab==='approval')bindTaskApproval(st);}
   if(activeTaskContext.globalRoom && taskActiveTab!=='room')bindGlobalTaskOverview(sub);
@@ -4227,7 +4231,7 @@ function renderTaskModal(){
   }
   document.getElementById('task-modal-delete-state').style.display='';
   const folder=ensureExplorerFolder(st),docCount=(st.documents||[]).length;
-  document.getElementById('task-modal-side').innerHTML=`<div class="task-section"><h3>Aufgabenstatus</h3><div class="status-summary"><div class="status-summary-main"><strong>${luminaEsc(st.workStatus)}</strong><span class="status-chip ${st.workStatus==='Abgeschlossen'?'done':''}">${luminaEsc(taskTiming(row,st))}</span></div><div class="status-summary-lines"><div class="status-line"><span>Prüfung</span><b>${luminaEsc(st.reviewStatus)}</b></div><div class="status-line"><span>Verantwortlich</span><b>${luminaEsc(p.name)}</b></div><div class="status-line"><span>Liefertermin</span><b>${luminaEsc(due?formatDateDE(due):(row[8]||'–'))}</b></div><div class="status-line"><span>Datenraum</span><b>${docCount} Dokument${docCount===1?'':'e'}</b></div><div class="status-line"><span>Ordner</span><b title="${luminaEsc(folder.names.join(' / '))}">${luminaEsc(folder.name)}</b></div></div>${approvalSidebarHtml(st)}</div></div><div class="task-section"><h3>Aktivitätsverlauf</h3><div class="activity-list">${(st.activities||[]).map(a=>`<div class="activity-item">${luminaEsc(a.text)}<div class="activity-meta">${formatDateTime(a.at)}</div></div>`).join('')||'<div class="activity-item">Noch keine Aktivität</div>'}</div></div>`;
+  document.getElementById('task-modal-side').innerHTML=`<div class="task-section task-note-section"><h3>Kommentar / Bearbeitungsnotiz</h3><div class="task-field"><textarea id="task-internal-comment" placeholder="Zum Beispiel: Keine Besonderheiten">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div><div class="task-note-hint">Speichern hält die Aufgabe offen. „Als erledigt markieren“ speichert den Kommentar und schließt die Aufgabe ab.</div></div><div class="task-section"><h3>Aufgabenstatus</h3><div class="status-summary"><div class="status-summary-main"><strong>${luminaEsc(st.workStatus)}</strong><span class="status-chip ${st.workStatus==='Abgeschlossen'?'done':''}">${luminaEsc(taskTiming(row,st))}</span></div><div class="status-summary-lines"><div class="status-line"><span>Prüfung</span><b>${luminaEsc(st.reviewStatus)}</b></div><div class="status-line"><span>Verantwortlich</span><b>${luminaEsc(p.name)}</b></div><div class="status-line"><span>Liefertermin</span><b>${luminaEsc(due?formatDateDE(due):(row[8]||'–'))}</b></div><div class="status-line"><span>Datenraum</span><b>${docCount} Dokument${docCount===1?'':'e'}</b></div><div class="status-line"><span>Ordner</span><b title="${luminaEsc(folder.names.join(' / '))}">${luminaEsc(folder.name)}</b></div></div>${approvalSidebarHtml(st)}</div></div><div class="task-section"><h3>Aktivitätsverlauf</h3><div class="activity-list">${(st.activities||[]).map(a=>`<div class="activity-item">${luminaEsc(a.text)}<div class="activity-meta">${formatDateTime(a.at)}</div></div>`).join('')||'<div class="activity-item">Noch keine Aktivität</div>'}</div></div>`;
 }
 function addSubmission(row,st){const file=document.getElementById('task-file').files[0],url=document.getElementById('task-link').value.trim(),txt=document.getElementById('task-text').value.trim(),comment=document.getElementById('task-comment').value.trim();const finish=(fileObj)=>{if(fileObj)st.submissions.push(fileObj);if(url)st.submissions.push({type:'Link',url,label:url,comment,at:luminaNow()});if(txt)st.submissions.push({type:'Text',text:txt,label:txt,comment,at:luminaNow()});if(!fileObj&&!url&&!txt&&comment)st.submissions.push({type:'Kommentar',text:comment,label:comment,at:luminaNow()});if(!fileObj&&!url&&!txt&&!comment){showTopNote('Bitte Datei, Link, Text oder Kommentar eingeben.',true);return;}const externalRoomOnly=!!url&&!fileObj&&(!txt||txt.length<500);if(externalRoomOnly){st.dataRoomUrl=url;addActivity(st,'Externer Datenraum-Link hinterlegt');}else{st.workStatus='Eingereicht';addActivity(st,'Neue Einreichung im Datenraum');}renderTaskModal();};if(file){if(file.size<=1024*1024){const r=new FileReader();r.onload=()=>finish({type:'Datei',label:file.name,size:file.size,mime:file.type,dataUrl:r.result,comment,at:luminaNow()});r.readAsDataURL(file);}else finish({type:'Datei',label:file.name,size:file.size,mime:file.type,comment,at:luminaNow(),localOnly:true});}else finish(null);}
 
@@ -4408,7 +4412,35 @@ document.getElementById("btn-local-reset").addEventListener("click", () => { if(
 document.getElementById("task-modal-close").addEventListener("click", closeTaskModal);
 document.getElementById("task-modal-cancel").addEventListener("click", closeTaskModal);
 document.getElementById("task-modal-backdrop").addEventListener("click", e => { if(e.target.id === "task-modal-backdrop") closeTaskModal(); });
-document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById('task-modal-save');if(taskActiveTab==='approval'){closeTaskModal();render();return;}button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });
+async function persistActiveTask({complete=false}={}){
+  if(!activeTaskContext||activeTaskContext.globalRoom||taskActiveTab==='approval')return;
+  const saveButton=document.getElementById('task-modal-save'),completeButton=document.getElementById('task-modal-complete'),{sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),previousStatus=st.workStatus,comment=document.getElementById('task-internal-comment');
+  if(comment)st.internalComment=comment.value.trim();
+  if(complete)st.workStatus='Abgeschlossen';
+  if(saveButton)saveButton.disabled=true;if(completeButton)completeButton.disabled=true;
+  try{
+    await saveLuminaTaskToSupabase(row,st);
+    addActivity(st,complete?'Aufgabe als erledigt markiert':'Bearbeitungsnotiz gespeichert');
+    saveLuminaLocal();render();
+    if(complete){
+      closeTaskModal();
+      if(document.getElementById('digest-modal-backdrop')?.classList.contains('open'))await renderMyDay();
+      showTopNote('Aufgabe wurde als erledigt markiert.');
+    }else{
+      renderTaskModal();
+      showTopNote('Kommentar und Aufgabenstand wurden gespeichert.');
+    }
+  }catch(error){
+    st.workStatus=previousStatus;
+    setLuminaSyncState(complete?'Erledigen fehlgeschlagen':'Speichern fehlgeschlagen',true);
+    showTopNote((complete?'Aufgabe konnte nicht erledigt werden: ':'Supabase-Speichern fehlgeschlagen: ')+(error.message||error),true);
+  }finally{
+    if(saveButton?.isConnected)saveButton.disabled=false;
+    if(completeButton?.isConnected)completeButton.disabled=st.workStatus==='Abgeschlossen';
+  }
+}
+document.getElementById("task-modal-save").addEventListener("click",()=>persistActiveTask());
+document.getElementById("task-modal-complete").addEventListener("click",()=>persistActiveTask({complete:true}));
 document.getElementById("task-modal-delete-state").addEventListener("click", () => { if(activeTaskContext && !activeTaskContext.globalRoom && confirm("Status, Einreichungen und Verlauf dieser Aufgabe zurücksetzen?")){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri]; if(sub.data.taskStates && row[12]) delete sub.data.taskStates[row[12]]; renderTaskModal(); scheduleLuminaSave(); } });
 document.addEventListener("input", scheduleLuminaSave, true);
 document.addEventListener("change", scheduleLuminaSave, true);

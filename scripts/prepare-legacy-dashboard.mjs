@@ -150,6 +150,66 @@ html = html.replace(
 );
 
 
+
+// Every task gets a persistent note field plus explicit Save and Complete actions.
+// Approval-only views remain excluded because approvers may not have task-edit rights.
+html = html.replace(
+  ".task-footer{padding:14px 24px}.task-footer-actions{display:flex;gap:8px}",
+  ".task-footer{padding:14px 24px}.task-footer-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.task-note-section{padding:14px;border:1px solid var(--border);border-radius:12px;background:#fff}.task-note-section textarea{min-height:96px}.task-note-hint{margin-top:7px;font-size:10.5px;line-height:1.4;color:var(--text-faint)}#task-modal-complete:disabled{cursor:default;opacity:.72}",
+);
+html = html.replace(
+  '<div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-save" id="task-modal-save">Speichern</button></div></div>',
+  '<div class="task-footer"><button class="btn-danger" id="task-modal-delete-state">Aufgabenstatus zurücksetzen</button><div class="task-footer-actions"><button class="btn-secondary" id="task-modal-cancel">Schließen</button><button class="btn-secondary" id="task-modal-save">Speichern</button><button class="btn-save" id="task-modal-complete">Als erledigt markieren</button></div></div>',
+);
+html = html.replace(
+  '<div class="task-field span-2"><label>Interner Kommentar</label><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||\'\')}</textarea></div>',
+  '',
+);
+html = html.replace(
+  '<section class="work-guide-card"><h3>Interner Kommentar</h3><div class="task-field"><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||\'\')}</textarea></div></section>',
+  '',
+);
+html = html.replace(
+  "  const modalSaveButton=document.getElementById('task-modal-save');\n  if(modalSaveButton){\n    const approvalOnlyView=!activeTaskContext.globalRoom&&taskActiveTab==='approval';\n    modalSaveButton.style.display=approvalOnlyView?'none':'inline-flex';\n  }",
+  "  const modalSaveButton=document.getElementById('task-modal-save'),modalCompleteButton=document.getElementById('task-modal-complete');\n  const taskActionsHidden=activeTaskContext.globalRoom||taskActiveTab==='approval';\n  if(modalSaveButton)modalSaveButton.style.display=taskActionsHidden?'none':'inline-flex';\n  if(modalCompleteButton){\n    modalCompleteButton.style.display=taskActionsHidden?'none':'inline-flex';\n    const isCompleted=st.workStatus==='Abgeschlossen';\n    modalCompleteButton.disabled=isCompleted;\n    modalCompleteButton.textContent=isCompleted?'Erledigt':'Als erledigt markieren';\n  }",
+);
+html = html.replace(
+  "document.getElementById('task-modal-side').innerHTML=`<div class=\"task-section\"><h3>Aufgabenstatus</h3>",
+  "document.getElementById('task-modal-side').innerHTML=`<div class=\"task-section task-note-section\"><h3>Kommentar / Bearbeitungsnotiz</h3><div class=\"task-field\"><textarea id=\"task-internal-comment\" placeholder=\"Zum Beispiel: Keine Besonderheiten\">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div><div class=\"task-note-hint\">Speichern hält die Aufgabe offen. „Als erledigt markieren“ speichert den Kommentar und schließt die Aufgabe ab.</div></div><div class=\"task-section\"><h3>Aufgabenstatus</h3>",
+);
+html = html.replace(
+  'document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById(\'task-modal-save\');if(taskActiveTab===\'approval\'){closeTaskModal();render();return;}button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState(\'Speichern fehlgeschlagen\',true);showTopNote(\'Supabase-Speichern fehlgeschlagen: \'+error.message,true);}finally{button.disabled=false;} });',
+  `async function persistActiveTask({complete=false}={}){
+  if(!activeTaskContext||activeTaskContext.globalRoom||taskActiveTab==='approval')return;
+  const saveButton=document.getElementById('task-modal-save'),completeButton=document.getElementById('task-modal-complete'),{sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),previousStatus=st.workStatus,comment=document.getElementById('task-internal-comment');
+  if(comment)st.internalComment=comment.value.trim();
+  if(complete)st.workStatus='Abgeschlossen';
+  if(saveButton)saveButton.disabled=true;if(completeButton)completeButton.disabled=true;
+  try{
+    await saveLuminaTaskToSupabase(row,st);
+    addActivity(st,complete?'Aufgabe als erledigt markiert':'Bearbeitungsnotiz gespeichert');
+    saveLuminaLocal();render();
+    if(complete){
+      closeTaskModal();
+      if(document.getElementById('digest-modal-backdrop')?.classList.contains('open'))await renderMyDay();
+      showTopNote('Aufgabe wurde als erledigt markiert.');
+    }else{
+      renderTaskModal();
+      showTopNote('Kommentar und Aufgabenstand wurden gespeichert.');
+    }
+  }catch(error){
+    st.workStatus=previousStatus;
+    setLuminaSyncState(complete?'Erledigen fehlgeschlagen':'Speichern fehlgeschlagen',true);
+    showTopNote((complete?'Aufgabe konnte nicht erledigt werden: ':'Supabase-Speichern fehlgeschlagen: ')+(error.message||error),true);
+  }finally{
+    if(saveButton?.isConnected)saveButton.disabled=false;
+    if(completeButton?.isConnected)completeButton.disabled=st.workStatus==='Abgeschlossen';
+  }
+}
+document.getElementById("task-modal-save").addEventListener("click",()=>persistActiveTask());
+document.getElementById("task-modal-complete").addEventListener("click",()=>persistActiveTask({complete:true}));`,
+);
+
 // Keep the embedded dashboard on an access-token-only client. The refresh token
 // remains in the parent Next.js application and is never exposed to legacy code.
 html = html.replace(
