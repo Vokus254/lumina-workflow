@@ -3832,21 +3832,61 @@ function projectFolderMajorFromRow(row){
   return match ? parseInt(match[1], 10) : null;
 }
 
+// Prozessschritt-Nummer einer Zeile, z. B. "3.14" aus
+// "3.14. Vorbereitung Gewinn- und Verlustrechnung".
+function projectFolderStepNumber(row){
+  const step = String((row && row[1]) || "").trim();
+  const match = step.match(/^(\d+(?:\.\d+)*)/);
+  return match ? match[1] : "";
+}
+
+// Titel ohne eine bereits im Text enthaltene Prozessschritt-Nummer, damit
+// der Ordnername die Nummer nicht doppelt führt.
+function projectFolderTitle(row){
+  const raw = String((row && (row[3] || row[1] || row[5])) || "Maßnahme");
+  return raw.replace(/^\s*\d+(?:\.\d+)*\.?\s*/, "").trim() || "Maßnahme";
+}
+
+// Letzte Absicherung: Maßnahmen mit identischem Ordnernamen würden im
+// Dateisystem zu einem Ordner verschmelzen. Ein Zusatz hält jede Zeile
+// als eigenen Ordner erhalten.
+function dedupeProjectFolderNames(children){
+  const seen = new Map();
+  children.forEach(child => {
+    const count = (seen.get(child.name) || 0) + 1;
+    seen.set(child.name, count);
+    if(count > 1) child.name = sanitizeFileName(`${child.name} (${count})`);
+  });
+}
+
 // Eigenständiges Laufzeitmodell für den Projektordner-Export: 1 Ordner je
 // Station (stations-Array, in Reihenfolge) + 1 Unterordner je Maßnahme,
-// gruppiert über row[1]. Rührt sub.data.tree (Datenraum-Baum) nicht an.
+// gruppiert über row[1]. Der Ordnername trägt die echte Prozessschritt-
+// Nummer ("1.0 Prüfungsauftrag …"); teilen sich mehrere Maßnahmen dieselbe
+// Nummer, wird innerhalb dieser Gruppe fortlaufend ergänzt ("3.0.1", "3.0.5"),
+// damit jede Zeile der Maßnahmenliste genau einen Ordner behält.
+// Rührt sub.data.tree (Datenraum-Baum) nicht an.
 function buildProjectFolderModel(){
   const pbc = luminaPbcRows();
   const rows = pbc ? pbc.rows : [];
   const stationNodes = stations.map(station => ({ name: sanitizeFileName(station.title || "Station"), children: [] }));
   const unassigned = { name: "0. Ohne Prozessschritt", children: [] };
+  const groupSizes = new Map();
+  rows.forEach(row => {
+    const step = projectFolderStepNumber(row);
+    groupSizes.set(step, (groupSizes.get(step) || 0) + 1);
+  });
+  const groupSeen = new Map();
   rows.forEach((row, index) => {
     const major = projectFolderMajorFromRow(row);
     const target = (major && stationNodes[major - 1]) ? stationNodes[major - 1] : unassigned;
-    const label = row[0] || String(index + 1);
-    const title = row[3] || row[1] || "Maßnahme";
-    target.children.push({ name: sanitizeFileName(`${label} ${title}`) });
+    const step = projectFolderStepNumber(row);
+    const seq = (groupSeen.get(step) || 0) + 1;
+    groupSeen.set(step, seq);
+    const prefix = !step ? String(index + 1) : (groupSizes.get(step) > 1 ? `${step}.${seq}` : step);
+    target.children.push({ name: sanitizeFileName(`${prefix} ${projectFolderTitle(row)}`) });
   });
+  stationNodes.concat(unassigned).forEach(node => dedupeProjectFolderNames(node.children));
   const nodes = unassigned.children.length ? [...stationNodes, unassigned] : stationNodes;
   return { nodes, rowCount: rows.length, unassignedCount: unassigned.children.length, stationCount: stationNodes.length };
 }
