@@ -894,6 +894,57 @@
   .lumina-session-email{font-size:12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .lumina-sync-state{font-size:12px;color:var(--done-text);white-space:nowrap;}
   @media(max-width:900px){.lumina-session-email{display:none}.lumina-auth-card{padding:26px}.lumina-sync-state{display:none}}
+
+  /* ---------- Vier-Block-Ansicht je Prozessschritt (process_step_guidance) ---------- */
+  .guide-wrap{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;align-items:start;max-width:1180px;}
+  .guide-col{display:grid;gap:18px;align-content:start;min-width:0;}
+  .guide-block{background:#fff;border:1px solid var(--border);border-radius:14px;padding:22px 24px;}
+  .guide-block-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px;}
+  .guide-block-title{font-size:15px;font-weight:700;color:var(--text-primary);}
+  .guide-block-hint{font-size:11.5px;color:var(--text-faint);}
+  .guide-goal{font-size:13.5px;line-height:1.5;color:var(--text-secondary);margin:0 0 18px;}
+  .guide-section{margin-top:18px;}
+  .guide-section-title{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;}
+  .guide-list{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:1.5;color:var(--text-secondary);}
+  .guide-list.warn li::marker{color:#b42318;}
+  .guide-steps{display:grid;gap:8px;}
+  .guide-step{all:unset;cursor:pointer;display:grid;grid-template-columns:22px 1fr;gap:11px;align-items:start;padding:9px 11px;border:1px solid var(--border);border-radius:10px;font-size:13px;line-height:1.45;color:var(--text-primary);transition:border-color .15s,background .15s;}
+  .guide-step:hover{border-color:#CFCFD4;background:var(--hover);}
+  .guide-step:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .guide-step-check{width:20px;height:20px;border-radius:6px;border:1.5px solid #C9C9CE;background:#fff;position:relative;margin-top:1px;}
+  .guide-step.is-done .guide-step-check{background:var(--accent);border-color:var(--accent);}
+  .guide-step.is-done .guide-step-check::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(40deg);}
+  .guide-step.is-done .guide-step-text{color:var(--text-faint);text-decoration:line-through;text-decoration-color:var(--text-faint);}
+  .guide-step-num{font-weight:700;color:var(--text-faint);margin-right:6px;}
+  .guide-meta{display:grid;gap:10px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border);}
+  .guide-meta-row{display:grid;grid-template-columns:150px 1fr;gap:12px;font-size:12.5px;line-height:1.45;}
+  .guide-meta-row dt{color:var(--text-faint);font-weight:600;}
+  .guide-meta-row dd{margin:0;color:var(--text-secondary);}
+  .guide-helper{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0 4px;}
+  .guide-helper-name{font-size:13.5px;font-weight:600;color:var(--text-primary);flex:1 1 220px;}
+  .guide-fields{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;}
+  .guide-field-chip{font-size:11.5px;color:var(--text-secondary);background:#F1F1F3;border-radius:999px;padding:4px 9px;}
+  .guide-empty{font-size:12.5px;color:var(--text-faint);line-height:1.5;}
+  .guide-status-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--border);}
+  .guide-status-row:first-of-type{border-top:0;}
+  .guide-status-title{font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.35;}
+  .guide-status-sub{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+  .guide-status-row select{font:inherit;font-size:12.5px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text-primary);}
+  .guide-status-row select:focus{outline:1.5px solid var(--accent);outline-offset:-1px;}
+  .guide-summary{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;}
+  .guide-chip{font-size:11.5px;font-weight:600;color:var(--text-secondary);background:#F1F1F3;border-radius:999px;padding:5px 10px;}
+  .guide-chip.done{background:var(--done-bg);color:var(--done-text);}
+  .guide-chip.warn{background:#FDECEA;color:#b42318;}
+  .guide-upload{display:grid;gap:12px;margin-top:14px;}
+  .guide-upload label{display:grid;gap:6px;font-size:12px;font-weight:600;color:var(--text-secondary);}
+  .guide-upload input,.guide-upload select{font:inherit;font-size:13px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text-primary);}
+  .guide-upload input:focus,.guide-upload select:focus{outline:1.5px solid var(--accent);outline-offset:-1px;}
+  .guide-docs{display:grid;gap:6px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);}
+  .guide-doc{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;font-size:12.5px;color:var(--text-secondary);}
+  .guide-doc-name{color:var(--text-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .guide-doc-sub{font-size:11px;color:var(--text-faint);}
+  .guide-note{font-size:11.5px;color:var(--text-faint);line-height:1.5;margin-top:12px;}
+  @media(max-width:980px){.guide-wrap{grid-template-columns:1fr;}.guide-meta-row{grid-template-columns:1fr;gap:2px;}}
 </style>
 </head>
 <body>
@@ -1018,14 +1069,26 @@ function Ms(title, subs){ return { title, subitems: subs.map(s => typeof s === "
 
 const stations = []
 let view = { level: "grid" };
+// Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
+const guidanceByCode = new Map();
 
-function measureDone(m){ return m.subitems.every(s => s.done); }
-function measureSubDone(m){ return m.subitems.filter(s => s.done).length; }
+// Kacheln mit hinterlegter Anleitung zählen die Schritte aus was_ist_zu_tun,
+// alle übrigen wie bisher ihre Teilschritt-Karten.
+function measureProgress(m){
+  const steps = guidanceStepList(m);
+  if(steps.length){
+    const checks = guidanceChecks(m, steps.length);
+    return { done: checks.filter(Boolean).length, total: steps.length };
+  }
+  return { done: m.subitems.filter(s => s.done).length, total: m.subitems.length };
+}
+function measureDone(m){ const p = measureProgress(m); return p.done === p.total; }
+function measureSubDone(m){ return measureProgress(m).done; }
 function stationDone(s){ return s.measures.filter(measureDone).length; }
 
 function overallTotals(){
   let done = 0, total = 0;
-  stations.forEach(s => s.measures.forEach(m => { total += m.subitems.length; done += measureSubDone(m); }));
+  stations.forEach(s => s.measures.forEach(m => { const p = measureProgress(m); total += p.total; done += p.done; }));
   return { done, total };
 }
 
@@ -1081,7 +1144,10 @@ function renderBreadcrumb(){
   trail.appendChild(measureCrumb);
 
   if(view.level === "subitems"){
-    desc.textContent = "Vorgeschlagene Teilschritte — anklicken zum Abhaken.";
+    const guide = guidanceForMeasure(m);
+    desc.textContent = guide
+      ? "Anleitung, Arbeitshilfe, Status und Upload für diesen Prozessschritt."
+      : "Vorgeschlagene Teilschritte — anklicken zum Abhaken.";
     return;
   }
 
@@ -1148,9 +1214,9 @@ function renderGrid(){
   if(view.level === "measures"){
     const s = stations[view.station];
     s.measures.forEach((m, j) => {
-      const d = measureSubDone(m);
-      const complete = d === m.subitems.length;
-      const pct = Math.round((d / m.subitems.length) * 100);
+      const { done: d, total: mTotal } = measureProgress(m);
+      const complete = d === mTotal;
+      const pct = mTotal ? Math.round((d / mTotal) * 100) : 0;
       const tile = document.createElement("button");
       tile.className = "tile" + (complete ? " is-complete" : "");
       tile.innerHTML = `
@@ -1158,7 +1224,7 @@ function renderGrid(){
         <span class="tile-title">${m.title}</span>
         <div class="tile-bottom">
           <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
-          <span class="tile-frac">${d}/${m.subitems.length}</span>
+          <span class="tile-frac">${d}/${mTotal}</span>
         </div>
       `;
       tile.addEventListener("click", () => {
@@ -3743,6 +3809,10 @@ function render(){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderMilestones();
+  } else if(view.level === "subitems" && guidanceForView()){
+    grid.style.display = "none";
+    formContainer.style.display = "";
+    renderStepGuidance();
   } else {
     grid.style.display = "";
     formContainer.style.display = "none";
@@ -4217,6 +4287,235 @@ function setLuminaAuthError(message){document.getElementById('lumina-auth-error'
 function setLuminaSyncState(message,isError=false){const el=document.getElementById('lumina-sync-state');if(!el)return;el.textContent=message;el.style.color=isError?'#b42318':'';}
 function luminaPbcRows(){const sub=getPbcSub();return sub&&sub.data&&Array.isArray(sub.data.rows)?{sub,rows:sub.data.rows}:null;}
 
+/* ---------- Vier-Block-Ansicht je Prozessschritt ----------
+   Kacheln, für die in public.process_step_guidance eine Anleitung hinterlegt ist, zeigen
+   statt der leeren Teilschritt-Karten vier Blöcke: Anleitung, Arbeitshilfe-Download,
+   Status und Datei-Upload. Ohne Datensatz bleibt die bisherige Kachelansicht bestehen. */
+
+// "3.12. Vorbereitung Rückstellungen" -> "3.12"
+function guidanceStepCode(title){ const match=String(title||'').trim().match(/^(\d+(?:\.\d+)+)/); return match?match[1]:''; }
+function guidanceList(value){ return Array.isArray(value)?value.filter(item=>String(item||'').trim()):[]; }
+function guidanceForMeasure(m){ return m?guidanceByCode.get(guidanceStepCode(m.title))||null:null; }
+function guidanceStepList(m){ const guide=guidanceForMeasure(m); return guide?guidanceList(guide.was_ist_zu_tun):[]; }
+function guidanceCurrentMeasure(){ return view.level==='subitems'?(stations[view.station]?.measures?.[view.measure]||null):null; }
+function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure()); }
+function guidanceChecks(m,total){
+  if(!Array.isArray(m.guidanceChecks)) m.guidanceChecks=[];
+  while(m.guidanceChecks.length<total) m.guidanceChecks.push(false);
+  if(m.guidanceChecks.length>total) m.guidanceChecks.length=total;
+  return m.guidanceChecks;
+}
+function guidanceTasks(code){
+  const pbc=luminaPbcRows();
+  if(!pbc||!code) return [];
+  return pbc.rows.map((row,ri)=>({row,ri,sub:pbc.sub,state:ensureTaskState(pbc.sub.data,row,ri)}))
+    .filter(entry=>guidanceStepCode(entry.row[1])===code);
+}
+
+async function loadProcessStepGuidance(){
+  guidanceByCode.clear();
+  const {data,error}=await luminaDb.from('process_step_guidance').select('*,process_steps!inner(code,legacy_source_key)');
+  if(error){ console.warn('Prozessschritt-Anleitungen konnten nicht geladen werden',error); return; }
+  (data||[]).forEach(row=>{
+    const code=row.process_steps?.code||String(row.process_steps?.legacy_source_key||'').replace(/^taxonomy:/,'');
+    if(code) guidanceByCode.set(String(code),row);
+  });
+}
+
+function guidanceDownloadBlob(blob,fileName){
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+// Fallback, solange die Vorlage im Bucket lumina-templates fehlt: leere Mappe aus arbeitshilfe_felder.
+function guidanceBuildHelperWorkbook(guide,fileName){
+  const fields=guidanceList(guide.arbeitshilfe_felder);
+  const header=fields.length?fields:['Spalte 1'];
+  const ws=XLSX.utils.aoa_to_sheet([header]);
+  ws['!cols']=header.map(field=>({wch:Math.max(14,Math.min(38,String(field).length+4))}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Arbeitshilfe');
+  XLSX.writeFile(wb,fileName.replace(/\.[^.]+$/,'')+'.xlsx');
+}
+async function guidanceDownloadHelper(guide){
+  const button=document.getElementById('guide-helper-download');
+  const fileName=String(guide.arbeitshilfe_storage_path||guide.arbeitshilfe_name||'Arbeitshilfe').split('/').pop();
+  if(button){button.disabled=true;button.textContent='Wird geladen ...';}
+  try{
+    if(guide.arbeitshilfe_storage_path){
+      const bucket=guide.arbeitshilfe_storage_bucket||'lumina-templates';
+      const {data,error}=await luminaDb.storage.from(bucket).download(guide.arbeitshilfe_storage_path);
+      if(!error&&data){ guidanceDownloadBlob(data,fileName); showTopNote('Arbeitshilfe heruntergeladen.'); return; }
+      console.warn('Vorlage nicht im Bucket verfügbar, erzeuge leere Arbeitshilfe',error);
+    }
+    guidanceBuildHelperWorkbook(guide,fileName);
+    showTopNote('Vorlage ist noch nicht hinterlegt — leere Arbeitshilfe aus den Spalten erzeugt.');
+  }catch(error){
+    showTopNote('Arbeitshilfe konnte nicht bereitgestellt werden: '+(error.message||error),true);
+  }finally{
+    if(button){button.disabled=false;button.textContent='Arbeitshilfe herunterladen';}
+  }
+}
+
+async function guidanceSaveStatus(entry,workStatus){
+  entry.state.workStatus=workStatus;
+  addActivity(entry.state,`Status über die Schritt-Anleitung gesetzt: ${workStatus}`);
+  try{ await saveLuminaTaskToSupabase(entry.row,entry.state); }
+  catch(error){ showTopNote('Status konnte nicht gespeichert werden: '+(error.message||error),true); }
+  render();
+}
+
+async function guidanceUploadDocument(code){
+  const tasks=guidanceTasks(code);
+  const select=document.getElementById('guide-upload-task');
+  const entry=tasks.find(task=>String(task.ri)===String(select?.value))||tasks[0];
+  const file=document.getElementById('guide-upload-file')?.files?.[0];
+  const comment=(document.getElementById('guide-upload-comment')?.value||'').trim();
+  if(!entry){ showTopNote('Für diesen Prozessschritt ist keine Aufgabe hinterlegt.',true); return; }
+  if(!file){ showTopNote('Bitte eine Datei auswählen.',true); return; }
+  if(!entry.state.remoteTaskId){ showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true); return; }
+  const button=document.getElementById('guide-upload-save');
+  if(button){button.disabled=true;button.textContent='Wird hochgeladen ...';}
+  let prepared=null;
+  try{
+    const {data,error}=await luminaDb.rpc('prepare_document_upload',{
+      p_task_id:entry.state.remoteTaskId,
+      p_original_file_name:file.name,
+      p_mime_type:file.type||'application/octet-stream',
+      p_file_size:file.size,
+      p_upload_comment:comment||null
+    });
+    if(error)throw error;
+    prepared=Array.isArray(data)?data[0]:data;
+    if(!prepared?.storage_path)throw new Error('Supabase hat keinen Speicherpfad geliefert.');
+    const {error:uploadError}=await luminaDb.storage.from(prepared.storage_bucket||'lumina-datarooms')
+      .upload(prepared.storage_path,file,{contentType:file.type||'application/octet-stream',upsert:false});
+    if(uploadError)throw uploadError;
+    entry.state.documents.push({
+      id:prepared.document_id,remoteDocumentId:prepared.document_id,remoteVersionId:prepared.version_id,
+      name:file.name,size:file.size,mime:file.type||'application/octet-stream',comment,
+      folderPath:entry.state.folderPath||ensureExplorerFolder(entry.state).key,
+      taskId:entry.row[12],taskNumber:entry.row[0]||'',taskTitle:entry.row[3]||entry.row[1]||'',
+      uploadedAt:luminaNow(),version:1,
+      storageBucket:prepared.storage_bucket||'lumina-datarooms',storagePath:prepared.storage_path,persisted:true
+    });
+    entry.state.workStatus='Eingereicht';
+    addActivity(entry.state,`Dokument über die Schritt-Anleitung abgelegt: ${file.name}`);
+    try{ await saveLuminaTaskToSupabase(entry.row,entry.state); }
+    catch(statusError){ console.warn('Status konnte nicht gespeichert werden',statusError); }
+    showTopNote('Dokument dauerhaft gespeichert.');
+    render();
+  }catch(error){
+    if(prepared?.document_id) await luminaDb.rpc('cancel_document_upload',{p_document_id:prepared.document_id});
+    showTopNote('Upload fehlgeschlagen: '+(error.message||error),true);
+    if(button){button.disabled=false;button.textContent='Datei hochladen';}
+  }
+}
+
+function guidanceBulletBlock(title,items,extraClass){
+  if(!items.length) return '';
+  return `<div class="guide-section"><div class="guide-section-title">${luminaEsc(title)}</div><ul class="guide-list ${extraClass||''}">${items.map(item=>`<li>${luminaEsc(item)}</li>`).join('')}</ul></div>`;
+}
+
+function renderStepGuidance(){
+  const m=guidanceCurrentMeasure(),guide=guidanceForMeasure(m);
+  const container=document.getElementById('form-container');
+  if(!m||!guide){ container.innerHTML=''; return; }
+  const code=guidanceStepCode(m.title);
+  const steps=guidanceList(guide.was_ist_zu_tun),checks=guidanceChecks(m,steps.length);
+  const tasks=guidanceTasks(code);
+  const statusOptions=Object.keys(LUMINA_WORK_TO_REMOTE);
+  const docs=tasks.flatMap(task=>(task.state.documents||[]).map(doc=>({...doc,taskNumber:doc.taskNumber||task.row[0]||''})));
+  const doneCount=checks.filter(Boolean).length;
+  const openTasks=tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
+  const overdue=tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length;
+
+  const anleitung=`
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Anleitung</div><div class="guide-block-hint">Prozessschritt ${luminaEsc(code)}</div></div>
+      ${guide.ziel?`<p class="guide-goal">${luminaEsc(guide.ziel)}</p>`:''}
+      <div class="guide-section">
+        <div class="guide-section-title">Was ist zu tun · ${doneCount}/${steps.length} erledigt</div>
+        <div class="guide-steps">
+          ${steps.map((step,i)=>`<button type="button" class="guide-step ${checks[i]?'is-done':''}" data-guide-step="${i}"><span class="guide-step-check"></span><span class="guide-step-text"><span class="guide-step-num">${i+1}.</span>${luminaEsc(step)}</span></button>`).join('')}
+        </div>
+      </div>
+      ${guidanceBulletBlock('Benötigte Unterlagen',guidanceList(guide.benoetigte_unterlagen))}
+      ${guidanceBulletBlock('Liefergegenstand',guidanceList(guide.liefergegenstand))}
+      ${guidanceBulletBlock('Typische Fehler',guidanceList(guide.typische_fehler),'warn')}
+      <dl class="guide-meta">
+        ${guide.erledigt_wenn?`<div class="guide-meta-row"><dt>Erledigt, wenn</dt><dd>${luminaEsc(guide.erledigt_wenn)}</dd></div>`:''}
+        ${guide.zustaendige_rolle?`<div class="guide-meta-row"><dt>Zuständige Rolle</dt><dd>${luminaEsc(guide.zustaendige_rolle)}</dd></div>`:''}
+        ${guide.rechtsgrundlage?`<div class="guide-meta-row"><dt>Rechtsgrundlage</dt><dd>${luminaEsc(guide.rechtsgrundlage)}</dd></div>`:''}
+      </dl>
+    </section>`;
+
+  const arbeitshilfe=`
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Arbeitshilfe</div><div class="guide-block-hint">Excel-Vorlage</div></div>
+      ${guide.arbeitshilfe_name?`<div class="guide-helper"><span class="guide-helper-name">${luminaEsc(guide.arbeitshilfe_name)}</span><button type="button" class="btn-save" id="guide-helper-download">Arbeitshilfe herunterladen</button></div>`
+        :'<div class="guide-empty">Für diesen Prozessschritt ist keine Arbeitshilfe hinterlegt.</div>'}
+      ${guidanceList(guide.arbeitshilfe_felder).length?`<div class="guide-section-title" style="margin-top:16px">Spalten der Vorlage</div><div class="guide-fields">${guidanceList(guide.arbeitshilfe_felder).map(field=>`<span class="guide-field-chip">${luminaEsc(field)}</span>`).join('')}</div>`:''}
+    </section>`;
+
+  const status=`
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Status</div><div class="guide-block-hint">${tasks.length} Aufgabe${tasks.length===1?'':'n'}</div></div>
+      <div class="guide-summary">
+        <span class="guide-chip ${doneCount===steps.length&&steps.length?'done':''}">Anleitung ${doneCount}/${steps.length}</span>
+        <span class="guide-chip">${openTasks} offen</span>
+        ${overdue?`<span class="guide-chip warn">${overdue} überfällig</span>`:''}
+        <span class="guide-chip">${docs.length} Dokument${docs.length===1?'':'e'}</span>
+      </div>
+      ${tasks.length?tasks.map(task=>`
+        <div class="guide-status-row">
+          <div>
+            <div class="guide-status-title">${luminaEsc(task.row[3]||task.row[1]||'Maßnahme')}</div>
+            <div class="guide-status-sub">Nr. ${luminaEsc(task.row[0]||'–')} · ${luminaEsc(responsible(task.row).name)} · ${luminaEsc(taskEffectiveDate(task.row)?formatDateDE(taskEffectiveDate(task.row)):'ohne Termin')}</div>
+          </div>
+          <select data-guide-status="${task.ri}" ${task.state.remoteTaskId?'':'disabled title="Noch keinem Supabase-Datensatz zugeordnet"'}>
+            ${statusOptions.map(option=>`<option value="${luminaEsc(option)}" ${option===task.state.workStatus?'selected':''}>${luminaEsc(option)}</option>`).join('')}
+          </select>
+        </div>`).join('')
+        :'<div class="guide-empty">Zu diesem Prozessschritt ist noch keine Aufgabe aus der Maßnahmenliste zugeordnet.</div>'}
+    </section>`;
+
+  const upload=`
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Datei-Upload</div><div class="guide-block-hint">Supabase-Datenraum</div></div>
+      ${tasks.length?`
+      <div class="guide-upload">
+        ${tasks.length>1?`<label>Aufgabe<select id="guide-upload-task">${tasks.map(task=>`<option value="${task.ri}">${luminaEsc(task.row[0]||'–')} · ${luminaEsc(task.row[3]||task.row[1]||'Maßnahme')}</option>`).join('')}</select></label>`:''}
+        <label>Datei<input id="guide-upload-file" type="file"></label>
+        <label>Kommentar<input id="guide-upload-comment" type="text" placeholder="optional"></label>
+        <div><button type="button" class="btn-save" id="guide-upload-save">Datei hochladen</button></div>
+      </div>
+      <div class="guide-note">Die Datei wird der ausgewählten Aufgabe zugeordnet, dauerhaft im privaten Datenraum abgelegt und setzt deren Status auf „Eingereicht“.</div>`
+      :'<div class="guide-empty">Ohne zugeordnete Aufgabe kann keine Datei abgelegt werden.</div>'}
+      ${docs.length?`<div class="guide-docs">${docs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">Aufgabe ${luminaEsc(doc.taskNumber||'–')} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`:''}
+    </section>`;
+
+  container.innerHTML=`<div class="guide-wrap"><div class="guide-col">${anleitung}</div><div class="guide-col">${arbeitshilfe}${status}${upload}</div></div>`;
+
+  container.querySelectorAll('[data-guide-step]').forEach(button=>button.addEventListener('click',()=>{
+    const i=Number(button.dataset.guideStep);
+    checks[i]=!checks[i];
+    render();
+  }));
+  const download=document.getElementById('guide-helper-download');
+  if(download) download.addEventListener('click',()=>guidanceDownloadHelper(guide));
+  container.querySelectorAll('[data-guide-status]').forEach(select=>select.addEventListener('change',()=>{
+    const entry=tasks.find(task=>String(task.ri)===select.dataset.guideStatus);
+    if(entry) guidanceSaveStatus(entry,select.value);
+  }));
+  const save=document.getElementById('guide-upload-save');
+  if(save) save.addEventListener('click',()=>guidanceUploadDocument(code));
+  container.querySelectorAll('[data-guide-doc]').forEach(button=>button.addEventListener('click',()=>{
+    const doc=docs.find(entry=>String(entry.id)===button.dataset.guideDoc);
+    if(doc) explorerDownload(doc);
+  }));
+}
+
 async function loadLuminaFromSupabase(){
   setLuminaSyncState('Daten werden geladen ...');
   const [{data:projects,error:projectError},{data:tasks,error:taskError},{data:roles,error:roleError},{data:sourceStates,error:sourceError},{data:documents,error:documentError}]=await Promise.all([
@@ -4230,6 +4529,7 @@ async function loadLuminaFromSupabase(){
   if(!projects||!projects.length)throw new Error('Für dieses Konto ist kein LUMINA-Projekt freigeschaltet.');
   if(!sourceStates||!sourceStates.length||!Array.isArray(sourceStates[0].state))throw new Error('Der geschützte LUMINA-Projektstand fehlt.');
   stations.splice(0,stations.length,...sourceStates[0].state);
+  await loadProcessStepGuidance();
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
   const master=findFirstSubOfType('form');
   const masterSub=stations.flatMap(s=>s.measures||[]).flatMap(m=>m.subitems||[]).find(sub=>Array.isArray(sub.fields)&&sub.fields.some(field=>field.key==='firmierung'));
