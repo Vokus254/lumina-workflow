@@ -1087,6 +1087,17 @@ function measureProgress(m){
     const checks = guidanceChecks(m, steps.length);
     return { done: checks.filter(Boolean).length, total: steps.length };
   }
+  // Dritte Ebene: Unter-Kacheln vom Typ 'guidance' haken nichts ab, ihr Fortschritt steckt in
+  // den eigenen Anleitungsschritten. Ohne diesen Zweig bliebe die Elternkachel dauerhaft 0/n.
+  const guided = m.subitems.filter(s => s.type === "guidance");
+  if(guided.length){
+    return guided.reduce((acc, sub) => {
+      const subSteps = guidanceStepList(sub);
+      acc.done += guidanceChecks(sub, subSteps.length).filter(Boolean).length;
+      acc.total += subSteps.length;
+      return acc;
+    }, { done: 0, total: 0 });
+  }
   return { done: m.subitems.filter(s => s.done).length, total: m.subitems.length };
 }
 function measureDone(m){ const p = measureProgress(m); return p.done === p.total; }
@@ -1158,7 +1169,7 @@ function renderBreadcrumb(){
     return;
   }
 
-  if(view.level === "form" || view.level === "roles" || view.level === "tree" || view.level === "table" || view.level === "import" || view.level === "mapping" || view.level === "pbc" || view.level === "kontenmapping" || view.level === "statement" || view.level === "milestones"){
+  if(view.level === "form" || view.level === "roles" || view.level === "tree" || view.level === "table" || view.level === "import" || view.level === "mapping" || view.level === "pbc" || view.level === "kontenmapping" || view.level === "statement" || view.level === "milestones" || view.level === "guidance"){
     const sub = m.subitems[view.sub];
     trail.appendChild(sepEl());
     const subCrumb = document.createElement("span");
@@ -1183,6 +1194,8 @@ function renderBreadcrumb(){
       ? "Bilanz & GuV nach Ausweisstruktur — alle 7 Ebenen aufklappbar."
       : view.level === "milestones"
       ? "Zeitplan der Meilensteine mit Termin, Abteilung und Status."
+      : view.level === "guidance"
+      ? "Anleitung, Arbeitshilfe, Status und Upload für diesen Prozessschritt."
       : "Stammdaten erfassen und speichern.";
   }
 }
@@ -1272,6 +1285,8 @@ function renderGrid(){
         ? `<span class="tile-form-badge">Auswertung</span><span class="tile-title">${sub.text}</span>`
         : sub.type === "milestones"
         ? `<span class="tile-form-badge">Zeitplan</span><span class="tile-title">${sub.text}</span>`
+        : sub.type === "guidance"
+        ? `<span class="tile-form-badge">Anleitung</span><span class="tile-title">${sub.text}</span>`
         : `<span class="tile-check"></span><span class="tile-title">${sub.text}</span>`;
       tile.addEventListener("click", () => {
         if(sub.fields){
@@ -1303,6 +1318,9 @@ function renderGrid(){
           render();
         } else if(sub.type === "milestones"){
           view = { level: "milestones", station: view.station, measure: view.measure, sub: k };
+          render();
+        } else if(sub.type === "guidance"){
+          view = { level: "guidance", station: view.station, measure: view.measure, sub: k };
           render();
         } else {
           sub.done = !sub.done;
@@ -3816,6 +3834,10 @@ function render(){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderMilestones();
+  } else if(view.level === "guidance"){
+    grid.style.display = "none";
+    formContainer.style.display = "";
+    renderStepGuidance();
   } else if(view.level === "subitems" && guidanceForView()){
     grid.style.display = "none";
     formContainer.style.display = "";
@@ -4302,9 +4324,15 @@ function luminaPbcRows(){const sub=getPbcSub();return sub&&sub.data&&Array.isArr
 // "3.12. Vorbereitung Rückstellungen" -> "3.12"
 function guidanceStepCode(title){ const match=String(title||'').trim().match(/^(\d+(?:\.\d+)+)/); return match?match[1]:''; }
 function guidanceList(value){ return Array.isArray(value)?value.filter(item=>String(item||'').trim()):[]; }
-function guidanceForMeasure(m){ return m?guidanceByCode.get(guidanceStepCode(m.title))||null:null; }
+// Zweite Ebene (Maßnahme) trägt den Titel in .title, dritte Ebene (Unter-Kachel wie 3.14.1) in .text.
+function guidanceNodeTitle(node){ return node?(node.title||node.text||''):''; }
+function guidanceForMeasure(m){ return m?guidanceByCode.get(guidanceStepCode(guidanceNodeTitle(m)))||null:null; }
 function guidanceStepList(m){ const guide=guidanceForMeasure(m); return guide?guidanceList(guide.was_ist_zu_tun):[]; }
-function guidanceCurrentMeasure(){ return view.level==='subitems'?(stations[view.station]?.measures?.[view.measure]||null):null; }
+function guidanceCurrentMeasure(){
+  const measure=stations[view.station]?.measures?.[view.measure]||null;
+  if(view.level==='guidance') return measure?.subitems?.[view.sub]||null;
+  return view.level==='subitems'?measure:null;
+}
 function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure()); }
 function guidanceChecks(m,total){
   if(!Array.isArray(m.guidanceChecks)) m.guidanceChecks=[];
@@ -4457,7 +4485,7 @@ function renderStepGuidance(){
   const m=guidanceCurrentMeasure(),guide=guidanceForMeasure(m);
   const container=document.getElementById('form-container');
   if(!m||!guide){ container.innerHTML=''; return; }
-  const code=guidanceStepCode(m.title);
+  const code=guidanceStepCode(guidanceNodeTitle(m));
   const steps=guidanceList(guide.was_ist_zu_tun),checks=guidanceChecks(m,steps.length);
   const tasks=guidanceTasks(code);
   const statusOptions=Object.keys(LUMINA_WORK_TO_REMOTE);
