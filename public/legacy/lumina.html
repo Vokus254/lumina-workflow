@@ -1076,6 +1076,8 @@ const stations = []
 let view = { level: "grid" };
 // Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
 const guidanceByCode = new Map();
+// Dokumente ohne Aufgabenbezug, geschlüsselt nach process_step_id (documents.task_id ist null).
+const guidanceStepDocsByStep = new Map();
 
 // Kacheln mit hinterlegter Anleitung zählen die Schritte aus was_ist_zu_tun,
 // alle übrigen wie bisher ihre Teilschritt-Karten.
@@ -4310,6 +4312,7 @@ function guidanceChecks(m,total){
   if(m.guidanceChecks.length>total) m.guidanceChecks.length=total;
   return m.guidanceChecks;
 }
+function guidanceStepDocuments(stepId){ return stepId?(guidanceStepDocsByStep.get(String(stepId))||[]):[]; }
 function guidanceTasks(code){
   const pbc=luminaPbcRows();
   if(!pbc||!code) return [];
@@ -4372,43 +4375,65 @@ async function guidanceSaveStatus(entry,workStatus){
 
 async function guidanceUploadDocument(code){
   const tasks=guidanceTasks(code);
+  const guide=guidanceByCode.get(String(code));
   const select=document.getElementById('guide-upload-task');
   const entry=tasks.find(task=>String(task.ri)===String(select?.value))||tasks[0];
   const file=document.getElementById('guide-upload-file')?.files?.[0];
   const comment=(document.getElementById('guide-upload-comment')?.value||'').trim();
-  if(!entry){ showTopNote('Für diesen Prozessschritt ist keine Aufgabe hinterlegt.',true); return; }
+  // Prozessschritte ohne bestaetigte Einzelmassnahme haben keine Aufgabe, gegen die abgelegt
+  // werden koennte. Dann laeuft der Upload gegen den Prozessschritt (documents.task_id bleibt null).
+  const stepOnly=!tasks.length;
   if(!file){ showTopNote('Bitte eine Datei auswählen.',true); return; }
-  if(!entry.state.remoteTaskId){ showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true); return; }
+  if(stepOnly&&!guide?.process_step_id){ showTopNote('Für diesen Prozessschritt ist keine Schrittkennung hinterlegt.',true); return; }
+  if(!stepOnly&&!entry?.state.remoteTaskId){ showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true); return; }
   const button=document.getElementById('guide-upload-save');
   if(button){button.disabled=true;button.textContent='Wird hochgeladen ...';}
   let prepared=null;
   try{
-    const {data,error}=await luminaDb.rpc('prepare_document_upload',{
-      p_task_id:entry.state.remoteTaskId,
-      p_original_file_name:file.name,
-      p_mime_type:file.type||'application/octet-stream',
-      p_file_size:file.size,
-      p_upload_comment:comment||null
-    });
+    const {data,error}=stepOnly
+      ?await luminaDb.rpc('prepare_step_document_upload',{
+        p_process_step_id:guide.process_step_id,
+        p_original_file_name:file.name,
+        p_mime_type:file.type||'application/octet-stream',
+        p_file_size:file.size,
+        p_upload_comment:comment||null
+      })
+      :await luminaDb.rpc('prepare_document_upload',{
+        p_task_id:entry.state.remoteTaskId,
+        p_original_file_name:file.name,
+        p_mime_type:file.type||'application/octet-stream',
+        p_file_size:file.size,
+        p_upload_comment:comment||null
+      });
     if(error)throw error;
     prepared=Array.isArray(data)?data[0]:data;
     if(!prepared?.storage_path)throw new Error('Supabase hat keinen Speicherpfad geliefert.');
     const {error:uploadError}=await luminaDb.storage.from(prepared.storage_bucket||'lumina-datarooms')
       .upload(prepared.storage_path,file,{contentType:file.type||'application/octet-stream',upsert:false});
     if(uploadError)throw uploadError;
-    entry.state.documents.push({
+    const record={
       id:prepared.document_id,remoteDocumentId:prepared.document_id,remoteVersionId:prepared.version_id,
       name:file.name,size:file.size,mime:file.type||'application/octet-stream',comment,
-      folderPath:entry.state.folderPath||ensureExplorerFolder(entry.state).key,
-      taskId:entry.row[12],taskNumber:entry.row[0]||'',taskTitle:entry.row[3]||entry.row[1]||'',
       uploadedAt:luminaNow(),version:1,
       storageBucket:prepared.storage_bucket||'lumina-datarooms',storagePath:prepared.storage_path,persisted:true
-    });
-    entry.state.workStatus='Eingereicht';
-    addActivity(entry.state,`Dokument über die Schritt-Anleitung abgelegt: ${file.name}`);
-    try{ await saveLuminaTaskToSupabase(entry.row,entry.state); }
-    catch(statusError){ console.warn('Status konnte nicht gespeichert werden',statusError); }
-    showTopNote('Dokument dauerhaft gespeichert.');
+    };
+    if(stepOnly){
+      const key=String(guide.process_step_id);
+      if(!guidanceStepDocsByStep.has(key)) guidanceStepDocsByStep.set(key,[]);
+      guidanceStepDocsByStep.get(key).push({...record,stepLevel:true,processStepId:key,stepCode:String(code)});
+      showTopNote('Dokument dem Prozessschritt zugeordnet und dauerhaft gespeichert.');
+    }else{
+      entry.state.documents.push({
+        ...record,
+        folderPath:entry.state.folderPath||ensureExplorerFolder(entry.state).key,
+        taskId:entry.row[12],taskNumber:entry.row[0]||'',taskTitle:entry.row[3]||entry.row[1]||''
+      });
+      entry.state.workStatus='Eingereicht';
+      addActivity(entry.state,`Dokument über die Schritt-Anleitung abgelegt: ${file.name}`);
+      try{ await saveLuminaTaskToSupabase(entry.row,entry.state); }
+      catch(statusError){ console.warn('Status konnte nicht gespeichert werden',statusError); }
+      showTopNote('Dokument dauerhaft gespeichert.');
+    }
     render();
   }catch(error){
     if(prepared?.document_id) await luminaDb.rpc('cancel_document_upload',{p_document_id:prepared.document_id});
@@ -4437,6 +4462,10 @@ function renderStepGuidance(){
   const tasks=guidanceTasks(code);
   const statusOptions=Object.keys(LUMINA_WORK_TO_REMOTE);
   const docs=tasks.flatMap(task=>(task.state.documents||[]).map(doc=>({...doc,taskNumber:doc.taskNumber||task.row[0]||''})));
+  // Ohne zugeordnete Aufgabe läuft der Upload gegen den Prozessschritt statt gegen eine Aufgabe.
+  const stepDocs=guidanceStepDocuments(guide.process_step_id);
+  const allDocs=[...docs,...stepDocs];
+  const canUpload=tasks.length?true:!!guide.process_step_id;
   const doneCount=checks.filter(Boolean).length;
   const openTasks=tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
   const overdue=tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length;
@@ -4478,7 +4507,7 @@ function renderStepGuidance(){
         <span class="guide-chip ${doneCount===steps.length&&steps.length?'done':''}">Anleitung ${doneCount}/${steps.length}</span>
         <span class="guide-chip">${openTasks} offen</span>
         ${overdue?`<span class="guide-chip warn">${overdue} überfällig</span>`:''}
-        <span class="guide-chip">${docs.length} Dokument${docs.length===1?'':'e'}</span>
+        <span class="guide-chip">${allDocs.length} Dokument${allDocs.length===1?'':'e'}</span>
       </div>
       ${tasks.length?tasks.map(task=>{
         const unterlagen=taskRequiredDocs(task.row);
@@ -4499,7 +4528,7 @@ function renderStepGuidance(){
   const upload=`
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Datei-Upload</div><div class="guide-block-hint">Supabase-Datenraum</div></div>
-      ${tasks.length?`
+      ${canUpload?`
       <div class="guide-upload">
         ${tasks.length>1?`<label>Aufgabe<select id="guide-upload-task">${tasks.map(task=>{
           const kurz=taskRequiredDocs(task.row,40),voll=taskRequiredDocs(task.row);
@@ -4508,9 +4537,11 @@ function renderStepGuidance(){
         <label>Kommentar<input id="guide-upload-comment" type="text" placeholder="optional"></label>
         <div><button type="button" class="btn-save" id="guide-upload-save">Datei hochladen</button></div>
       </div>
-      <div class="guide-note">Die Datei wird der ausgewählten Aufgabe zugeordnet, dauerhaft im privaten Datenraum abgelegt und setzt deren Status auf „Eingereicht“.</div>`
-      :'<div class="guide-empty">Ohne zugeordnete Aufgabe kann keine Datei abgelegt werden.</div>'}
-      ${docs.length?`<div class="guide-docs">${docs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">Aufgabe ${luminaEsc(doc.taskNumber||'–')} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`:''}
+      <div class="guide-note">${tasks.length
+        ?'Die Datei wird der ausgewählten Aufgabe zugeordnet, dauerhaft im privaten Datenraum abgelegt und setzt deren Status auf „Eingereicht“.'
+        :`Für diesen Prozessschritt ist keine Einzelaufgabe hinterlegt. Die Datei wird direkt dem Prozessschritt ${luminaEsc(code)} zugeordnet und im Datenraumordner dieses Schritts abgelegt.`}</div>`
+      :'<div class="guide-empty">Für diesen Prozessschritt ist keine Anleitung mit Schrittkennung hinterlegt – ohne sie kann keine Datei abgelegt werden.</div>'}
+      ${allDocs.length?`<div class="guide-docs">${allDocs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">${doc.stepLevel?`Prozessschritt ${luminaEsc(code)}`:`Aufgabe ${luminaEsc(doc.taskNumber||'–')}`} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`:''}
     </section>`;
 
   container.innerHTML=`<div class="guide-wrap"><div class="guide-col">${anleitung}</div><div class="guide-col">${arbeitshilfe}${status}${upload}</div></div>`;
@@ -4529,7 +4560,7 @@ function renderStepGuidance(){
   const save=document.getElementById('guide-upload-save');
   if(save) save.addEventListener('click',()=>guidanceUploadDocument(code));
   container.querySelectorAll('[data-guide-doc]').forEach(button=>button.addEventListener('click',()=>{
-    const doc=docs.find(entry=>String(entry.id)===button.dataset.guideDoc);
+    const doc=allDocs.find(entry=>String(entry.id)===button.dataset.guideDoc);
     if(doc) explorerDownload(doc);
   }));
 }
@@ -4577,7 +4608,33 @@ async function loadLuminaFromSupabase(){
       target.state.documents.push({id:document.id,remoteDocumentId:document.id,remoteVersionId:version.id,name:version.original_file_name||document.display_name,size:version.file_size||0,mime:version.mime_type||'application/octet-stream',comment:version.upload_comment||'',folderPath:target.state.folderPath||ensureExplorerFolder(target.state).key,taskId:target.row[12],taskNumber:target.row[0]||'',taskTitle:target.row[3]||target.row[1]||'',uploadedAt:version.created_at||document.created_at,version:version.version_number||1,storageBucket:version.storage_bucket,storagePath:version.storage_path,persisted:true});
     });
   }
+  await loadGuidanceStepDocuments(documents);
   setLuminaSyncState(`${tasks.length} Aufgaben · ${(documents||[]).length} Dokumente aus Supabase`);
+}
+
+// Dokumente ohne task_id haengen am Prozessschritt. Die Zuordnung laeuft ueber den
+// Datenraumordner des Schritts (dataroom_folders.process_step_id).
+async function loadGuidanceStepDocuments(documents){
+  guidanceStepDocsByStep.clear();
+  const taskless=(documents||[]).filter(document=>!document.task_id&&document.folder_id);
+  if(!taskless.length) return;
+  const {data:folders,error}=await luminaDb.from('dataroom_folders').select('id,process_step_id').not('process_step_id','is',null);
+  if(error){ console.warn('Prozessschritt-Ordner konnten nicht geladen werden',error); return; }
+  const stepByFolder=new Map((folders||[]).map(folder=>[folder.id,String(folder.process_step_id)]));
+  taskless.forEach(document=>{
+    const stepId=stepByFolder.get(document.folder_id); if(!stepId)return;
+    const versions=(document.document_versions||[]).slice().sort((a,b)=>(b.version_number||0)-(a.version_number||0));
+    const version=versions[0]; if(!version)return;
+    if(!guidanceStepDocsByStep.has(stepId)) guidanceStepDocsByStep.set(stepId,[]);
+    guidanceStepDocsByStep.get(stepId).push({
+      id:document.id,remoteDocumentId:document.id,remoteVersionId:version.id,
+      name:version.original_file_name||document.display_name,size:version.file_size||0,
+      mime:version.mime_type||'application/octet-stream',comment:version.upload_comment||'',
+      uploadedAt:version.created_at||document.created_at,version:version.version_number||1,
+      storageBucket:version.storage_bucket,storagePath:version.storage_path,persisted:true,
+      stepLevel:true,processStepId:stepId
+    });
+  });
 }
 
 async function saveLuminaTaskToSupabase(row,state){
