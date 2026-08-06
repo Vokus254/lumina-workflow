@@ -18,8 +18,25 @@
 --   subitem 23    Zinsertraege u.ae. (1)                 -> 3.14.5 Finanzergebnis
 
 -- Sicherung vor dem Schreiben. Bleibt bewusst stehen, bis der Live-Klicktest durch ist.
-create table if not exists public.project_source_states_backup_20260806 as
-select * from public.project_source_states;
+--
+-- Neu aufgebaut wird sie nur, solange irgendein Projekt noch den Ausgangszustand hat. Damit
+-- kann ein Wiederholungslauf nach einem Abbruch eine halbfertige Sicherung ersetzen, ohne dass
+-- ein Lauf nach erfolgreicher Migration die Sicherung des Vorzustands mit bereits migrierten
+-- Daten ueberschreibt - das waere der einzige Rueckweg gewesen.
+do $$
+begin
+  if exists (
+    select 1 from public.project_source_states
+    where coalesce(state #>> array['2','measures','14','subitems','0','text'], '') not like '3.14.1%'
+  ) then
+    drop table if exists public.project_source_states_backup_20260806;
+    create table public.project_source_states_backup_20260806 as
+    select * from public.project_source_states;
+    raise notice 'Sicherung project_source_states_backup_20260806 neu angelegt.';
+  else
+    raise notice 'Alle Projekte bereits migriert - vorhandene Sicherung bleibt unveraendert.';
+  end if;
+end $$;
 
 do $$
 declare
@@ -67,8 +84,10 @@ begin
 
     update public.project_source_states
     set state = v_neu,
-        -- sha256() ist eingebaut, pgcrypto wird nicht benoetigt.
-        source_sha256 = encode(sha256(v_neu::text::bytea), 'hex'),
+        -- sha256() ist eingebaut, pgcrypto wird nicht benoetigt. convert_to() statt ::bytea:
+        -- der bytea-Cast parst den Text nach dem bytea-Eingabeformat und scheitert an jedem
+        -- Backslash im Blob, der keine gueltige Escape-Sequenz bildet.
+        source_sha256 = encode(sha256(convert_to(v_neu::text, 'UTF8')), 'hex'),
         updated_at = now()
     where project_id = v_row.project_id;
 
