@@ -903,6 +903,10 @@
   .guide-block-title{font-size:15px;font-weight:700;color:var(--text-primary);}
   .guide-block-hint{font-size:11.5px;color:var(--text-faint);}
   .guide-goal{font-size:13.5px;line-height:1.5;color:var(--text-secondary);margin:0 0 18px;}
+  /* Hinweis zur Datenbasis - Farbgebung wie die Hinweis-Bande im Arbeitshilfe-Workbook. */
+  .guide-datenbasis{display:grid;grid-template-columns:18px minmax(0,1fr);gap:11px;align-items:start;margin:12px 0 18px;padding:12px 14px;background:#FDF3DF;border:1px solid #E8CE96;border-left:4px solid #C8901A;border-radius:10px;font-size:13px;line-height:1.5;color:#72520F;}
+  .guide-datenbasis-icon{font-size:15px;line-height:1.3;color:#B4740B;}
+  .guide-datenbasis-label{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:3px;}
   .guide-section{margin-top:18px;}
   .guide-section-title{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;}
   .guide-list{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:1.5;color:var(--text-secondary);}
@@ -4436,10 +4440,12 @@ function renderStepGuidance(){
   const doneCount=checks.filter(Boolean).length;
   const openTasks=tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
   const overdue=tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length;
+  const datenbasisHinweis=String(guide.datenbasis_hinweis||'').trim();
 
   const anleitung=`
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Anleitung</div><div class="guide-block-hint">Prozessschritt ${luminaEsc(code)}</div></div>
+      ${datenbasisHinweis?`<div class="guide-datenbasis" role="note"><span class="guide-datenbasis-icon" aria-hidden="true">⚠</span><div><span class="guide-datenbasis-label">Hinweis zur Datenbasis</span>${luminaEsc(datenbasisHinweis)}</div></div>`:''}
       ${guide.ziel?`<p class="guide-goal">${luminaEsc(guide.ziel)}</p>`:''}
       <div class="guide-section">
         <div class="guide-section-title">Was ist zu tun · ${doneCount}/${steps.length} erledigt</div>
