@@ -94,30 +94,43 @@
 
   .tile{
     all: unset; box-sizing: border-box; cursor: pointer;
-    width: 204px; height: 204px; flex-shrink: 0;
-    background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px;
-    display: flex; flex-direction: column; justify-content: space-between;
+    /* Höher als früher (204): die Maßnahmentitel aus der PBC-Liste sind teils sehr lang
+       und wurden nach vier Zeilen abgeschnitten. */
+    width: 204px; height: 240px; flex-shrink: 0;
+    background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 15px;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
   }
   .tile:hover{ border-color: #CFCFD4; transform: translateY(-2px); }
   .tile:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  /* Kennung der Kachel. Breite richtet sich nach dem Inhalt, damit auch ein
+     vollständiger Prozessschritt-Code wie "3.12.1.5" hineinpasst. */
   .tile-num{
-    width: 26px; height: 26px; border-radius: 7px; background: #EFEFF1; color: var(--text-secondary);
-    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    align-self: flex-start; min-width: 26px; height: 24px; padding: 0 8px; border-radius: 7px;
+    background: #EFEFF1; color: var(--text-secondary);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .01em;
+    display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
   }
   .tile.is-complete .tile-num{ background: var(--done-bg); color: var(--done-text); }
 
   .tile-title{
-    font-size: 14px; font-weight: 600; line-height: 1.32; color: var(--text-primary);
-    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+    flex: 1 1 auto; min-height: 0;
+    font-size: 13px; font-weight: 600; line-height: 1.34; color: var(--text-primary);
+    display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden;
+    overflow-wrap: anywhere;
   }
 
-  .tile-bottom{ display: flex; flex-direction: column; gap: 6px; }
+  .tile-bottom{ display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
   .tile-bar-track{ height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
   .tile-bar-fill{ height: 100%; background: var(--accent); border-radius: 999px; }
+  .tile-meta{ display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .tile-frac{ font-size: 11px; font-weight: 600; color: var(--text-faint); }
   .tile.is-complete .tile-frac{ color: var(--done-text); }
+  /* Fälligkeit direkt auf der Kachel - vorher nur nach dem Öffnen im Status-Panel. */
+  .tile-due{ font-size: 11px; font-weight: 650; color: var(--text-secondary); white-space: nowrap; }
+  .tile-due.is-overdue{ color: #b42318; }
+  .tile-due.is-soon{ color: #8a5a00; }
 
   /* Leaf-Kacheln (Teilschritte) */
   .tile-leaf .tile-check{
@@ -1304,20 +1317,19 @@ function renderGrid(){
   if(view.level === "step" || view.level === "subitems"){
     const kinder = viewStepChildren();
     if(kinder.length){
-      kinder.forEach((child, i) => {
+      kinder.forEach(child => {
         const p = guidanceSubtreeProgress(child.id);
         const enkel = processStepChildren(child.id).length;
         const complete = p.total > 0 && p.done === p.total;
         const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
         const tile = document.createElement("button");
         tile.className = "tile" + (complete ? " is-complete" : "");
+        // Volltext als Tooltip: der Titel wird in der Kachel nach sieben Zeilen gekappt.
+        tile.title = `${child.code} · ${child.name}`;
         tile.innerHTML = `
-          <span class="tile-num">${complete ? "✓" : String(i+1).padStart(2,"0")}</span>
+          <span class="tile-num">${complete ? "✓ " : ""}${luminaEsc(child.code)}</span>
           <span class="tile-title">${luminaEsc(child.name)}</span>
-          <div class="tile-bottom">
-            <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
-            <span class="tile-frac">${p.total ? p.done + "/" + p.total : (enkel ? enkel + " Kacheln" : "–")}</span>
-          </div>
+          ${tileBottomHtml(pct, p.total ? p.done + "/" + p.total : (enkel ? enkel + " Kacheln" : "–"), child.id)}
         `;
         tile.addEventListener("click", () => openProcessStepNode(child.id));
         grid.appendChild(tile);
@@ -1333,13 +1345,12 @@ function renderGrid(){
       const pct = Math.round((d / s.measures.length) * 100);
       const tile = document.createElement("button");
       tile.className = "tile" + (complete ? " is-complete" : "");
+      tile.title = s.title;
+      const stationStep = processStepForNode(s);
       tile.innerHTML = `
         <span class="tile-num">${complete ? "✓" : String(i+1).padStart(2,"0")}</span>
-        <span class="tile-title">${s.title}</span>
-        <div class="tile-bottom">
-          <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
-          <span class="tile-frac">${d}/${s.measures.length}</span>
-        </div>
+        <span class="tile-title">${luminaEsc(s.title)}</span>
+        ${tileBottomHtml(pct, `${d}/${s.measures.length}`, stationStep ? stationStep.id : null)}
       `;
       tile.addEventListener("click", () => { view = { level: "measures", station: i }; render(); });
       grid.appendChild(tile);
@@ -1354,13 +1365,16 @@ function renderGrid(){
       const pct = mTotal ? Math.round((d / mTotal) * 100) : 0;
       const tile = document.createElement("button");
       tile.className = "tile" + (complete ? " is-complete" : "");
+      tile.title = m.title;
+      // Der Stationstitel trägt den Code bereits ("3.13. Vorbereitung ..."), deshalb
+      // steht er hier nur einmal - in der Kennung, nicht doppelt im Titel.
+      const mStep = processStepForNode(m);
+      const mCode = mStep ? mStep.code : guidanceStepCode(m.title);
+      const mName = String(m.title).replace(/^\s*\d+(?:\.\d+)*\.?\s*/, "") || m.title;
       tile.innerHTML = `
-        <span class="tile-num">${complete ? "✓" : String(j+1).padStart(2,"0")}</span>
-        <span class="tile-title">${m.title}</span>
-        <div class="tile-bottom">
-          <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
-          <span class="tile-frac">${d}/${mTotal}</span>
-        </div>
+        <span class="tile-num">${complete ? "✓ " : ""}${luminaEsc(mCode || String(j+1).padStart(2,"0"))}</span>
+        <span class="tile-title">${luminaEsc(mName)}</span>
+        ${tileBottomHtml(pct, `${d}/${mTotal}`, mStep ? mStep.id : null)}
       `;
       tile.addEventListener("click", () => {
         const statementIdx = m.subitems.findIndex(x => x.type === "statement");
@@ -4513,7 +4527,14 @@ function renderTaskModal(){
   if(!activeTaskContext)return;
   const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),p=responsible(row),due=taskEffectiveDate(row);
   document.getElementById('task-modal-title').textContent=activeTaskContext.globalRoom?'Datenraum':taskDisplayTitle(row,st);
-  document.getElementById('task-modal-sub').textContent=activeTaskContext.globalRoom?'Zentraler Datenraum · Ordnerstruktur und Dokumente':`Nr. ${row[0]||'–'} · ${row[1]||''}`;
+  // Kennung im Kopf: Prozessschritt-Code zuerst, dann die laufende Nummer aus der
+  // Maßnahmenliste. Ohne den Code war im Modal nicht erkennbar, welche Kachel offen ist.
+  const kopfStep=taskContextStepId()?processStepById(taskContextStepId()):null;
+  const kopfTermin=taskEffectiveDate(row);
+  document.getElementById('task-modal-sub').textContent=activeTaskContext.globalRoom
+    ?'Zentraler Datenraum · Ordnerstruktur und Dokumente'
+    :[kopfStep?kopfStep.code:null,`Nr. ${row[0]||'–'}`,row[1]||null,
+      kopfTermin?`fällig ${formatDateDE(kopfTermin)}`:null].filter(Boolean).join(' · ');
   // Notizen (process_step_comments) sind bewusst ein eigener Reiter neben Kommunikation
   // (task_messages): dort eine gerichtete Nachricht mit Empfaenger und Eingangskorb,
   // hier eine formlose Notiz an der Sache, ohne Statuswirkung.
@@ -4628,6 +4649,38 @@ function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure());
 function viewStepChildren(){
   const ctx=guidanceContext();
   return ctx?processStepChildren(ctx.stepId):[];
+}
+/* Frühester offener Termin im Teilbaum einer Kachel.
+   Damit steht auf der Kachel, was als Nächstes fällig ist, ohne sie zu öffnen - vorher
+   war der Liefertermin nur klein im Status-Panel des Modals zu sehen.
+   Quelle ist bewusst die Maßnahmenliste (taskEffectiveDate), nicht
+   process_step_due_dates: diese Tabelle wird vom Frontend nicht gelesen. */
+function stepDueSummary(stepId){
+  const pbc=luminaPbcRows();
+  if(!pbc||!stepId) return null;
+  const ids=new Set(processStepSubtreeIds(stepId));
+  let frueh=null,zustand='';
+  pbc.rows.forEach((row,ri)=>{
+    const st=ensureTaskState(pbc.sub.data,row,ri);
+    if(!ids.has(String(st.remoteProcessStepId||''))) return;
+    if(['Abgeschlossen','Nicht relevant'].includes(st.workStatus)) return;
+    const iso=taskEffectiveDate(row);
+    if(!iso) return;
+    if(!frueh||iso<frueh){ frueh=iso; zustand=taskTiming(row,st); }
+  });
+  return frueh?{iso:frueh,zustand}:null;
+}
+// Kachelfuß: Fortschrittsbalken, Zähler und Fälligkeit - für alle drei Kachelraster gleich.
+function tileBottomHtml(pct,frac,stepId){
+  const due=stepDueSummary(stepId);
+  const klasse=due?(due.zustand==='Überfällig'?' is-overdue':(due.zustand==='Heute fällig'||due.zustand==='Bald fällig')?' is-soon':''):'';
+  return `<div class="tile-bottom">
+    <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
+    <div class="tile-meta">
+      <span class="tile-frac">${luminaEsc(frac)}</span>
+      ${due?`<span class="tile-due${klasse}" title="${luminaEsc(due.zustand)}">${luminaEsc(formatDateDE(due.iso))}</span>`:''}
+    </div>
+  </div>`;
 }
 // Eine Stelle für den Sprung in einen Prozessschritt, egal von welcher Ebene aus:
 // Aggregat öffnet die Kachelübersicht, Maßnahme das Aufgaben-Modal.
