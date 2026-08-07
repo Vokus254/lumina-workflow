@@ -949,7 +949,31 @@
   .guide-doc-name{color:var(--text-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .guide-doc-sub{font-size:11px;color:var(--text-faint);}
   .guide-note{font-size:11.5px;color:var(--text-faint);line-height:1.5;margin-top:12px;}
-  @media(max-width:980px){.guide-wrap{grid-template-columns:1fr;}.guide-meta-row{grid-template-columns:1fr;gap:2px;}}
+  /* Unterkacheln: Navigation in die nächste Ebene aus process_steps. */
+  .guide-children{display:grid;gap:8px;}
+  .guide-child{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:11px 13px;border:1px solid var(--border);border-radius:10px;background:#fff;transition:border-color .12s ease,box-shadow .12s ease;}
+  .guide-child:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(15,23,42,.07);}
+  .guide-child-code{grid-row:span 2;align-self:center;font-size:11.5px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;}
+  .guide-child-name{font-size:12.5px;font-weight:600;color:var(--text-primary);line-height:1.35;}
+  .guide-child-meta{font-size:11px;color:var(--text-faint);}
+  /* Kommentare */
+  .guide-comments{display:grid;gap:10px;margin-bottom:16px;}
+  .guide-comment{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fff;}
+  .guide-comment.is-reply{margin-left:22px;border-left:2px solid var(--accent);}
+  .guide-comment-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;font-size:11px;color:var(--text-faint);margin-bottom:5px;}
+  .guide-comment-author{font-weight:700;color:var(--text-secondary);}
+  .guide-comment-doc{background:#f1f5f9;border-radius:5px;padding:1px 6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .guide-comment-body{font-size:12.5px;color:var(--text-primary);line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+  .guide-comment-body.is-deleted{color:var(--text-faint);font-style:italic;}
+  .guide-comment-actions{display:flex;gap:10px;margin-top:6px;}
+  .guide-comment-action{all:unset;cursor:pointer;font-size:11px;font-weight:600;color:var(--text-secondary);}
+  .guide-comment-action:hover{color:var(--accent);}
+  .guide-comment-action.danger:hover{color:#b42318;}
+  .guide-comment-form{display:grid;gap:8px;}
+  .guide-comment-form textarea{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;line-height:1.5;padding:9px 11px;border:1px solid var(--border);border-radius:9px;resize:vertical;}
+  .guide-comment-form textarea:focus{outline:none;border-color:var(--accent);}
+  .guide-comment-form-actions{display:flex;gap:8px;justify-content:flex-end;}
+  @media(max-width:980px){.guide-wrap{grid-template-columns:1fr;}.guide-meta-row{grid-template-columns:1fr;gap:2px;}.guide-comment.is-reply{margin-left:12px;}}
 </style>
 </head>
 <body>
@@ -1075,9 +1099,20 @@ function Ms(title, subs){ return { title, subitems: subs.map(s => typeof s === "
 const stations = []
 let view = { level: "grid" };
 // Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
+// Nur noch für den alten Kachelpfad; der neue adressiert über guidanceByStepId.
 const guidanceByCode = new Map();
+// Dieselben Anleitungen, geschlüsselt nach process_step_id — Fremdschlüssel statt Titel-Präfix.
+const guidanceByStepId = new Map();
 // Dokumente ohne Aufgabenbezug, geschlüsselt nach process_step_id (documents.task_id ist null).
 const guidanceStepDocsByStep = new Map();
+// public.process_steps als Baum. Das ist ab hier die Wirbelsäule der Kachelhierarchie:
+// Kinder hängen über parent_id, nicht über eine Zeichenkette im Titel.
+const processStepsById = new Map();
+const processStepsByParent = new Map();   // parent_id bzw. 'root' -> Kinder nach sort_order
+const processStepIdByCode = new Map();
+// public.process_step_comments, geschlüsselt nach process_step_id.
+const stepCommentsByStep = new Map();
+let luminaCurrentUserId = null;
 
 // Kacheln mit hinterlegter Anleitung zählen die Schritte aus was_ist_zu_tun,
 // alle übrigen wie bisher ihre Teilschritt-Karten.
@@ -1163,9 +1198,36 @@ function renderBreadcrumb(){
 
   if(view.level === "subitems"){
     const guide = guidanceForMeasure(m);
-    desc.textContent = guide
+    const kinder = processStepChildren(processStepForNode(m)?.id).length;
+    desc.textContent = kinder
+      ? `Anleitung dieser Station und ${kinder} Unterkachel${kinder === 1 ? "" : "n"} — jede mit eigenem Datenraum.`
+      : guide
       ? "Anleitung, Arbeitshilfe, Status und Upload für diesen Prozessschritt."
       : "Vorgeschlagene Teilschritte — anklicken zum Abhaken.";
+    return;
+  }
+
+  // Vierte Ebene: die Kette kommt aus process_steps (parent_id), nicht aus Array-Positionen.
+  if(view.level === "step"){
+    const chain = processStepChain(view.stepId, processStepForNode(m)?.id);
+    chain.forEach((step, i) => {
+      trail.appendChild(sepEl());
+      const crumb = document.createElement("span");
+      const isLast = i === chain.length - 1;
+      crumb.className = "crumb" + (isLast ? " current" : "");
+      crumb.textContent = processStepLabel(step);
+      if(!isLast){
+        crumb.addEventListener("click", () => {
+          view = { level: "step", station: view.station, measure: view.measure, stepId: step.id };
+          render();
+        });
+      }
+      trail.appendChild(crumb);
+    });
+    const offen = processStepChildren(view.stepId).length;
+    desc.textContent = offen
+      ? `Anleitung und ${offen} Unterkachel${offen === 1 ? "" : "n"} — jede mit eigenem Datenraum.`
+      : "Anleitung, Arbeitshilfe, Status, Upload, Datenraum und Kommentare für diese Maßnahme.";
     return;
   }
 
@@ -3834,11 +3896,11 @@ function render(){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderMilestones();
-  } else if(view.level === "guidance"){
+  } else if(view.level === "guidance" || view.level === "step"){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderStepGuidance();
-  } else if(view.level === "subitems" && guidanceForView()){
+  } else if(view.level === "subitems" && guidanceViewActive()){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderStepGuidance();
@@ -3937,20 +3999,43 @@ function dedupeProjectFolderNames(children){
   });
 }
 
-// Feste Ordnerstruktur des Dashboards: 1 Ordner je Station (stations-Array,
-// in Reihenfolge) + 1 Unterordner je Kachel aus station.measures, benannt
-// nach dem Kachel-Titel. Bewusst unabhängig von den Zeilen der
-// PBC-Maßnahmenliste, damit die Ablage der Dashboard-Navigation folgt.
+// Ordnerstruktur des Dashboards - eine Quelle für Datenraum-Modal und Projektordner-Export.
+//
+// Gespeist wird sie aus process_steps (parent_id-Kette), nicht mehr aus stations/measures.
+// Damit zeigen Kacheln und Ordnerbaum dieselbe Hierarchie, auch in der vierten Ebene
+// (3.13.1.1 ...). Vorher waren es zwei Bäume, die dieselbe Sache unterschiedlich tief
+// abbildeten - genau die Doppelung, die beim Datenraum schon einmal aufgefallen ist.
+//
+// Der Name bleibt bewusst "<code>. <name>", identisch zu den bisherigen Kachel-Titeln:
+// so ändert sich für alle bestehenden Ordner kein einziges Zeichen, es kommen nur die
+// neuen Ebenen hinzu. Ohne geladene process_steps (Offline-/Legacy-Nutzung der Datei)
+// greift der bisherige State-Pfad als Rückfall.
+function processStepFolderName(step){
+  return `${step.code}. ${step.name}`.trim();
+}
+function buildProcessStepFolderNode(step){
+  return {
+    name: sanitizeFileName(processStepFolderName(step) || "Kachel"),
+    code: step.code,
+    stepId: step.id,
+    children: processStepChildren(step.id).map(buildProcessStepFolderNode)
+  };
+}
 function buildProjectFolderModel(){
-  const nodes = stations.map(station => ({
-    name: sanitizeFileName(station.title || "Station"),
-    children: (station.measures || []).map(measure => ({ name: sanitizeFileName(measure.title || "Kachel"), children: [] }))
-  }));
-  nodes.forEach(node => dedupeProjectFolderNames(node.children));
+  const roots = processStepsByParent.get("root") || [];
+  const nodes = roots.length
+    ? roots.map(buildProcessStepFolderNode)
+    : stations.map(station => ({
+        name: sanitizeFileName(station.title || "Station"),
+        children: (station.measures || []).map(measure => ({ name: sanitizeFileName(measure.title || "Kachel"), children: [] }))
+      }));
+  const dedupeTiefe = node => { dedupeProjectFolderNames(node.children || []); (node.children || []).forEach(dedupeTiefe); };
+  nodes.forEach(dedupeTiefe);
+  const zaehle = list => (list || []).reduce((sum, node) => sum + 1 + zaehle(node.children), 0);
   return {
     nodes,
     stationCount: nodes.length,
-    measureCount: nodes.reduce((sum, node) => sum + node.children.length, 0)
+    measureCount: nodes.reduce((sum, node) => sum + zaehle(node.children), 0)
   };
 }
 
@@ -4075,7 +4160,11 @@ function recipientDataRoomLoginLink(row,st,email){
 function getDataroomTree(){return buildProjectFolderModel().nodes;}
 function explorerNodeName(node){return typeof node==="string"?node:(node?.name||"Ordner");}
 function explorerNodeChildren(node){return typeof node==="string"?[]:(Array.isArray(node?.children)?node.children:[]);}
-function flattenDataroomFolders(){const out=[];const walk=(nodes,parentPath=[],parentNames=[])=>{(nodes||[]).forEach((node,i)=>{const path=[...parentPath,i],names=[...parentNames,explorerNodeName(node)];out.push({key:path.join('.'),path,names,name:names[names.length-1],depth:path.length-1});walk(explorerNodeChildren(node),path,names);});};walk(getDataroomTree());return out;}
+// Schlüssel ist der Prozessschritt-Code ("3.13.1.1"), nicht mehr die Array-Position.
+// Ein Positionsschlüssel zeigt nach jeder Umsortierung stillschweigend auf einen anderen
+// Ordner; der Code überlebt Umsortierung und neue Ebenen. Fällt der Baum auf den
+// State-Pfad zurück (ohne code), bleibt es beim bisherigen Positionsschlüssel.
+function flattenDataroomFolders(){const out=[];const walk=(nodes,parentPath=[],parentNames=[])=>{(nodes||[]).forEach((node,i)=>{const path=[...parentPath,i],names=[...parentNames,explorerNodeName(node)];out.push({key:node.code||path.join('.'),path,names,name:names[names.length-1],depth:path.length-1,stepId:node.stepId||null});walk(explorerNodeChildren(node),path,names);});};walk(getDataroomTree());return out;}
 function explorerFolderByKey(key){const all=flattenDataroomFolders();return all.find(x=>x.key===key)||all[0]||{key:"",path:[],names:["Datenraum"],name:"Datenraum",depth:0};}
 function ensureExplorerFolder(st){const all=flattenDataroomFolders();if(!st.folderPath||!all.some(x=>x.key===st.folderPath))st.folderPath=all[0]?.key||"";return explorerFolderByKey(st.folderPath);}
 function allExplorerDocuments(){const sub=getPbcSub(),out=[];if(!sub)return out;(sub.data.rows||[]).forEach((row,ri)=>{const st=ensureTaskState(sub.data,row,ri);(st.documents||[]).forEach(doc=>out.push({...doc,_state:st,_row:row,_ri:ri,_taskId:row[12]}));});return out;}
@@ -4334,6 +4423,12 @@ function guidanceCurrentMeasure(){
   return view.level==='subitems'?measure:null;
 }
 function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure()); }
+// Die Vier-Block-Ansicht greift, sobald es eine Anleitung ODER Unterkacheln gibt.
+// Der zweite Fall ist der neue Pfad: eine Kachel mit Kindern in process_steps.
+function guidanceViewActive(){
+  const ctx=guidanceContext();
+  return !!ctx&&(!!ctx.guide||processStepChildren(ctx.stepId).length>0);
+}
 function guidanceChecks(m,total){
   if(!Array.isArray(m.guidanceChecks)) m.guidanceChecks=[];
   while(m.guidanceChecks.length<total) m.guidanceChecks.push(false);
@@ -4348,13 +4443,150 @@ function guidanceTasks(code){
     .filter(entry=>guidanceStepCode(entry.row[1])===code);
 }
 
+/* ---------- Kachelhierarchie aus process_steps ----------
+   Die Weiche zwischen altem und neuem Pfad ist bewusst kein Merker, sondern eine
+   Eigenschaft der Daten: eine Kachel rendert aus process_steps, sobald sie dort
+   Kinder hat. Damit kann nichts auseinanderlaufen - geprüft wird genau das, was
+   gerendert werden soll. Beim Ausrollen auf weitere Stationen kippt jede Kachel
+   von selbst um, sobald ihre Kinder angelegt sind. */
+function processStepChildren(stepId){ return stepId?(processStepsByParent.get(String(stepId))||[]):[]; }
+function processStepById(stepId){ return stepId?(processStepsById.get(String(stepId))||null):null; }
+function processStepForNode(node){
+  const code=guidanceStepCode(guidanceNodeTitle(node));
+  return code?processStepById(processStepIdByCode.get(code)):null;
+}
+function processStepLabel(step){ return step?`${step.code} ${step.name}`.trim():''; }
+// Kette vom Knoten aufwaerts bis unterhalb von stopAtId (exklusive), in Anzeigereihenfolge.
+function processStepChain(stepId,stopAtId){
+  const chain=[]; let current=processStepById(stepId);
+  while(current&&String(current.id)!==String(stopAtId||'')){
+    chain.unshift(current);
+    current=current.parentId?processStepById(current.parentId):null;
+  }
+  return chain;
+}
+function processStepSubtreeIds(stepId){
+  const out=[]; const walk=id=>{ out.push(String(id)); processStepChildren(id).forEach(child=>walk(child.id)); };
+  if(stepId) walk(String(stepId));
+  return out;
+}
+// Fortschritt der neuen Ebenen haengt an der Maßnahme, adressiert über die Schritt-UUID
+// statt über eine Array-Position. Passt zu stepProgress aus Migration 7; wird hier bei
+// Bedarf angelegt, damit der Pfad auch vor Migration 7 funktioniert.
+function stepProgressNode(stepId){
+  const measure=stations[view.station]?.measures?.[view.measure];
+  if(!measure) return {};
+  if(!measure.stepProgress||typeof measure.stepProgress!=='object') measure.stepProgress={};
+  if(!measure.stepProgress[stepId]) measure.stepProgress[stepId]={};
+  return measure.stepProgress[stepId];
+}
+// Einheitlicher Bezugspunkt der Vier-Block-Ansicht - egal ob State-Knoten oder Prozessschritt.
+function guidanceContext(){
+  if(view.level==='step'){
+    const step=processStepById(view.stepId);
+    if(!step) return null;
+    return { step, stepId:step.id, code:step.code, title:processStepLabel(step),
+      guide:guidanceByStepId.get(step.id)||guidanceByCode.get(step.code)||null,
+      progressNode:stepProgressNode(step.id) };
+  }
+  const node=guidanceCurrentMeasure();
+  if(!node) return null;
+  const step=processStepForNode(node);
+  const guide=(step&&guidanceByStepId.get(step.id))||guidanceForMeasure(node);
+  // Konnte der Schrittbaum nicht geladen werden, liefert die Anleitung den Schrittbezug
+  // weiterhin - Upload und Schritt-Dokumente bleiben dann wie bisher nutzbar.
+  return { step, stepId:step?step.id:(guide?.process_step_id?String(guide.process_step_id):null),
+    code:guidanceStepCode(guidanceNodeTitle(node)),
+    title:guidanceNodeTitle(node), guide, progressNode:node };
+}
+// Aufgaben eines Schritts einschliesslich seiner Unterschritte: die Elternkachel zeigt
+// den Rollup, das Blatt genau seine eine Aufgabe.
+function guidanceTasksForContext(ctx){
+  if(!ctx) return [];
+  if(ctx.stepId){
+    const ids=new Set(processStepSubtreeIds(ctx.stepId));
+    const pbc=luminaPbcRows();
+    if(pbc){
+      const matched=pbc.rows.map((row,ri)=>({row,ri,sub:pbc.sub,state:ensureTaskState(pbc.sub.data,row,ri)}))
+        .filter(entry=>ids.has(String(entry.state.remoteProcessStepId||'')));
+      if(matched.length) return matched;
+    }
+  }
+  // Rueckfall auf das alte Präfix-Matching, solange eine Aufgabe keinen Schrittbezug hat.
+  const byCode=guidanceTasks(ctx.code);
+  if(byCode.length&&ctx.stepId) console.warn('Aufgaben ohne process_step_id, Rückfall auf Titel-Präfix für',ctx.code);
+  return byCode;
+}
+// Datenraum der Kachel: Aufgabendokumente des Teilbaums plus Dokumente am Schritt selbst.
+// Bewusst ohne folderPath - die Ablage im Themenordner bleibt davon unberuehrt.
+function stepDataroomDocuments(ctx){
+  if(!ctx) return [];
+  const tasks=guidanceTasksForContext(ctx);
+  const fromTasks=tasks.flatMap(task=>(task.state.documents||[])
+    .map(doc=>({...doc,taskNumber:doc.taskNumber||task.row[0]||''})));
+  const fromSteps=(ctx.stepId?processStepSubtreeIds(ctx.stepId):[])
+    .flatMap(id=>guidanceStepDocuments(id));
+  return [...fromTasks,...fromSteps];
+}
+
 async function loadProcessStepGuidance(){
   guidanceByCode.clear();
+  guidanceByStepId.clear();
   const {data,error}=await luminaDb.from('process_step_guidance').select('*,process_steps!inner(code,legacy_source_key)');
   if(error){ console.warn('Prozessschritt-Anleitungen konnten nicht geladen werden',error); return; }
   (data||[]).forEach(row=>{
     const code=row.process_steps?.code||String(row.process_steps?.legacy_source_key||'').replace(/^taxonomy:/,'');
     if(code) guidanceByCode.set(String(code),row);
+    if(row.process_step_id) guidanceByStepId.set(String(row.process_step_id),row);
+  });
+}
+
+// Der Kachelbaum. Ohne diese Tabelle faellt das Cockpit auf den bisherigen
+// State-Pfad zurueck - deshalb wird ein Fehler nur gemeldet, nicht geworfen.
+async function loadProcessStepTree(){
+  processStepsById.clear();
+  processStepsByParent.clear();
+  processStepIdByCode.clear();
+  const {data,error}=await luminaDb.from('process_steps').select('id,code,name,parent_id,sort_order').order('sort_order');
+  if(error){ console.warn('Prozessschritte konnten nicht geladen werden',error); return; }
+  (data||[]).forEach(step=>{
+    const node={
+      id:String(step.id),
+      code:String(step.code||''),
+      name:String(step.name||''),
+      parentId:step.parent_id?String(step.parent_id):null,
+      sortOrder:Number(step.sort_order)||0
+    };
+    processStepsById.set(node.id,node);
+    if(node.code) processStepIdByCode.set(node.code,node.id);
+    const key=node.parentId||'root';
+    if(!processStepsByParent.has(key)) processStepsByParent.set(key,[]);
+    processStepsByParent.get(key).push(node);
+  });
+  processStepsByParent.forEach(list=>list.sort((a,b)=>
+    a.sortOrder-b.sortOrder||a.code.localeCompare(b.code,undefined,{numeric:true})));
+}
+
+async function loadProcessStepComments(){
+  stepCommentsByStep.clear();
+  const {data,error}=await luminaDb.from('process_step_comments')
+    .select('id,process_step_id,document_id,parent_comment_id,body,author_user_id,created_at,deleted_at')
+    .order('created_at');
+  // Fehlt die Tabelle (aeltere Datenbank), bleibt der Kommentarblock einfach leer.
+  if(error){ console.warn('Kommentare konnten nicht geladen werden',error); return; }
+  (data||[]).forEach(row=>{
+    const stepId=String(row.process_step_id||''); if(!stepId) return;
+    if(!stepCommentsByStep.has(stepId)) stepCommentsByStep.set(stepId,[]);
+    stepCommentsByStep.get(stepId).push({
+      id:String(row.id),
+      stepId,
+      documentId:row.document_id?String(row.document_id):null,
+      parentId:row.parent_comment_id?String(row.parent_comment_id):null,
+      body:String(row.body||''),
+      authorUserId:row.author_user_id?String(row.author_user_id):null,
+      createdAt:row.created_at,
+      deletedAt:row.deleted_at
+    });
   });
 }
 
@@ -4401,9 +4633,12 @@ async function guidanceSaveStatus(entry,workStatus){
   render();
 }
 
-async function guidanceUploadDocument(code){
-  const tasks=guidanceTasks(code);
-  const guide=guidanceByCode.get(String(code));
+async function guidanceUploadDocument(ctx){
+  const code=ctx?.code||'';
+  const tasks=guidanceTasksForContext(ctx);
+  // Der Schrittbezug kommt aus process_steps, nicht mehr nur aus der Anleitung - eine
+  // Kachel kann Kinder und einen eigenen Datenraum haben, ohne dass eine Anleitung existiert.
+  const stepId=ctx?.stepId||ctx?.guide?.process_step_id||null;
   const select=document.getElementById('guide-upload-task');
   const entry=tasks.find(task=>String(task.ri)===String(select?.value))||tasks[0];
   const file=document.getElementById('guide-upload-file')?.files?.[0];
@@ -4412,7 +4647,7 @@ async function guidanceUploadDocument(code){
   // werden koennte. Dann laeuft der Upload gegen den Prozessschritt (documents.task_id bleibt null).
   const stepOnly=!tasks.length;
   if(!file){ showTopNote('Bitte eine Datei auswählen.',true); return; }
-  if(stepOnly&&!guide?.process_step_id){ showTopNote('Für diesen Prozessschritt ist keine Schrittkennung hinterlegt.',true); return; }
+  if(stepOnly&&!stepId){ showTopNote('Für diesen Prozessschritt ist keine Schrittkennung hinterlegt.',true); return; }
   if(!stepOnly&&!entry?.state.remoteTaskId){ showTopNote('Diese Aufgabe ist noch keinem Supabase-Datensatz zugeordnet.',true); return; }
   const button=document.getElementById('guide-upload-save');
   if(button){button.disabled=true;button.textContent='Wird hochgeladen ...';}
@@ -4420,7 +4655,7 @@ async function guidanceUploadDocument(code){
   try{
     const {data,error}=stepOnly
       ?await luminaDb.rpc('prepare_step_document_upload',{
-        p_process_step_id:guide.process_step_id,
+        p_process_step_id:stepId,
         p_original_file_name:file.name,
         p_mime_type:file.type||'application/octet-stream',
         p_file_size:file.size,
@@ -4482,24 +4717,25 @@ function guidanceBulletBlock(title,items,extraClass){
 }
 
 function renderStepGuidance(){
-  const m=guidanceCurrentMeasure(),guide=guidanceForMeasure(m);
+  const ctx=guidanceContext();
   const container=document.getElementById('form-container');
-  if(!m||!guide){ container.innerHTML=''; return; }
-  const code=guidanceStepCode(guidanceNodeTitle(m));
-  const steps=guidanceList(guide.was_ist_zu_tun),checks=guidanceChecks(m,steps.length);
-  const tasks=guidanceTasks(code);
+  if(!ctx){ container.innerHTML=''; return; }
+  const kinder=processStepChildren(ctx.stepId);
+  // Eine Kachel ohne Anleitung, aber mit Unterkacheln bleibt bedienbar: sie zeigt dann
+  // nur den Unterkachel-Streifen. Ohne beides gibt es nichts zu rendern.
+  if(!ctx.guide&&!kinder.length){ container.innerHTML=''; return; }
+  const guide=ctx.guide,code=ctx.code,m=ctx.progressNode;
+  const steps=guide?guidanceList(guide.was_ist_zu_tun):[],checks=guidanceChecks(m,steps.length);
+  const tasks=guidanceTasksForContext(ctx);
   const statusOptions=Object.keys(LUMINA_WORK_TO_REMOTE);
-  const docs=tasks.flatMap(task=>(task.state.documents||[]).map(doc=>({...doc,taskNumber:doc.taskNumber||task.row[0]||''})));
-  // Ohne zugeordnete Aufgabe läuft der Upload gegen den Prozessschritt statt gegen eine Aufgabe.
-  const stepDocs=guidanceStepDocuments(guide.process_step_id);
-  const allDocs=[...docs,...stepDocs];
-  const canUpload=tasks.length?true:!!guide.process_step_id;
+  const allDocs=stepDataroomDocuments(ctx);
+  const canUpload=tasks.length?true:!!ctx.stepId;
   const doneCount=checks.filter(Boolean).length;
   const openTasks=tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
   const overdue=tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length;
-  const datenbasisHinweis=String(guide.datenbasis_hinweis||'').trim();
+  const datenbasisHinweis=String(guide?.datenbasis_hinweis||'').trim();
 
-  const anleitung=`
+  const anleitung=!guide?'':`
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Anleitung</div><div class="guide-block-hint">Prozessschritt ${luminaEsc(code)}</div></div>
       ${datenbasisHinweis?`<div class="guide-datenbasis" role="note"><span class="guide-datenbasis-icon" aria-hidden="true">⚠</span><div><span class="guide-datenbasis-label">Hinweis zur Datenbasis</span>${luminaEsc(datenbasisHinweis)}</div></div>`:''}
@@ -4520,7 +4756,7 @@ function renderStepGuidance(){
       </dl>
     </section>`;
 
-  const arbeitshilfe=`
+  const arbeitshilfe=!guide?'':`
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Arbeitshilfe</div><div class="guide-block-hint">Excel-Vorlage</div></div>
       ${guide.arbeitshilfe_name?`<div class="guide-helper"><span class="guide-helper-name">${luminaEsc(guide.arbeitshilfe_name)}</span><button type="button" class="btn-save" id="guide-helper-download">Arbeitshilfe herunterladen</button></div>`
@@ -4568,11 +4804,47 @@ function renderStepGuidance(){
       <div class="guide-note">${tasks.length
         ?'Die Datei wird der ausgewählten Aufgabe zugeordnet, dauerhaft im privaten Datenraum abgelegt und setzt deren Status auf „Eingereicht“.'
         :`Für diesen Prozessschritt ist keine Einzelaufgabe hinterlegt. Die Datei wird direkt dem Prozessschritt ${luminaEsc(code)} zugeordnet und im Datenraumordner dieses Schritts abgelegt.`}</div>`
-      :'<div class="guide-empty">Für diesen Prozessschritt ist keine Anleitung mit Schrittkennung hinterlegt – ohne sie kann keine Datei abgelegt werden.</div>'}
-      ${allDocs.length?`<div class="guide-docs">${allDocs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">${doc.stepLevel?`Prozessschritt ${luminaEsc(code)}`:`Aufgabe ${luminaEsc(doc.taskNumber||'–')}`} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`:''}
+      :'<div class="guide-empty">Für diesen Prozessschritt ist kein Schrittbezug hinterlegt – ohne ihn kann keine Datei abgelegt werden.</div>'}
     </section>`;
 
-  container.innerHTML=`<div class="guide-wrap"><div class="guide-col">${anleitung}</div><div class="guide-col">${arbeitshilfe}${status}${upload}</div></div>`;
+  // Unterkacheln aus process_steps. Die Elternkachel behält ihre eigene Anleitung,
+  // der Streifen kommt zusätzlich dazu - es geht nichts verloren.
+  const unterkacheln=!kinder.length?'':`
+    <section class="guide-block guide-children-block">
+      <div class="guide-block-head"><div class="guide-block-title">Unterkacheln</div><div class="guide-block-hint">${kinder.length} Maßnahme${kinder.length===1?'':'n'} · je eigener Datenraum</div></div>
+      <div class="guide-children">
+        ${kinder.map(child=>{
+          const childTasks=guidanceTasksForContext({stepId:child.id,code:child.code});
+          const childDocs=stepDataroomDocuments({stepId:child.id,code:child.code});
+          const childOpen=childTasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
+          const enkel=processStepChildren(child.id).length;
+          return `<button type="button" class="guide-child" data-guide-child="${luminaEsc(child.id)}">
+            <span class="guide-child-code">${luminaEsc(child.code)}</span>
+            <span class="guide-child-name">${luminaEsc(child.name)}</span>
+            <span class="guide-child-meta">${enkel?`${enkel} Unterkachel${enkel===1?'':'n'} · `:''}${childOpen} offen · ${childDocs.length} Dokument${childDocs.length===1?'':'e'}</span>
+          </button>`;
+        }).join('')}
+      </div>
+    </section>`;
+
+  // Datenraum der Kachel: gefilterte Dokumentenliste über process_step_id, kein Ordnerbaum.
+  // Die thematische Ablage in dataroom_folders bleibt davon unberührt.
+  const datenraum=`
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Datenraum</div><div class="guide-block-hint">${allDocs.length} Dokument${allDocs.length===1?'':'e'}${kinder.length?' inkl. Unterkacheln':''}</div></div>
+      ${allDocs.length?`<div class="guide-docs">${allDocs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">${doc.stepLevel?`Prozessschritt ${luminaEsc(code)}`:`Aufgabe ${luminaEsc(doc.taskNumber||'–')}`} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}${doc.comment?` · ${luminaEsc(doc.comment)}`:''}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`
+        :'<div class="guide-empty">Für diese Maßnahme liegt noch kein Dokument im Datenraum.</div>'}
+    </section>`;
+
+  const kommentare=renderStepCommentBlock(ctx);
+
+  container.innerHTML=`<div class="guide-wrap"><div class="guide-col">${unterkacheln}${anleitung}</div><div class="guide-col">${arbeitshilfe}${status}${upload}${datenraum}${kommentare}</div></div>`;
+
+  container.querySelectorAll('[data-guide-child]').forEach(button=>button.addEventListener('click',()=>{
+    view={level:'step',station:view.station,measure:view.measure,stepId:button.dataset.guideChild};
+    render();
+  }));
+  bindStepCommentBlock(ctx);
 
   container.querySelectorAll('[data-guide-step]').forEach(button=>button.addEventListener('click',()=>{
     const i=Number(button.dataset.guideStep);
@@ -4580,24 +4852,151 @@ function renderStepGuidance(){
     render();
   }));
   const download=document.getElementById('guide-helper-download');
-  if(download) download.addEventListener('click',()=>guidanceDownloadHelper(guide));
+  if(download&&guide) download.addEventListener('click',()=>guidanceDownloadHelper(guide));
   container.querySelectorAll('[data-guide-status]').forEach(select=>select.addEventListener('change',()=>{
     const entry=tasks.find(task=>String(task.ri)===select.dataset.guideStatus);
     if(entry) guidanceSaveStatus(entry,select.value);
   }));
   const save=document.getElementById('guide-upload-save');
-  if(save) save.addEventListener('click',()=>guidanceUploadDocument(code));
+  if(save) save.addEventListener('click',()=>guidanceUploadDocument(ctx));
   container.querySelectorAll('[data-guide-doc]').forEach(button=>button.addEventListener('click',()=>{
     const doc=allDocs.find(entry=>String(entry.id)===button.dataset.guideDoc);
     if(doc) explorerDownload(doc);
   }));
 }
 
+/* ---------- Kommentare je Kachel ----------
+   Anker ist immer der Prozessschritt. Ein Kommentar zu einer Datei ist ein Kommentar
+   am Schritt mit gesetztem document_id - eine Tabelle, ein Ort zum Suchen.
+   Fäden laufen über parent_comment_id, bewusst nur eine Antwortebene tief. */
+let stepCommentReplyTo=null;
+
+function stepCommentsFor(stepId){
+  const list=stepId?(stepCommentsByStep.get(String(stepId))||[]):[];
+  const roots=list.filter(entry=>!entry.parentId);
+  const repliesByParent=new Map();
+  list.filter(entry=>entry.parentId).forEach(entry=>{
+    if(!repliesByParent.has(entry.parentId)) repliesByParent.set(entry.parentId,[]);
+    repliesByParent.get(entry.parentId).push(entry);
+  });
+  // Ein gelöschter Wurzelkommentar bleibt sichtbar, solange Antworten daran hängen -
+  // sonst verlören sie ihren Bezugspunkt.
+  return roots
+    .filter(entry=>!entry.deletedAt||(repliesByParent.get(entry.id)||[]).some(reply=>!reply.deletedAt))
+    .map(entry=>({...entry,replies:(repliesByParent.get(entry.id)||[]).filter(reply=>!reply.deletedAt)}));
+}
+
+function stepCommentMarkup(entry,docsById,isReply){
+  const eigen=entry.authorUserId&&luminaCurrentUserId&&entry.authorUserId===luminaCurrentUserId;
+  const doc=entry.documentId?docsById.get(entry.documentId):null;
+  if(entry.deletedAt){
+    return `<div class="guide-comment${isReply?' is-reply':''}"><div class="guide-comment-body is-deleted">Diese Notiz wurde gelöscht.</div></div>`;
+  }
+  return `<div class="guide-comment${isReply?' is-reply':''}">
+    <div class="guide-comment-head">
+      <span class="guide-comment-author">${eigen?'Sie':'Teammitglied'}</span>
+      <span class="guide-comment-date">${luminaEsc(formatDateTime(entry.createdAt))}</span>
+      ${doc?`<span class="guide-comment-doc" title="${luminaEsc(doc.name)}">zu ${luminaEsc(doc.name)}</span>`:''}
+    </div>
+    <div class="guide-comment-body">${luminaEsc(entry.body)}</div>
+    <div class="guide-comment-actions">
+      ${isReply?'':`<button type="button" class="guide-comment-action" data-comment-reply="${luminaEsc(entry.id)}">Antworten</button>`}
+      ${eigen?`<button type="button" class="guide-comment-action danger" data-comment-delete="${luminaEsc(entry.id)}">Löschen</button>`:''}
+    </div>
+  </div>`;
+}
+
+function renderStepCommentBlock(ctx){
+  if(!ctx?.stepId){
+    return `<section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Notizen</div></div>
+      <div class="guide-empty">Für diese Kachel ist kein Prozessschritt hinterlegt – ohne ihn können keine Notizen gespeichert werden.</div>
+    </section>`;
+  }
+  const threads=stepCommentsFor(ctx.stepId);
+  // Beim Wechsel auf eine andere Kachel darf kein Antwortfeld stehen bleiben.
+  if(stepCommentReplyTo&&!threads.some(entry=>String(entry.id)===String(stepCommentReplyTo))) stepCommentReplyTo=null;
+  const anzahl=threads.reduce((sum,entry)=>sum+1+entry.replies.length,0);
+  const docsById=new Map(stepDataroomDocuments(ctx).map(doc=>[String(doc.remoteDocumentId||doc.id),doc]));
+  const eingabe=code=>`<div class="guide-comment-form">
+    <textarea id="guide-comment-input${code}" rows="3" placeholder="Notiz zu dieser Maßnahme ..."></textarea>
+    <div class="guide-comment-form-actions">
+      ${code?`<button type="button" class="btn-secondary" id="guide-comment-cancel">Abbrechen</button>`:''}
+      <button type="button" class="btn-save" data-comment-save="${code?'reply':'root'}">${code?'Antwort speichern':'Notiz speichern'}</button>
+    </div>
+  </div>`;
+  return `
+    <section class="guide-block">
+      <div class="guide-block-head"><div class="guide-block-title">Notizen</div><div class="guide-block-hint">${anzahl===1?'1 Eintrag':anzahl+' Einträge'}</div></div>
+      ${threads.length?`<div class="guide-comments">${threads.map(entry=>`
+        ${stepCommentMarkup(entry,docsById,false)}
+        ${entry.replies.map(reply=>stepCommentMarkup(reply,docsById,true)).join('')}
+        ${String(stepCommentReplyTo)===String(entry.id)?eingabe('-reply'):''}
+      `).join('')}</div>`:'<div class="guide-empty">Noch keine Notiz zu dieser Maßnahme.</div>'}
+      ${stepCommentReplyTo?'':eingabe('')}
+    </section>`;
+}
+
+function bindStepCommentBlock(ctx){
+  if(!ctx?.stepId) return;
+  const container=document.getElementById('form-container');
+  container.querySelectorAll('[data-comment-reply]').forEach(button=>button.addEventListener('click',()=>{
+    stepCommentReplyTo=button.dataset.commentReply;
+    render();
+  }));
+  const cancel=document.getElementById('guide-comment-cancel');
+  if(cancel) cancel.addEventListener('click',()=>{ stepCommentReplyTo=null; render(); });
+  container.querySelectorAll('[data-comment-save]').forEach(button=>button.addEventListener('click',()=>{
+    const istAntwort=button.dataset.commentSave==='reply';
+    const feld=document.getElementById(istAntwort?'guide-comment-input-reply':'guide-comment-input');
+    saveStepComment(ctx,feld?feld.value:'',istAntwort?stepCommentReplyTo:null,button);
+  }));
+  container.querySelectorAll('[data-comment-delete]').forEach(button=>button.addEventListener('click',()=>
+    deleteStepComment(button.dataset.commentDelete,button)));
+}
+
+async function saveStepComment(ctx,body,parentId,button){
+  const text=String(body||'').trim();
+  if(!text){ showTopNote('Bitte eine Notiz eingeben.',true); return; }
+  if(button){ button.disabled=true; button.textContent='Wird gespeichert ...'; }
+  try{
+    const {error}=await luminaDb.rpc('add_process_step_comment',{
+      p_process_step_id:ctx.stepId,
+      p_body:text,
+      p_document_id:null,
+      p_parent_comment_id:parentId||null
+    });
+    if(error) throw error;
+    await loadProcessStepComments();
+    stepCommentReplyTo=null;
+    showTopNote('Notiz gespeichert.');
+    render();
+  }catch(error){
+    showTopNote('Notiz konnte nicht gespeichert werden: '+(error.message||error),true);
+    if(button){ button.disabled=false; button.textContent=parentId?'Antwort speichern':'Notiz speichern'; }
+  }
+}
+
+async function deleteStepComment(commentId,button){
+  if(!confirm('Diese Notiz löschen?')) return;
+  if(button) button.disabled=true;
+  try{
+    const {error}=await luminaDb.rpc('delete_process_step_comment',{p_comment_id:commentId});
+    if(error) throw error;
+    await loadProcessStepComments();
+    showTopNote('Notiz gelöscht.');
+    render();
+  }catch(error){
+    showTopNote('Notiz konnte nicht gelöscht werden: '+(error.message||error),true);
+    if(button) button.disabled=false;
+  }
+}
+
 async function loadLuminaFromSupabase(){
   setLuminaSyncState('Daten werden geladen ...');
   const [{data:projects,error:projectError},{data:tasks,error:taskError},{data:roles,error:roleError},{data:sourceStates,error:sourceError},{data:documents,error:documentError}]=await Promise.all([
     luminaDb.from('projects').select('id,name,reporting_date,status,companies(name)').limit(10),
-    luminaDb.from('tasks').select('id,source_number,work_status,review_status,internal_comment,due_date_override,updated_at').order('source_number'),
+    luminaDb.from('tasks').select('id,source_number,process_step_id,work_status,review_status,internal_comment,due_date_override,updated_at').order('source_number'),
     luminaDb.from('responsibility_roles').select('id,role_key,display_name,first_name,last_name,email').order('role_key'),
     luminaDb.rpc('get_lumina_source_state'),
     luminaDb.from('documents').select('id,task_id,folder_id,display_name,document_status,created_at,document_versions(id,version_number,storage_bucket,storage_path,original_file_name,mime_type,file_size,upload_comment,created_at)').is('archived_at',null).order('created_at')
@@ -4606,6 +5005,7 @@ async function loadLuminaFromSupabase(){
   if(!projects||!projects.length)throw new Error('Für dieses Konto ist kein LUMINA-Projekt freigeschaltet.');
   if(!sourceStates||!sourceStates.length||!Array.isArray(sourceStates[0].state))throw new Error('Der geschützte LUMINA-Projektstand fehlt.');
   stations.splice(0,stations.length,...sourceStates[0].state);
+  await loadProcessStepTree();
   await loadProcessStepGuidance();
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
   const master=findFirstSubOfType('form');
@@ -4620,6 +5020,8 @@ async function loadLuminaFromSupabase(){
       const remote=byNumber.get(String(row[0]||''));if(!remote)return;
       const state=ensureTaskState(pbc.sub.data,row,ri);
       state.remoteTaskId=remote.id;
+      // Ab hier haengt die Aufgabe am Prozessschritt, nicht mehr am Stationstext der Zeile.
+      state.remoteProcessStepId=remote.process_step_id?String(remote.process_step_id):null;
       state.workStatus=LUMINA_WORK_FROM_REMOTE[remote.work_status]||state.workStatus;
       state.reviewStatus=LUMINA_REVIEW_FROM_REMOTE[remote.review_status]||state.reviewStatus;
       state.internalComment=remote.internal_comment||'';
@@ -4637,6 +5039,7 @@ async function loadLuminaFromSupabase(){
     });
   }
   await loadGuidanceStepDocuments(documents);
+  await loadProcessStepComments();
   setLuminaSyncState(`${tasks.length} Aufgaben · ${(documents||[]).length} Dokumente aus Supabase`);
 }
 
@@ -4705,6 +5108,8 @@ async function renderAdminDigestPreview(){
 async function sendAdminDigests(){if(!adminDigestPreview||!confirm(`Jetzt ${adminDigestPreview.digests.length} rollenbezogene E-Mails versenden?`))return;const send=document.getElementById('digest-modal-send'),status=document.getElementById('digest-modal-status');send.disabled=true;send.textContent='E-Mails werden gesendet …';status.textContent='Bitte warten. Das Fenster nicht schließen.';try{const response=await fetch('/api/notifications/role-digests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true})}),payload=await response.json();if(!response.ok)throw new Error(payload.error||'Versand fehlgeschlagen.');status.textContent=`${payload.sent.length} E-Mails wurden erfolgreich versendet.`;send.style.display='none';}catch(error){status.textContent=error.message||'Versand fehlgeschlagen.';send.disabled=false;}finally{send.textContent='Jetzt an alle senden';}}
 
 async function startLuminaForSession(session){
+  // Wird gebraucht, um eigene Kommentare von fremden zu unterscheiden (Loeschen-Aktion).
+  luminaCurrentUserId=session.user?.id?String(session.user.id):null;
   document.getElementById('lumina-session-email').textContent=session.user.email||'';
   document.getElementById('btn-notify-all').style.display=session.user.email?.toLowerCase()==='admin@volkerkusch.de'?'inline-flex':'none';
   await loadLuminaFromSupabase();
