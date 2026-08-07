@@ -973,6 +973,9 @@
   .guide-comment-form textarea{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;line-height:1.5;padding:9px 11px;border:1px solid var(--border);border-radius:9px;resize:vertical;}
   .guide-comment-form textarea:focus{outline:none;border-color:var(--accent);}
   .guide-comment-form-actions{display:flex;gap:8px;justify-content:flex-end;}
+  /* Guidance-Bloecke im Aufgaben-Modal: eine Spalte statt zwei. */
+  .task-guide-stack{display:grid;gap:16px;}
+  .task-guide-stack .guide-block{padding:18px 20px;}
   @media(max-width:980px){.guide-wrap{grid-template-columns:1fr;}.guide-meta-row{grid-template-columns:1fr;gap:2px;}.guide-comment.is-reply{margin-left:12px;}}
 </style>
 </head>
@@ -1112,23 +1115,40 @@ const processStepsByParent = new Map();   // parent_id bzw. 'root' -> Kinder nac
 const processStepIdByCode = new Map();
 // public.process_step_comments, geschlüsselt nach process_step_id.
 const stepCommentsByStep = new Map();
+// Abgehakte Anleitungsschritte aus public.process_step_guidance_progress,
+// geschlüsselt nach "<process_step_id>|<index>". Ersetzt die frühere Ablage in
+// stations[..].guidanceChecks, die nur im Browser lebte.
+const guidanceProgress = new Map();
 let luminaCurrentUserId = null;
 
 // Kacheln mit hinterlegter Anleitung zählen die Schritte aus was_ist_zu_tun,
 // alle übrigen wie bisher ihre Teilschritt-Karten.
 function measureProgress(m){
+  const step = processStepForNode(m);
   const steps = guidanceStepList(m);
   if(steps.length){
-    const checks = guidanceChecks(m, steps.length);
+    const checks = guidanceChecksFor(step ? step.id : null, steps);
     return { done: checks.filter(Boolean).length, total: steps.length };
   }
-  // Dritte Ebene: Unter-Kacheln vom Typ 'guidance' haken nichts ab, ihr Fortschritt steckt in
-  // den eigenen Anleitungsschritten. Ohne diesen Zweig bliebe die Elternkachel dauerhaft 0/n.
+  // Kachel mit Unterkacheln: ihr Fortschritt ist die Summe der Kinder, sonst bliebe
+  // die Elternkachel dauerhaft 0/n. Quelle sind die Kinder aus process_steps.
+  const kinder = processStepChildren(step ? step.id : null);
+  if(kinder.length){
+    return kinder.reduce((acc, child) => {
+      const guide = guidanceByStepId.get(child.id) || guidanceByCode.get(child.code);
+      const childSteps = guide ? guidanceList(guide.was_ist_zu_tun) : [];
+      acc.done += guidanceChecksFor(child.id, childSteps).filter(Boolean).length;
+      acc.total += childSteps.length;
+      return acc;
+    }, { done: 0, total: 0 });
+  }
+  // Rückfall für Kacheln, deren Unter-Kacheln noch als State-Subitems vorliegen.
   const guided = m.subitems.filter(s => s.type === "guidance");
   if(guided.length){
     return guided.reduce((acc, sub) => {
+      const subStep = processStepForNode(sub);
       const subSteps = guidanceStepList(sub);
-      acc.done += guidanceChecks(sub, subSteps.length).filter(Boolean).length;
+      acc.done += guidanceChecksFor(subStep ? subStep.id : null, subSteps).filter(Boolean).length;
       acc.total += subSteps.length;
       return acc;
     }, { done: 0, total: 0 });
@@ -4245,6 +4265,45 @@ function openDashboardDataroom(){
 }
 function attachTaskActionsTable(sub,visible){const table=document.querySelector('#pbc-content .pbc-table');const body=document.getElementById('pbc-body');if(!table||!body)return;const cg=table.querySelector('colgroup');if(cg){const col=document.createElement('col');col.style.width='250px';cg.insertBefore(col,cg.firstChild);}const th=document.createElement('th');th.className='task-actions-head';th.textContent='Aufgabe & Datenraum';const headRow=table.querySelector('thead tr');headRow.insertBefore(th,headRow.firstChild);[...body.children].forEach((tr,pos)=>{const ri=visible[pos],row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri);const td=document.createElement('td');td.className='task-actions-cell';td.innerHTML=`<div class="task-actions"><span class="task-status-mini ${st.workStatus==='Abgeschlossen'?'done':''}">${luminaEsc(st.workStatus)}</span><button class="task-action-btn primary" data-a="open">Öffnen</button><button class="task-action-btn" data-a="send">Versenden</button><button class="task-action-btn" data-a="room">Datenraum</button><button class="task-action-btn" data-a="remind">Erinnern</button></div>`;td.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>openTaskModal(sub,ri,b.dataset.a==='room'?'room':b.dataset.a==='send'?'email':b.dataset.a==='remind'?'reminder':'details')));tr.insertBefore(td,tr.firstChild);});}
 function attachTaskActionsAccordion(sub,visible){document.querySelectorAll('#pbc-content .pbc-item-card').forEach((card,pos)=>{const ri=visible[pos];if(ri===undefined)return;const st=ensureTaskState(sub.data,sub.data.rows[ri],ri);const bar=document.createElement('div');bar.className='task-actions';bar.innerHTML=`<span class="task-status-mini ${st.workStatus==='Abgeschlossen'?'done':''}">${luminaEsc(st.workStatus)}</span><button class="task-action-btn primary">Aufgabe öffnen</button><button class="task-action-btn">Datenraum</button>`;bar.children[1].onclick=()=>openTaskModal(sub,ri,'details');bar.children[2].onclick=()=>openTaskModal(sub,ri,'room');card.appendChild(bar);});}
+/* ---------- Zweiter Anker des Aufgaben-Modals: der Prozessschritt ----------
+   Bewusst abgeleitet statt mitgefuehrt. tasks.process_step_id liegt seit dem
+   Kachelumbau in jedem Task-State; ein zweites Feld im activeTaskContext waere
+   ein Merker, der auseinanderlaufen kann - dieselbe Ueberlegung wie bei der
+   Kinder-Weiche. Beide Wege ("Mein Tag" und Klick auf eine Blattkachel) landen
+   damit zwangslaeufig beim selben Schritt. */
+function taskContextStepId(){
+  if(!activeTaskContext||activeTaskContext.globalRoom) return null;
+  const {sub,ri}=activeTaskContext;
+  const row=sub?.data?.rows?.[ri]; if(!row) return null;
+  return ensureTaskState(sub.data,row,ri).remoteProcessStepId||null;
+}
+// Gegenrichtung: von der Kachel zur PBC-Zeile.
+function taskRiForStep(stepId){
+  const pbc=luminaPbcRows(); if(!pbc||!stepId) return null;
+  const ri=pbc.rows.findIndex((row,i)=>
+    String(ensureTaskState(pbc.sub.data,row,i).remoteProcessStepId||'')===String(stepId));
+  return ri>=0?ri:null;
+}
+// Kontext einer Kachel aus Sicht des Modals - dieselbe Form wie guidanceContext().
+function taskGuidanceContext(){
+  const stepId=taskContextStepId();
+  const step=stepId?processStepById(stepId):null;
+  if(!step) return null;
+  return { step, stepId:step.id, code:step.code, title:processStepLabel(step),
+    guide:guidanceByStepId.get(step.id)||guidanceByCode.get(step.code)||null };
+}
+// Klick auf eine Blattkachel: dieselbe Aufgabe, dasselbe Modal wie aus "Mein Tag".
+// Findet sich keine Aufgabe, bleibt die Seitenansicht als Rueckfall - kein toter Klick.
+function openTaskModalForStep(stepId,tab='details'){
+  const pbc=luminaPbcRows();
+  const ri=taskRiForStep(stepId);
+  if(!pbc||ri===null){
+    view={level:'step',station:view.station,measure:view.measure,stepId};
+    render();
+    return;
+  }
+  openTaskModal(pbc.sub,ri,tab);
+}
 function openTaskModal(sub,ri,tab='details'){activeTaskContext={sub,ri};taskActiveTab=tab==='reminder'?'email':tab;const st=ensureTaskState(sub.data,sub.data.rows[ri],ri);if(tab==='reminder')st.emailKind='reminder';else if(tab==='email')st.emailKind='invite';document.getElementById('task-modal-backdrop').classList.add('open');document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','false');renderTaskModal();}
 function closeTaskModal(){document.getElementById('task-modal-backdrop').classList.remove('open');document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','true');activeTaskContext=null;activeCommunicationMessageId=null;activeCommunicationReply=null;}
 function globalProcessTitle(number){
@@ -4321,8 +4380,37 @@ async function loadTaskWorkPackage(st){
   taskWorkPackageCache.set(st.remoteTaskId,error?{error:error.message||'Arbeitsanleitung konnte nicht geladen werden.'}:(data||{}));
   if(activeTaskContext&&!activeTaskContext.globalRoom){const current=ensureTaskState(activeTaskContext.sub.data,activeTaskContext.sub.data.rows[activeTaskContext.ri],activeTaskContext.ri);if(current.remoteTaskId===st.remoteTaskId)renderTaskModal();}
 }
+// Schritt-fuer-Schritt-Teil des Arbeitspakets. Eigene Funktion, damit er sowohl im
+// Rueckfall als auch unter der Prozessschritt-Anleitung stehen kann. Die Haken schreiben
+// ueber set_task_work_step_completed weiterhin nach task_work_step_progress.
+function taskWorkPackageSection(pkg){
+  const steps=pkg.steps||[],done=steps.filter(step=>step.completed).length,errors=pkg.guide.common_errors||[];
+  return `<section class="guide-block">
+    <div class="guide-block-head"><div class="guide-block-title">Arbeitspaket</div><div class="guide-block-hint">${done} von ${steps.length} Schritten erledigt</div></div>
+    <p class="guide-goal">${luminaEsc(pkg.guide.objective)}</p>
+    ${pkg.guide.rationale?`<p class="guide-note">${luminaEsc(pkg.guide.rationale)}</p>`:''}
+    <div class="work-steps">${steps.map(step=>`<label class="work-step"><input type="checkbox" data-work-step="${luminaEsc(step.id)}" ${step.completed?'checked':''}><span><strong>${step.step_number}. ${luminaEsc(step.title)}</strong><p>${luminaEsc(step.instruction)}</p></span></label>`).join('')}</div>
+    ${pkg.guide.expected_result?`<div class="guide-section-title" style="margin-top:16px">Erwartetes finales Ergebnis</div><p class="guide-note">${luminaEsc(pkg.guide.expected_result)}</p>`:''}
+    ${errors.length?`<div class="guide-section-title" style="margin-top:16px">Typische Fehler vermeiden</div><ul class="work-guide-errors">${errors.map(item=>`<li>${luminaEsc(item)}</li>`).join('')}</ul>`:''}
+  </section>`;
+}
 function renderTaskGuide(row,st,p,due){
   const pkg=taskWorkPackage(st),fallback=`<div class="task-fields"><div class="task-field"><label>Verantwortlich</label><input value="${luminaEsc(p.name)}" disabled></div><div class="task-field"><label>Liefertermin</label><input value="${luminaEsc(due?formatDateDE(due):row[8]||'–')}" disabled></div><div class="task-field span-2"><label>Benötigte Unterlagen / Beschreibung</label><textarea disabled>${luminaEsc(row[5]||'')}</textarea></div><div class="task-field span-2"><label>Interner Kommentar</label><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div></div>`;
+  // Die Anleitung am Prozessschritt fuehrt, weil sie ~91 Kacheln abdeckt statt zwei.
+  //
+  // Ersetzt wird das Arbeitspaket dadurch aber nicht: die beiden gepflegten Pakete
+  // (#82 und #112) haengen an Station 3.9, fuer die der Massenseed ebenfalls eine
+  // Anleitung enthaelt. Ein blosser Vorrang haette sie unerreichbar gemacht und ihren
+  // serverseitig gespeicherten Schrittfortschritt verwaisen lassen. Beides wird deshalb
+  // untereinander gezeigt - das Paket nur, wenn es tatsaechlich Inhalt hat.
+  const ctx=taskGuidanceContext();
+  if(ctx&&ctx.guide){
+    const d=guidanceViewData(ctx);
+    const paket=(pkg&&!pkg.loading&&!pkg.error&&pkg.guide)?taskWorkPackageSection(pkg):'';
+    return `<div class="task-guide-stack">${guidanceAnleitungBlock(d)}${guidanceArbeitshilfeBlock(d)}${paket}`
+      +`<section class="guide-block"><div class="guide-block-head"><div class="guide-block-title">Interner Kommentar</div></div>`
+      +`<div class="task-field"><textarea id="task-internal-comment">${luminaEsc(st.internalComment||row[9]||'')}</textarea></div></section></div>`;
+  }
   if(!pkg||pkg.loading)return `<div class="work-package-empty">Die Arbeitsanleitung wird geladen …</div>${fallback}`;
   if(pkg.error)return `<div class="work-package-empty">${luminaEsc(pkg.error)}</div>${fallback}`;
   if(!pkg.guide)return `<div class="work-package-empty">Für diese Aufgabe ist noch keine geführte Arbeitsanleitung hinterlegt.</div>${fallback}`;
@@ -4348,7 +4436,10 @@ function renderTaskModal(){
   const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),p=responsible(row),due=taskEffectiveDate(row);
   document.getElementById('task-modal-title').textContent=activeTaskContext.globalRoom?'Datenraum':(row[3]||row[1]||'Maßnahme');
   document.getElementById('task-modal-sub').textContent=activeTaskContext.globalRoom?'Zentraler Datenraum · Ordnerstruktur und Dokumente':`Nr. ${row[0]||'–'} · ${row[1]||''}`;
-  const tabs=`<div class="task-tabs"><button class="task-tab ${taskActiveTab==='details'?'active':''}" data-tab="details">Anleitung</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='previous'?'active':''}" data-tab="previous">Vorjahr</button>`}<button class="task-tab ${taskActiveTab==='room'?'active':''}" data-tab="room">Arbeitsbereich</button><button class="task-tab ${taskActiveTab==='email'?'active':''}" data-tab="email">E-Mail</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='communication'?'active':''}" data-tab="communication">Kommunikation</button><button class="task-tab ${taskActiveTab==='review'?'active':''}" data-tab="review">Prüfung</button>`}</div>`;
+  // Notizen (process_step_comments) sind bewusst ein eigener Reiter neben Kommunikation
+  // (task_messages): dort eine gerichtete Nachricht mit Empfaenger und Eingangskorb,
+  // hier eine formlose Notiz an der Sache, ohne Statuswirkung.
+  const tabs=`<div class="task-tabs"><button class="task-tab ${taskActiveTab==='details'?'active':''}" data-tab="details">Anleitung</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='previous'?'active':''}" data-tab="previous">Vorjahr</button>`}<button class="task-tab ${taskActiveTab==='room'?'active':''}" data-tab="room">Arbeitsbereich</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='notes'?'active':''}" data-tab="notes">Notizen</button>`}<button class="task-tab ${taskActiveTab==='email'?'active':''}" data-tab="email">E-Mail</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='communication'?'active':''}" data-tab="communication">Kommunikation</button><button class="task-tab ${taskActiveTab==='review'?'active':''}" data-tab="review">Prüfung</button>`}</div>`;
   let content='';
   if(activeTaskContext.globalRoom && taskActiveTab!=='room'){
     content=renderGlobalTaskOverview(sub,taskActiveTab);
@@ -4356,8 +4447,21 @@ function renderTaskModal(){
     content=renderTaskGuide(row,st,p,due);
   }else if(taskActiveTab==='previous'){
     content=renderTaskPriorYear(st);
+  }else if(taskActiveTab==='notes'){
+    content=renderStepCommentBlock(taskGuidanceContext()||{stepId:null});
   }else if(taskActiveTab==='room'){
-    content=renderExplorerRoom(row,st);
+    // Hat die Aufgabe einen Prozessschritt, ist die Kachel der Datenraum: Dokumentenliste
+    // ueber process_step_id plus Upload, ohne Ordnerbaum. Der Baum war ohnehin folgenlos -
+    // prepare_document_upload kennt keinen Ordnerparameter, die Ablage bestimmt
+    // task_folder_assignments serverseitig. Er haette eine Steuerbarkeit vorgetaeuscht,
+    // die es nie gab. Der zentrale Datenraum (globalRoom) behaelt den Baum.
+    const roomCtx=activeTaskContext.globalRoom?null:taskGuidanceContext();
+    if(roomCtx){
+      const d=guidanceViewData(roomCtx);
+      content=`<div class="task-guide-stack">${guidanceDatenraumBlock(d)}${guidanceUploadBlock(d)}</div>`;
+    }else{
+      content=renderExplorerRoom(row,st);
+    }
   }else if(taskActiveTab==='communication'){
     content=communicationComposeHtml();
   }else if(taskActiveTab==='review'){
@@ -4372,7 +4476,21 @@ function renderTaskModal(){
   document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});
   if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);}
   if(activeTaskContext.globalRoom && taskActiveTab!=='room')bindGlobalTaskOverview(sub);
-  if(taskActiveTab==='room')bindExplorerRoom(row,st);
+  const modalMain=document.getElementById('task-modal-main');
+  if(taskActiveTab==='details' && !activeTaskContext.globalRoom){
+    const ctx=taskGuidanceContext();
+    if(ctx&&ctx.guide) bindGuidanceBlocks(modalMain,guidanceViewData(ctx));
+  }
+  if(taskActiveTab==='notes' && !activeTaskContext.globalRoom){
+    const ctx=taskGuidanceContext();
+    if(ctx) bindStepCommentBlock(ctx,modalMain,renderTaskModal);
+  }
+  if(taskActiveTab==='room'){
+    const ctx=taskGuidanceContext();
+    // Blattkachel: der Arbeitsbereich ist der Datenraum dieser einen Massnahme.
+    if(ctx&&!activeTaskContext.globalRoom) bindGuidanceBlocks(modalMain,guidanceViewData(ctx));
+    else bindExplorerRoom(row,st);
+  }
   if(taskActiveTab==='communication' && !activeTaskContext.globalRoom)loadTaskCommunication(row,st);
   if(taskActiveTab==='email' && !activeTaskContext.globalRoom){
     document.getElementById('email-kind').onchange=e=>{st.emailKind=e.target.value;renderTaskModal();};
@@ -4416,7 +4534,12 @@ function guidanceList(value){ return Array.isArray(value)?value.filter(item=>Str
 // Zweite Ebene (Maßnahme) trägt den Titel in .title, dritte Ebene (Unter-Kachel wie 3.14.1) in .text.
 function guidanceNodeTitle(node){ return node?(node.title||node.text||''):''; }
 function guidanceForMeasure(m){ return m?guidanceByCode.get(guidanceStepCode(guidanceNodeTitle(m)))||null:null; }
-function guidanceStepList(m){ const guide=guidanceForMeasure(m); return guide?guidanceList(guide.was_ist_zu_tun):[]; }
+// Anleitung eines Knotens: erst über den Fremdschlüssel, dann über den Code im Titel.
+function guidanceRecordFor(node){
+  const step=processStepForNode(node);
+  return (step&&guidanceByStepId.get(step.id))||guidanceForMeasure(node);
+}
+function guidanceStepList(m){ const guide=guidanceRecordFor(m); return guide?guidanceList(guide.was_ist_zu_tun):[]; }
 function guidanceCurrentMeasure(){
   const measure=stations[view.station]?.measures?.[view.measure]||null;
   if(view.level==='guidance') return measure?.subitems?.[view.sub]||null;
@@ -4428,12 +4551,6 @@ function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure());
 function guidanceViewActive(){
   const ctx=guidanceContext();
   return !!ctx&&(!!ctx.guide||processStepChildren(ctx.stepId).length>0);
-}
-function guidanceChecks(m,total){
-  if(!Array.isArray(m.guidanceChecks)) m.guidanceChecks=[];
-  while(m.guidanceChecks.length<total) m.guidanceChecks.push(false);
-  if(m.guidanceChecks.length>total) m.guidanceChecks.length=total;
-  return m.guidanceChecks;
 }
 function guidanceStepDocuments(stepId){ return stepId?(guidanceStepDocsByStep.get(String(stepId))||[]):[]; }
 function guidanceTasks(code){
@@ -4470,24 +4587,15 @@ function processStepSubtreeIds(stepId){
   if(stepId) walk(String(stepId));
   return out;
 }
-// Fortschritt der neuen Ebenen haengt an der Maßnahme, adressiert über die Schritt-UUID
-// statt über eine Array-Position. Passt zu stepProgress aus Migration 7; wird hier bei
-// Bedarf angelegt, damit der Pfad auch vor Migration 7 funktioniert.
-function stepProgressNode(stepId){
-  const measure=stations[view.station]?.measures?.[view.measure];
-  if(!measure) return {};
-  if(!measure.stepProgress||typeof measure.stepProgress!=='object') measure.stepProgress={};
-  if(!measure.stepProgress[stepId]) measure.stepProgress[stepId]={};
-  return measure.stepProgress[stepId];
-}
-// Einheitlicher Bezugspunkt der Vier-Block-Ansicht - egal ob State-Knoten oder Prozessschritt.
+// Einheitlicher Bezugspunkt der Kachelansicht - egal ob State-Knoten, Prozessschritt
+// oder Aufgabe im Modal. Der Fortschritt hängt nicht mehr am Knoten, sondern liegt
+// serverseitig in process_step_guidance_progress.
 function guidanceContext(){
   if(view.level==='step'){
     const step=processStepById(view.stepId);
     if(!step) return null;
     return { step, stepId:step.id, code:step.code, title:processStepLabel(step),
-      guide:guidanceByStepId.get(step.id)||guidanceByCode.get(step.code)||null,
-      progressNode:stepProgressNode(step.id) };
+      guide:guidanceByStepId.get(step.id)||guidanceByCode.get(step.code)||null };
   }
   const node=guidanceCurrentMeasure();
   if(!node) return null;
@@ -4497,7 +4605,7 @@ function guidanceContext(){
   // weiterhin - Upload und Schritt-Dokumente bleiben dann wie bisher nutzbar.
   return { step, stepId:step?step.id:(guide?.process_step_id?String(guide.process_step_id):null),
     code:guidanceStepCode(guidanceNodeTitle(node)),
-    title:guidanceNodeTitle(node), guide, progressNode:node };
+    title:guidanceNodeTitle(node), guide };
 }
 // Aufgaben eines Schritts einschliesslich seiner Unterschritte: die Elternkachel zeigt
 // den Rollup, das Blatt genau seine eine Aufgabe.
@@ -4567,6 +4675,56 @@ async function loadProcessStepTree(){
     a.sortOrder-b.sortOrder||a.code.localeCompare(b.code,undefined,{numeric:true})));
 }
 
+// Kein Sicherheitszweck - der Hash erkennt nur, ob sich der Text eines Schrittes
+// geändert hat und ein alter Haken damit auf eine andere Aussage zeigen würde.
+function guidanceStepHash(text){
+  const s=String(text||'');
+  let h=0x811c9dc5;
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193)>>>0; }
+  return h.toString(16).padStart(8,'0');
+}
+function guidanceProgressKey(stepId,index){ return `${stepId}|${index}`; }
+// Die Guidance-Bloecke laufen auf zwei Oberflaechen. Nach einer Aenderung muss die
+// gerade sichtbare mitgezogen werden, sonst bleibt das Modal auf altem Stand stehen.
+function refreshGuidanceSurfaces(){
+  render();
+  if(activeTaskContext) renderTaskModal();
+}
+// Ein Haken zählt nur, wenn der Text seit dem Setzen unverändert ist.
+function guidanceChecksFor(stepId,steps){
+  return (steps||[]).map((text,i)=>{
+    const entry=stepId?guidanceProgress.get(guidanceProgressKey(stepId,i)):null;
+    return !!(entry&&entry.completed&&entry.hash===guidanceStepHash(text));
+  });
+}
+async function loadGuidanceStepProgress(){
+  guidanceProgress.clear();
+  const {data,error}=await luminaDb.from('process_step_guidance_progress')
+    .select('process_step_id,step_index,step_text_hash,completed');
+  // Fehlt die Tabelle (aeltere Datenbank), bleiben die Haken einfach leer.
+  if(error){ console.warn('Anleitungs-Fortschritt konnte nicht geladen werden',error); return; }
+  (data||[]).forEach(row=>guidanceProgress.set(
+    guidanceProgressKey(String(row.process_step_id),Number(row.step_index)),
+    {completed:!!row.completed,hash:String(row.step_text_hash||'')}));
+}
+async function toggleGuidanceStep(stepId,index,text,naechster){
+  if(!stepId){ showTopNote('Für diese Kachel ist kein Prozessschritt hinterlegt.',true); return; }
+  const hash=guidanceStepHash(text);
+  // Sofort anzeigen, bei Fehler zurücknehmen - sonst wirkt der Klick verzögert.
+  const vorher=guidanceProgress.get(guidanceProgressKey(stepId,index))||null;
+  guidanceProgress.set(guidanceProgressKey(stepId,index),{completed:naechster,hash});
+  refreshGuidanceSurfaces();
+  const {error}=await luminaDb.rpc('set_guidance_step_completed',{
+    p_process_step_id:stepId, p_step_index:index, p_step_text_hash:hash, p_completed:naechster
+  });
+  if(error){
+    if(vorher) guidanceProgress.set(guidanceProgressKey(stepId,index),vorher);
+    else guidanceProgress.delete(guidanceProgressKey(stepId,index));
+    showTopNote('Schritt konnte nicht gespeichert werden: '+(error.message||error),true);
+    refreshGuidanceSurfaces();
+  }
+}
+
 async function loadProcessStepComments(){
   stepCommentsByStep.clear();
   const {data,error}=await luminaDb.from('process_step_comments')
@@ -4630,7 +4788,7 @@ async function guidanceSaveStatus(entry,workStatus){
   addActivity(entry.state,`Status über die Schritt-Anleitung gesetzt: ${workStatus}`);
   try{ await saveLuminaTaskToSupabase(entry.row,entry.state); }
   catch(error){ showTopNote('Status konnte nicht gespeichert werden: '+(error.message||error),true); }
-  render();
+  refreshGuidanceSurfaces();
 }
 
 async function guidanceUploadDocument(ctx){
@@ -4681,7 +4839,9 @@ async function guidanceUploadDocument(ctx){
       storageBucket:prepared.storage_bucket||'lumina-datarooms',storagePath:prepared.storage_path,persisted:true
     };
     if(stepOnly){
-      const key=String(guide.process_step_id);
+      // stepId statt guide.process_step_id: eine Kachel kann einen Datenraum haben,
+      // ohne dass fuer sie eine Anleitung hinterlegt ist.
+      const key=String(stepId);
       if(!guidanceStepDocsByStep.has(key)) guidanceStepDocsByStep.set(key,[]);
       guidanceStepDocsByStep.get(key).push({...record,stepLevel:true,processStepId:key,stepCode:String(code)});
       showTopNote('Dokument dem Prozessschritt zugeordnet und dauerhaft gespeichert.');
@@ -4697,7 +4857,7 @@ async function guidanceUploadDocument(ctx){
       catch(statusError){ console.warn('Status konnte nicht gespeichert werden',statusError); }
       showTopNote('Dokument dauerhaft gespeichert.');
     }
-    render();
+    refreshGuidanceSurfaces();
   }catch(error){
     if(prepared?.document_id) await luminaDb.rpc('cancel_document_upload',{p_document_id:prepared.document_id});
     showTopNote('Upload fehlgeschlagen: '+(error.message||error),true);
@@ -4716,34 +4876,37 @@ function guidanceBulletBlock(title,items,extraClass){
   return `<div class="guide-section"><div class="guide-section-title">${luminaEsc(title)}</div><ul class="guide-list ${extraClass||''}">${items.map(item=>`<li>${luminaEsc(item)}</li>`).join('')}</ul></div>`;
 }
 
-function renderStepGuidance(){
-  const ctx=guidanceContext();
-  const container=document.getElementById('form-container');
-  if(!ctx){ container.innerHTML=''; return; }
-  const kinder=processStepChildren(ctx.stepId);
-  // Eine Kachel ohne Anleitung, aber mit Unterkacheln bleibt bedienbar: sie zeigt dann
-  // nur den Unterkachel-Streifen. Ohne beides gibt es nichts zu rendern.
-  if(!ctx.guide&&!kinder.length){ container.innerHTML=''; return; }
-  const guide=ctx.guide,code=ctx.code,m=ctx.progressNode;
-  const steps=guide?guidanceList(guide.was_ist_zu_tun):[],checks=guidanceChecks(m,steps.length);
+/* ---------- Bausteine der Kachelansicht ----------
+   Seite (Station/Kategorie) und Aufgaben-Modal (einzelne Maßnahme) rendern dieselben
+   Blöcke aus denselben Funktionen. Ohne diese Trennung stünde dasselbe Markup an zwei
+   Stellen - dieselbe Doppelpflege, die auf Datenebene gerade beseitigt wurde. */
+function guidanceViewData(ctx){
+  const guide=ctx.guide||null;
+  const steps=guide?guidanceList(guide.was_ist_zu_tun):[];
   const tasks=guidanceTasksForContext(ctx);
-  const statusOptions=Object.keys(LUMINA_WORK_TO_REMOTE);
   const allDocs=stepDataroomDocuments(ctx);
-  const canUpload=tasks.length?true:!!ctx.stepId;
-  const doneCount=checks.filter(Boolean).length;
-  const openTasks=tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
-  const overdue=tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length;
-  const datenbasisHinweis=String(guide?.datenbasis_hinweis||'').trim();
+  const kinder=processStepChildren(ctx.stepId);
+  const checks=guidanceChecksFor(ctx.stepId,steps);
+  return { ctx, guide, code:ctx.code, steps, checks, tasks, allDocs, kinder,
+    doneCount:checks.filter(Boolean).length,
+    openTasks:tasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length,
+    overdue:tasks.filter(task=>taskTiming(task.row,task.state)==='Überfällig').length,
+    canUpload:tasks.length?true:!!ctx.stepId,
+    statusOptions:Object.keys(LUMINA_WORK_TO_REMOTE) };
+}
 
-  const anleitung=!guide?'':`
+function guidanceAnleitungBlock(d){
+  const guide=d.guide; if(!guide) return '';
+  const hinweis=String(guide.datenbasis_hinweis||'').trim();
+  return `
     <section class="guide-block">
-      <div class="guide-block-head"><div class="guide-block-title">Anleitung</div><div class="guide-block-hint">Prozessschritt ${luminaEsc(code)}</div></div>
-      ${datenbasisHinweis?`<div class="guide-datenbasis" role="note"><span class="guide-datenbasis-icon" aria-hidden="true">⚠</span><div><span class="guide-datenbasis-label">Hinweis zur Datenbasis</span>${luminaEsc(datenbasisHinweis)}</div></div>`:''}
+      <div class="guide-block-head"><div class="guide-block-title">Anleitung</div><div class="guide-block-hint">Prozessschritt ${luminaEsc(d.code)}</div></div>
+      ${hinweis?`<div class="guide-datenbasis" role="note"><span class="guide-datenbasis-icon" aria-hidden="true">⚠</span><div><span class="guide-datenbasis-label">Hinweis zur Datenbasis</span>${luminaEsc(hinweis)}</div></div>`:''}
       ${guide.ziel?`<p class="guide-goal">${luminaEsc(guide.ziel)}</p>`:''}
       <div class="guide-section">
-        <div class="guide-section-title">Was ist zu tun · ${doneCount}/${steps.length} erledigt</div>
+        <div class="guide-section-title">Was ist zu tun · ${d.doneCount}/${d.steps.length} erledigt</div>
         <div class="guide-steps">
-          ${steps.map((step,i)=>`<button type="button" class="guide-step ${checks[i]?'is-done':''}" data-guide-step="${i}"><span class="guide-step-check"></span><span class="guide-step-text"><span class="guide-step-num">${i+1}.</span>${luminaEsc(step)}</span></button>`).join('')}
+          ${d.steps.map((step,i)=>`<button type="button" class="guide-step ${d.checks[i]?'is-done':''}" data-guide-step="${i}"><span class="guide-step-check"></span><span class="guide-step-text"><span class="guide-step-num">${i+1}.</span>${luminaEsc(step)}</span></button>`).join('')}
         </div>
       </div>
       ${guidanceBulletBlock('Benötigte Unterlagen',guidanceList(guide.benoetigte_unterlagen))}
@@ -4755,25 +4918,30 @@ function renderStepGuidance(){
         ${guide.rechtsgrundlage?`<div class="guide-meta-row"><dt>Rechtsgrundlage</dt><dd>${luminaEsc(guide.rechtsgrundlage)}</dd></div>`:''}
       </dl>
     </section>`;
+}
 
-  const arbeitshilfe=!guide?'':`
+function guidanceArbeitshilfeBlock(d){
+  const guide=d.guide; if(!guide) return '';
+  return `
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Arbeitshilfe</div><div class="guide-block-hint">Excel-Vorlage</div></div>
       ${guide.arbeitshilfe_name?`<div class="guide-helper"><span class="guide-helper-name">${luminaEsc(guide.arbeitshilfe_name)}</span><button type="button" class="btn-save" id="guide-helper-download">Arbeitshilfe herunterladen</button></div>`
         :'<div class="guide-empty">Für diesen Prozessschritt ist keine Arbeitshilfe hinterlegt.</div>'}
       ${guidanceList(guide.arbeitshilfe_felder).length?`<div class="guide-section-title" style="margin-top:16px">Spalten der Vorlage</div><div class="guide-fields">${guidanceList(guide.arbeitshilfe_felder).map(field=>`<span class="guide-field-chip">${luminaEsc(field)}</span>`).join('')}</div>`:''}
     </section>`;
+}
 
-  const status=`
+function guidanceStatusBlock(d){
+  return `
     <section class="guide-block">
-      <div class="guide-block-head"><div class="guide-block-title">Status</div><div class="guide-block-hint">${tasks.length} Aufgabe${tasks.length===1?'':'n'}</div></div>
+      <div class="guide-block-head"><div class="guide-block-title">Status</div><div class="guide-block-hint">${d.tasks.length} Aufgabe${d.tasks.length===1?'':'n'}</div></div>
       <div class="guide-summary">
-        <span class="guide-chip ${doneCount===steps.length&&steps.length?'done':''}">Anleitung ${doneCount}/${steps.length}</span>
-        <span class="guide-chip">${openTasks} offen</span>
-        ${overdue?`<span class="guide-chip warn">${overdue} überfällig</span>`:''}
-        <span class="guide-chip">${allDocs.length} Dokument${allDocs.length===1?'':'e'}</span>
+        <span class="guide-chip ${d.doneCount===d.steps.length&&d.steps.length?'done':''}">Anleitung ${d.doneCount}/${d.steps.length}</span>
+        <span class="guide-chip">${d.openTasks} offen</span>
+        ${d.overdue?`<span class="guide-chip warn">${d.overdue} überfällig</span>`:''}
+        <span class="guide-chip">${d.allDocs.length} Dokument${d.allDocs.length===1?'':'e'}</span>
       </div>
-      ${tasks.length?tasks.map(task=>{
+      ${d.tasks.length?d.tasks.map(task=>{
         const unterlagen=taskRequiredDocs(task.row);
         return `
         <div class="guide-status-row">
@@ -4783,42 +4951,50 @@ function renderStepGuidance(){
             <div class="guide-status-sub">Nr. ${luminaEsc(task.row[0]||'–')} · ${luminaEsc(responsible(task.row).name)} · ${luminaEsc(taskEffectiveDate(task.row)?formatDateDE(taskEffectiveDate(task.row)):'ohne Termin')}</div>
           </div>
           <select data-guide-status="${task.ri}" ${task.state.remoteTaskId?'':'disabled title="Noch keinem Supabase-Datensatz zugeordnet"'}>
-            ${statusOptions.map(option=>`<option value="${luminaEsc(option)}" ${option===task.state.workStatus?'selected':''}>${luminaEsc(option)}</option>`).join('')}
+            ${d.statusOptions.map(option=>`<option value="${luminaEsc(option)}" ${option===task.state.workStatus?'selected':''}>${luminaEsc(option)}</option>`).join('')}
           </select>
         </div>`;}).join('')
         :'<div class="guide-empty">Zu diesem Prozessschritt ist noch keine Aufgabe aus der Maßnahmenliste zugeordnet.</div>'}
     </section>`;
+}
 
-  const upload=`
+function guidanceUploadBlock(d){
+  return `
     <section class="guide-block">
       <div class="guide-block-head"><div class="guide-block-title">Datei-Upload</div><div class="guide-block-hint">Supabase-Datenraum</div></div>
-      ${canUpload?`
+      ${d.canUpload?`
       <div class="guide-upload">
-        ${tasks.length>1?`<label>Aufgabe<select id="guide-upload-task">${tasks.map(task=>{
+        ${d.tasks.length>1?`<label>Aufgabe<select id="guide-upload-task">${d.tasks.map(task=>{
           const kurz=taskRequiredDocs(task.row,40),voll=taskRequiredDocs(task.row);
           return `<option value="${task.ri}"${voll?` title="${luminaEsc(voll)}"`:''}>${luminaEsc(task.row[0]||'–')} · ${luminaEsc(task.row[3]||task.row[1]||'Maßnahme')}${kurz?` · ${luminaEsc(kurz)}`:''}</option>`;}).join('')}</select></label>`:''}
         <label>Datei<input id="guide-upload-file" type="file"></label>
         <label>Kommentar<input id="guide-upload-comment" type="text" placeholder="optional"></label>
         <div><button type="button" class="btn-save" id="guide-upload-save">Datei hochladen</button></div>
       </div>
-      <div class="guide-note">${tasks.length
+      <div class="guide-note">${d.tasks.length
         ?'Die Datei wird der ausgewählten Aufgabe zugeordnet, dauerhaft im privaten Datenraum abgelegt und setzt deren Status auf „Eingereicht“.'
-        :`Für diesen Prozessschritt ist keine Einzelaufgabe hinterlegt. Die Datei wird direkt dem Prozessschritt ${luminaEsc(code)} zugeordnet und im Datenraumordner dieses Schritts abgelegt.`}</div>`
+        :`Für diesen Prozessschritt ist keine Einzelaufgabe hinterlegt. Die Datei wird direkt dem Prozessschritt ${luminaEsc(d.code)} zugeordnet und im Datenraumordner dieses Schritts abgelegt.`}</div>`
       :'<div class="guide-empty">Für diesen Prozessschritt ist kein Schrittbezug hinterlegt – ohne ihn kann keine Datei abgelegt werden.</div>'}
     </section>`;
+}
 
-  // Unterkacheln aus process_steps. Die Elternkachel behält ihre eigene Anleitung,
-  // der Streifen kommt zusätzlich dazu - es geht nichts verloren.
-  const unterkacheln=!kinder.length?'':`
+// Unterkacheln aus process_steps. Die Elternkachel behält ihre eigene Anleitung,
+// der Streifen kommt zusätzlich dazu - es geht nichts verloren.
+function guidanceChildrenBlock(d){
+  if(!d.kinder.length) return '';
+  return `
     <section class="guide-block guide-children-block">
-      <div class="guide-block-head"><div class="guide-block-title">Unterkacheln</div><div class="guide-block-hint">${kinder.length} Maßnahme${kinder.length===1?'':'n'} · je eigener Datenraum</div></div>
+      <div class="guide-block-head"><div class="guide-block-title">Unterkacheln</div><div class="guide-block-hint">${d.kinder.length} Maßnahme${d.kinder.length===1?'':'n'} · je eigener Datenraum</div></div>
       <div class="guide-children">
-        ${kinder.map(child=>{
-          const childTasks=guidanceTasksForContext({stepId:child.id,code:child.code});
-          const childDocs=stepDataroomDocuments({stepId:child.id,code:child.code});
+        ${d.kinder.map(child=>{
+          const childCtx={stepId:child.id,code:child.code};
+          const childTasks=guidanceTasksForContext(childCtx);
+          const childDocs=stepDataroomDocuments(childCtx);
           const childOpen=childTasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
           const enkel=processStepChildren(child.id).length;
-          return `<button type="button" class="guide-child" data-guide-child="${luminaEsc(child.id)}">
+          // Aggregat (hat Kinder) oeffnet die Seite, Entitaet (eine Aufgabe) das Modal.
+          const alsAufgabe=!enkel&&taskRiForStep(child.id)!==null;
+          return `<button type="button" class="guide-child" data-guide-child="${luminaEsc(child.id)}" data-guide-child-kind="${alsAufgabe?'aufgabe':'seite'}">
             <span class="guide-child-code">${luminaEsc(child.code)}</span>
             <span class="guide-child-name">${luminaEsc(child.name)}</span>
             <span class="guide-child-meta">${enkel?`${enkel} Unterkachel${enkel===1?'':'n'} · `:''}${childOpen} offen · ${childDocs.length} Dokument${childDocs.length===1?'':'e'}</span>
@@ -4826,43 +5002,62 @@ function renderStepGuidance(){
         }).join('')}
       </div>
     </section>`;
+}
 
-  // Datenraum der Kachel: gefilterte Dokumentenliste über process_step_id, kein Ordnerbaum.
-  // Die thematische Ablage in dataroom_folders bleibt davon unberührt.
-  const datenraum=`
+// Datenraum der Kachel: gefilterte Dokumentenliste über process_step_id, kein Ordnerbaum.
+// Die thematische Ablage in dataroom_folders bleibt davon unberührt.
+function guidanceDatenraumBlock(d){
+  return `
     <section class="guide-block">
-      <div class="guide-block-head"><div class="guide-block-title">Datenraum</div><div class="guide-block-hint">${allDocs.length} Dokument${allDocs.length===1?'':'e'}${kinder.length?' inkl. Unterkacheln':''}</div></div>
-      ${allDocs.length?`<div class="guide-docs">${allDocs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">${doc.stepLevel?`Prozessschritt ${luminaEsc(code)}`:`Aufgabe ${luminaEsc(doc.taskNumber||'–')}`} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}${doc.comment?` · ${luminaEsc(doc.comment)}`:''}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`
+      <div class="guide-block-head"><div class="guide-block-title">Datenraum</div><div class="guide-block-hint">${d.allDocs.length} Dokument${d.allDocs.length===1?'':'e'}${d.kinder.length?' inkl. Unterkacheln':''}</div></div>
+      ${d.allDocs.length?`<div class="guide-docs">${d.allDocs.map(doc=>`<div class="guide-doc"><div><div class="guide-doc-name" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="guide-doc-sub">${doc.stepLevel?`Prozessschritt ${luminaEsc(d.code)}`:`Aufgabe ${luminaEsc(doc.taskNumber||'–')}`} · V${luminaEsc(doc.version||1)} · ${luminaEsc(formatDateTime(doc.uploadedAt))}${doc.comment?` · ${luminaEsc(doc.comment)}`:''}</div></div><button type="button" class="btn-secondary" data-guide-doc="${luminaEsc(doc.id)}">Öffnen</button></div>`).join('')}</div>`
         :'<div class="guide-empty">Für diese Maßnahme liegt noch kein Dokument im Datenraum.</div>'}
     </section>`;
+}
 
-  const kommentare=renderStepCommentBlock(ctx);
-
-  container.innerHTML=`<div class="guide-wrap"><div class="guide-col">${unterkacheln}${anleitung}</div><div class="guide-col">${arbeitshilfe}${status}${upload}${datenraum}${kommentare}</div></div>`;
-
-  container.querySelectorAll('[data-guide-child]').forEach(button=>button.addEventListener('click',()=>{
-    view={level:'step',station:view.station,measure:view.measure,stepId:button.dataset.guideChild};
+// Ereignisse aller Bloecke. root ist der Container, in den gerendert wurde -
+// Seite (form-container) oder Modal (task-modal-main).
+function bindGuidanceBlocks(root,d){
+  root.querySelectorAll('[data-guide-child]').forEach(button=>button.addEventListener('click',()=>{
+    const stepId=button.dataset.guideChild;
+    if(button.dataset.guideChildKind==='aufgabe'){ openTaskModalForStep(stepId); return; }
+    view={level:'step',station:view.station,measure:view.measure,stepId};
     render();
   }));
-  bindStepCommentBlock(ctx);
-
-  container.querySelectorAll('[data-guide-step]').forEach(button=>button.addEventListener('click',()=>{
+  root.querySelectorAll('[data-guide-step]').forEach(button=>button.addEventListener('click',()=>{
     const i=Number(button.dataset.guideStep);
-    checks[i]=!checks[i];
-    render();
+    toggleGuidanceStep(d.ctx.stepId,i,d.steps[i],!d.checks[i]);
   }));
-  const download=document.getElementById('guide-helper-download');
-  if(download&&guide) download.addEventListener('click',()=>guidanceDownloadHelper(guide));
-  container.querySelectorAll('[data-guide-status]').forEach(select=>select.addEventListener('change',()=>{
-    const entry=tasks.find(task=>String(task.ri)===select.dataset.guideStatus);
+  const download=root.querySelector('#guide-helper-download');
+  if(download&&d.guide) download.addEventListener('click',()=>guidanceDownloadHelper(d.guide));
+  root.querySelectorAll('[data-guide-status]').forEach(select=>select.addEventListener('change',()=>{
+    const entry=d.tasks.find(task=>String(task.ri)===select.dataset.guideStatus);
     if(entry) guidanceSaveStatus(entry,select.value);
   }));
-  const save=document.getElementById('guide-upload-save');
-  if(save) save.addEventListener('click',()=>guidanceUploadDocument(ctx));
-  container.querySelectorAll('[data-guide-doc]').forEach(button=>button.addEventListener('click',()=>{
-    const doc=allDocs.find(entry=>String(entry.id)===button.dataset.guideDoc);
+  const save=root.querySelector('#guide-upload-save');
+  if(save) save.addEventListener('click',()=>guidanceUploadDocument(d.ctx));
+  root.querySelectorAll('[data-guide-doc]').forEach(button=>button.addEventListener('click',()=>{
+    const doc=d.allDocs.find(entry=>String(entry.id)===button.dataset.guideDoc);
     if(doc) explorerDownload(doc);
   }));
+}
+
+// Seitenansicht fuer Aggregate (Station, Kategorie). Einzelne Massnahmen oeffnen
+// stattdessen das Aufgaben-Modal - siehe openTaskModalForStep.
+function renderStepGuidance(){
+  const ctx=guidanceContext();
+  const container=document.getElementById('form-container');
+  if(!ctx){ container.innerHTML=''; return; }
+  const d=guidanceViewData(ctx);
+  // Eine Kachel ohne Anleitung, aber mit Unterkacheln bleibt bedienbar: sie zeigt dann
+  // nur den Unterkachel-Streifen. Ohne beides gibt es nichts zu rendern.
+  if(!d.guide&&!d.kinder.length){ container.innerHTML=''; return; }
+  container.innerHTML=`<div class="guide-wrap">`
+    +`<div class="guide-col">${guidanceChildrenBlock(d)}${guidanceAnleitungBlock(d)}</div>`
+    +`<div class="guide-col">${guidanceArbeitshilfeBlock(d)}${guidanceStatusBlock(d)}${guidanceUploadBlock(d)}${guidanceDatenraumBlock(d)}${renderStepCommentBlock(ctx)}</div>`
+    +`</div>`;
+  bindGuidanceBlocks(container,d);
+  bindStepCommentBlock(ctx);
 }
 
 /* ---------- Kommentare je Kachel ----------
@@ -4937,25 +5132,29 @@ function renderStepCommentBlock(ctx){
     </section>`;
 }
 
-function bindStepCommentBlock(ctx){
+// root und neuZeichnen sind austauschbar, damit derselbe Block auf der Seite
+// (form-container, render) und im Aufgaben-Modal (task-modal-main, renderTaskModal)
+// läuft, ohne dass es zwei Fassungen gibt.
+function bindStepCommentBlock(ctx,root,neuZeichnen){
   if(!ctx?.stepId) return;
-  const container=document.getElementById('form-container');
+  const container=root||document.getElementById('form-container');
+  const zeichnen=neuZeichnen||render;
   container.querySelectorAll('[data-comment-reply]').forEach(button=>button.addEventListener('click',()=>{
     stepCommentReplyTo=button.dataset.commentReply;
-    render();
+    zeichnen();
   }));
-  const cancel=document.getElementById('guide-comment-cancel');
-  if(cancel) cancel.addEventListener('click',()=>{ stepCommentReplyTo=null; render(); });
+  const cancel=container.querySelector('#guide-comment-cancel');
+  if(cancel) cancel.addEventListener('click',()=>{ stepCommentReplyTo=null; zeichnen(); });
   container.querySelectorAll('[data-comment-save]').forEach(button=>button.addEventListener('click',()=>{
     const istAntwort=button.dataset.commentSave==='reply';
-    const feld=document.getElementById(istAntwort?'guide-comment-input-reply':'guide-comment-input');
-    saveStepComment(ctx,feld?feld.value:'',istAntwort?stepCommentReplyTo:null,button);
+    const feld=container.querySelector(istAntwort?'#guide-comment-input-reply':'#guide-comment-input');
+    saveStepComment(ctx,feld?feld.value:'',istAntwort?stepCommentReplyTo:null,button,zeichnen);
   }));
   container.querySelectorAll('[data-comment-delete]').forEach(button=>button.addEventListener('click',()=>
-    deleteStepComment(button.dataset.commentDelete,button)));
+    deleteStepComment(button.dataset.commentDelete,button,zeichnen)));
 }
 
-async function saveStepComment(ctx,body,parentId,button){
+async function saveStepComment(ctx,body,parentId,button,neuZeichnen){
   const text=String(body||'').trim();
   if(!text){ showTopNote('Bitte eine Notiz eingeben.',true); return; }
   if(button){ button.disabled=true; button.textContent='Wird gespeichert ...'; }
@@ -4970,14 +5169,14 @@ async function saveStepComment(ctx,body,parentId,button){
     await loadProcessStepComments();
     stepCommentReplyTo=null;
     showTopNote('Notiz gespeichert.');
-    render();
+    (neuZeichnen||render)();
   }catch(error){
     showTopNote('Notiz konnte nicht gespeichert werden: '+(error.message||error),true);
     if(button){ button.disabled=false; button.textContent=parentId?'Antwort speichern':'Notiz speichern'; }
   }
 }
 
-async function deleteStepComment(commentId,button){
+async function deleteStepComment(commentId,button,neuZeichnen){
   if(!confirm('Diese Notiz löschen?')) return;
   if(button) button.disabled=true;
   try{
@@ -4985,7 +5184,7 @@ async function deleteStepComment(commentId,button){
     if(error) throw error;
     await loadProcessStepComments();
     showTopNote('Notiz gelöscht.');
-    render();
+    (neuZeichnen||render)();
   }catch(error){
     showTopNote('Notiz konnte nicht gelöscht werden: '+(error.message||error),true);
     if(button) button.disabled=false;
@@ -5040,6 +5239,7 @@ async function loadLuminaFromSupabase(){
   }
   await loadGuidanceStepDocuments(documents);
   await loadProcessStepComments();
+  await loadGuidanceStepProgress();
   setLuminaSyncState(`${tasks.length} Aufgaben · ${(documents||[]).length} Dokumente aus Supabase`);
 }
 
