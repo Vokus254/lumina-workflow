@@ -1109,6 +1109,29 @@ function Ms(title, subs){ return { title, subitems: subs.map(s => typeof s === "
 
 const stations = []
 let view = { level: "grid" };
+/* Subitem-Typen, hinter denen ein eigenes Werkzeug steckt statt einer Maßnahme:
+   Stammdaten (über .fields), Rollen, Ordnerstruktur, Anlagenspiegel, SuSa-Import,
+   Berichtsstruktur, Maßnahmenliste, Kontenzuordnung, Bilanz/GuV, Zeitplan.
+   Diese Kacheln dürfen nie durch den Sprung ins Aufgaben-Modal verdrängt werden -
+   die Aufgabe der Station bleibt über "Mein Tag" und die Maßnahmenliste erreichbar,
+   das Werkzeug dahinter hätte keinen zweiten Weg. */
+const WERKZEUG_SUBITEMS = ["roles","tree","table","import","mapping","pbc","kontenmapping","statement","milestones"];
+// Die view.level-Namen entsprechen den Subitem-Typen; Stammdaten laufen über .fields.
+function subitemViewLevel(sub){
+  if(!sub) return null;
+  if(sub.fields) return "form";
+  return WERKZEUG_SUBITEMS.includes(sub.type) ? sub.type : null;
+}
+function measureHatWerkzeug(m){
+  return !!(m && (m.subitems || []).some(sub => subitemViewLevel(sub)));
+}
+// Kurzbezeichnung in der Kachelkennung - dieselben Begriffe wie auf den Teilschritt-Karten.
+function werkzeugLabel(sub){
+  if(sub.fields) return "Formular";
+  return { roles:"Rollen", tree:"Struktur", table:"Tabelle", import:"Import", mapping:"Mapping",
+           pbc:"Liste", kontenmapping:"Zuordnung", statement:"Auswertung", milestones:"Zeitplan"
+         }[sub.type] || "Werkzeug";
+}
 // Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
 // Nur noch für den alten Kachelpfad; der neue adressiert über guidanceByStepId.
 const guidanceByCode = new Map();
@@ -1334,6 +1357,30 @@ function renderGrid(){
         tile.addEventListener("click", () => openProcessStepNode(child.id));
         grid.appendChild(tile);
       });
+
+      // Trägt die Station zusätzlich ein Werkzeug-Subitem, steht dessen Kachel neben den
+      // Maßnahmen - betrifft 3.5 (Anlagenspiegel) seit Welle 2 dort Kinder angelegt hat.
+      // Nur auf der Stationsseite selbst, nicht auf den Kategorieseiten darunter.
+      if(view.level === "subitems"){
+        const m = stations[view.station]?.measures?.[view.measure];
+        (m?.subitems || []).forEach((sub, k) => {
+          const ziel = subitemViewLevel(sub);
+          if(!ziel) return;
+          const tile = document.createElement("button");
+          tile.className = "tile" + (sub.done ? " is-complete" : "");
+          tile.title = sub.text;
+          tile.innerHTML = `
+            <span class="tile-num">${luminaEsc(werkzeugLabel(sub))}</span>
+            <span class="tile-title">${luminaEsc(sub.text)}</span>
+            <div class="tile-bottom"><div class="tile-meta"><span class="tile-frac">Werkzeug</span></div></div>
+          `;
+          tile.addEventListener("click", () => {
+            view = { level: ziel, station: view.station, measure: view.measure, sub: k };
+            render();
+          });
+          grid.appendChild(tile);
+        });
+      }
       return;
     }
   }
@@ -1380,6 +1427,16 @@ function renderGrid(){
         const statementIdx = m.subitems.findIndex(x => x.type === "statement");
         if(statementIdx !== -1){
           view = { level: "statement", station: view.station, measure: j, sub: statementIdx };
+          render();
+          return;
+        }
+        // Stationen mit Werkzeug-Subitems behalten ihre Werkzeugkacheln: Stammdaten (2.0),
+        // Zeitplan (2.1), Rollen (2.2), Maßnahmenliste (2.4), Anlagenspiegel (3.5),
+        // SuSa-Import und Kontenzuordnung (3.17). Ohne diese Ausnahme sprang der Klick ins
+        // Aufgaben-Modal und das Werkzeug dahinter hatte keinen Weg mehr - die Aufgabe
+        // dieser Stationen bleibt über "Mein Tag" erreichbar, das Werkzeug nicht.
+        if(measureHatWerkzeug(m)){
+          view = { level: "subitems", station: view.station, measure: j };
           render();
           return;
         }
