@@ -109,7 +109,7 @@
        passt - damit kann kein Raster senkrecht überlaufen, egal wie viele Kacheln. */
     width: auto; height: auto; aspect-ratio: 1 / 1; min-width: 0;
     max-width: calc((100vh - 250px - (var(--reihen, 2) - 1) * 12px) / var(--reihen, 2));
-    justify-self: start; align-self: start;
+    align-self: start;
     background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 13px;
     display: flex; flex-direction: column; justify-content: flex-start; gap: 5px;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
@@ -128,7 +128,10 @@
   .tile.is-complete .tile-num{ background: var(--done-bg); color: var(--done-text); }
 
   .tile-title{
-    flex: 0 1 auto; min-height: 0;
+    /* Bei quadratischen Kacheln und kurzen Titeln bleibt Platz übrig. Der Titel wird
+       darin zentriert, statt oben zu kleben - sonst steht ein großes Loch zwischen
+       Titel und Fortschrittsbalken. */
+    flex: 0 1 auto; min-height: 0; margin-block: auto;
     font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--text-primary);
     display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
     overflow-wrap: anywhere;
@@ -144,7 +147,9 @@
   .grid[data-spalten="6"] .tile-due,  .grid[data-spalten="7"] .tile-due{ font-size: 10px; }
 
   /* Fortschrittsblock unten angeheftet - ohne das entstand bei kurzen Titeln Leerraum. */
-  .tile-bottom{ display: flex; flex-direction: column; gap: 5px; flex: 0 0 auto; margin-top: auto; }
+  /* Kein margin-top:auto - der Titel verteilt den freien Platz über margin-block:auto
+     selbst; zwei konkurrierende auto-Ränder drückten den Titel sonst nach oben. */
+  .tile-bottom{ display: flex; flex-direction: column; gap: 5px; flex: 0 0 auto; }
   .tile-bar-track{ height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
   .tile-bar-fill{ height: 100%; background: var(--accent); border-radius: 999px; }
   .tile-meta{ display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -666,7 +671,9 @@
 
   @media (max-width: 640px){
     .page{ padding: 32px 18px 70px; }
-    .tile{ width: 156px; height: 156px; padding: 13px; }
+    /* Kein width/height mehr: feste Maße würden aspect-ratio ausschalten und die
+       Kacheln auf schmalen Geräten wieder rechteckig machen. */
+    .tile{ padding: 13px; }
     .tile-title{ font-size: 12.5px; -webkit-line-clamp: 5; }
     .context-desc{ max-width: 220px; }
     .form-grid{ grid-template-columns: 1fr; }
