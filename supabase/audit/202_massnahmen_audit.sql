@@ -16,12 +16,18 @@
 -- LESART DES ERGEBNISSES
 --   art = 'FEHLER'   muss leer sein. Jede Zeile ist eine Massnahme, die im Cockpit
 --                    nicht oder unvollstaendig erreichbar ist.
---   art = 'HINWEIS'  erwartet. Das sind die bekannten Zusammenfuehrungen:
---                    15 Kacheln tragen zwei Aufgaben (14 Vor-/Hauptpruefungspaare
---                    unter 3.0, dazu die exakte Dublette #64/#113 unter 4.5).
---                    Erwartete Anzahl: 15 Zeilen.
+--   art = 'HINWEIS'  erwartet, drei Sorten:
+--                    (a) 15 Kacheln mit zwei Aufgaben - die bekannten Zusammen-
+--                        fuehrungen (14 Vor-/Hauptpruefungspaare unter 3.0, dazu die
+--                        exakte Dublette #64/#113 unter 4.5).
+--                    (b) Stationen ohne Zeile in der Massnahmenliste: 3.1, 3.2, 3.4,
+--                        3.8, 3.17, 3.18. Sie haben Anleitungsinhalt, aber die Excel
+--                        kennt dort keine Anforderung - die Kachel ist trotzdem nutzbar.
+--                    (c) fehlende Eintraege in process_step_due_dates. Die Tabelle wird
+--                        vom Frontend nicht gelesen; die Terminanzeige kommt aus der
+--                        Massnahmenliste.
 --   art = 'SUMME'    eine Zeile mit den Gesamtzahlen zur schnellen Kontrolle.
---                    Erwartet: 202 Aufgaben, 187 Kacheln mit Aufgabe, 0 Fehler.
+--                    Erwartet: 202 Aufgaben, 187 Kacheln mit Aufgabe.
 -- ===========================================================================
 
 with blatt as (
@@ -76,11 +82,17 @@ befund as (
 
   union all
 
-  -- 4. Blatt ohne Termin: Status- und Fristenanzeige bleibt leer.
-  select 'FEHLER', 4,
+  -- 4. Blatt ohne Termin in process_step_due_dates.
+  --    KEIN Fehler: das Frontend liest diese Tabelle nicht. Die Termin- und
+  --    Fristenanzeige speist sich aus der Massnahmenliste (taskEffectiveDate ->
+  --    computeRowEffectiveDatum). process_step_due_dates wurde fuer die Anforderung
+  --    "eine Kachel, mehrere Faelligkeiten" angelegt; die zugehoerige Anzeige ist
+  --    noch nicht gebaut. Fehlt ein Eintrag, aendert das an der App heute nichts -
+  --    deshalb Hinweis statt Fehler.
+  select 'HINWEIS', 7,
          a.source_number, b.code,
          left(coalesce(a.required_documents_text, a.title, ''), 70),
-         'Blattknoten ohne Termin in process_step_due_dates',
+         'kein Eintrag in process_step_due_dates (Anzeige nutzt die Massnahmenliste)',
          b.name
   from aufgabe a
   join blatt b on b.id = a.process_step_id
@@ -89,12 +101,21 @@ befund as (
 
   union all
 
-  -- 5. Kachel ohne Aufgabe: ein Blatt, das im Cockpit erscheint, aber keine Aufgabe
-  --    traegt - Status- und Upload-Block waeren leer.
-  select 'FEHLER', 5,
+  -- 5. Blatt mit Anleitung, aber ohne Aufgabe.
+  --    KEIN Fehler, sofern die Station in der Maßnahmenliste gar keine Zeile hat:
+  --    3.1, 3.2, 3.4, 3.8, 3.17 und 3.18 tragen Anleitungsinhalt aus dem Massenseed,
+  --    aber die Excel-Liste kennt dort keine Anforderung. Die Kachel funktioniert -
+  --    Anleitung und Arbeitshilfe werden angezeigt, der Upload laeuft ueber
+  --    prepare_step_document_upload gegen den Prozessschritt. Nur Status- und
+  --    Aufgabenblock bleiben leer, was der Sachlage entspricht.
+  --    Erscheint hier ein Code MIT Punkt (z. B. 3.14.1), ist das dagegen ein echter
+  --    Fehler: eine Massnahmenkachel ohne ihre Aufgabe.
+  select case when b.code ~ '^[0-9]+\.[0-9]+$' then 'HINWEIS' else 'FEHLER' end, 8,
          '-', b.code,
          left(b.name, 70),
-         'Massnahmenkachel ohne zugeordnete Aufgabe',
+         case when b.code ~ '^[0-9]+\.[0-9]+$'
+              then 'Station ohne Zeile in der Massnahmenliste (Anleitung vorhanden)'
+              else 'Massnahmenkachel ohne zugeordnete Aufgabe' end,
          ''
   from blatt b
   where b.ist_blatt

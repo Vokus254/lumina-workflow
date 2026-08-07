@@ -19,6 +19,7 @@ weitermachen, sondern melden.
 | 5 | `20260810090000_lumina_welle3_station_3_0.sql` | **Station 3.0 komplett** in einer Datei: 45 Knoten, 38 Anleitungen, 52 Aufgaben auf 38 Kacheln, 52 Termine. Führt die 14 Dublettenpaare zu je einer Kachel mit zwei Terminen zusammen und prüft den Ausreißer #1/#3 (2027-04-01) gesondert. |
 | 6 | `20260810093000_lumina_welle4_restliche_stationen.sql` | **3.12, 3.15, 4.5, 4.6, 5.7** in einer Datei: 27 Knoten, 25 Anleitungen, 26 Aufgaben auf 25 Kacheln, 25 Termine. #64 und #113 teilen sich eine Kachel. |
 | 7 | `20260811090000_lumina_arbeitshilfen_auf_blaetter.sql` | Hängt 9 Excel-Vorlagen von den Stationsknoten auf die passenden Maßnahmen um. Reines UPDATE, Stationszeilen bleiben stehen. Legt vorher eine Sicherung von `process_step_guidance` an. |
+| 8 | `20260811120000_lumina_tasks_3_14_repoint.sql` | Hängt die 24 Aufgaben der Station 3.14 auf 3.14.1–3.14.6 um (3/10/4/5/1/1). Beim 3.14-Piloten war der Repoint unterblieben, weil die Zuordnung damals über den Titel-Präfix lief. Legt vorher eine Sicherung der Zuordnung an. |
 
 **Optional, jederzeit und unabhängig:**
 
@@ -38,8 +39,11 @@ Erwartetes Ergebnis:
 
 - **`FEHLER` — keine Zeile.** Jede Zeile hier ist eine Maßnahme, die im Cockpit nicht
   oder unvollständig erreichbar ist.
-- **`HINWEIS` — genau 15 Zeilen.** Die bekannten Zusammenführungen: 14 Vor-/Hauptprüfungs­paare
-  unter 3.0 plus die exakte Dublette #64/#113 unter 4.5.
+- **`HINWEIS`** — drei erwartete Sorten:
+  - 15 Kacheln mit zwei Aufgaben (die bekannten Zusammenführungen),
+  - 6 Stationen ohne Zeile in der Maßnahmenliste (3.1, 3.2, 3.4, 3.8, 3.17, 3.18),
+  - fehlende Einträge in `process_step_due_dates` — die Tabelle wird vom Frontend
+    nicht gelesen.
 - **`SUMME` — eine Zeile.** 202 Aufgaben, 187 Kacheln mit Aufgabe, alle mit Anleitung.
 
 ## 3 — Danach
