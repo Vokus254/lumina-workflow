@@ -90,35 +90,28 @@
   .status-pill .dot{ width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
   /* ---------- Kachel-Grid (alle Ebenen, feste Größe) ---------- */
-  .grid{ display: flex; flex-wrap: wrap; gap: 14px; }
-
-  /* Oberste Ebene: die acht Stationen sollen ohne Scrollen auf einen Blick sichtbar
-     sein. Ihre Titel sind kurz, deshalb quadratisch und kompakt - die festen 204x240
-     der tieferen Ebenen brauchen sie nicht und erzeugten nur Leerraum zwischen Titel
-     und Fortschrittsbalken. */
-  .grid.grid-stations{
-    display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px;
+  /* Kachelraster aller Ebenen: quadratisch und ohne Scrollen.
+     Die Spaltenzahl setzt renderGrid() je nach Kachelanzahl über --spalten - wenige
+     Kacheln werden groß, viele rücken enger zusammen. Quadratisch geht nur über
+     aspect-ratio statt fester Höhe, sonst entstünde bei kurzen Titeln wieder Leerraum. */
+  .grid{
+    display: grid; gap: 12px; align-content: start;
+    grid-template-columns: repeat(var(--spalten, 4), minmax(0, 1fr));
   }
-  .grid-stations .tile{
-    width: auto; height: auto; aspect-ratio: 1 / 1;
-    padding: 12px; gap: 4px; justify-content: flex-start;
-  }
-  .grid-stations .tile-num{ height: 20px; min-width: 20px; padding: 0 6px; font-size: 11px; }
-  .grid-stations .tile-title{
-    font-size: 12px; line-height: 1.28; -webkit-line-clamp: 4; margin-top: 2px;
-  }
-  .grid-stations .tile-bottom{ margin-top: auto; gap: 4px; }
-  .grid-stations .tile-frac, .grid-stations .tile-due{ font-size: 10px; }
-  @media (max-width: 1180px){ .grid.grid-stations{ grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-  @media (max-width: 640px){ .grid.grid-stations{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 1180px){ .grid{ grid-template-columns: repeat(min(var(--spalten, 4), 4), minmax(0, 1fr)); } }
+  @media (max-width: 700px){  .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .tile{
     all: unset; box-sizing: border-box; cursor: pointer;
-    /* Höher als früher (204): die Maßnahmentitel aus der PBC-Liste sind teils sehr lang
-       und wurden nach vier Zeilen abgeschnitten. */
-    width: 204px; height: 240px; flex-shrink: 0;
-    background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 15px;
-    display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
+    /* Quadratisch über das Raster statt fester Maße. Die Breite ergibt sich aus der
+       Spaltenzahl, die Höhe folgt über aspect-ratio. Der max-width-Deckel begrenzt die
+       Kachel zusätzlich auf das, was bei der aktuellen Reihenzahl in die Fensterhöhe
+       passt - damit kann kein Raster senkrecht überlaufen, egal wie viele Kacheln. */
+    width: auto; height: auto; aspect-ratio: 1 / 1; min-width: 0;
+    max-width: calc((100vh - 250px - (var(--reihen, 2) - 1) * 12px) / var(--reihen, 2));
+    justify-self: start; align-self: start;
+    background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 13px;
+    display: flex; flex-direction: column; justify-content: flex-start; gap: 5px;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
   }
   .tile:hover{ border-color: #CFCFD4; transform: translateY(-2px); }
@@ -135,13 +128,23 @@
   .tile.is-complete .tile-num{ background: var(--done-bg); color: var(--done-text); }
 
   .tile-title{
-    flex: 1 1 auto; min-height: 0;
-    font-size: 13px; font-weight: 600; line-height: 1.34; color: var(--text-primary);
-    display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden;
+    flex: 0 1 auto; min-height: 0;
+    font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--text-primary);
+    display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
     overflow-wrap: anywhere;
   }
+  /* Bei dichteren Rastern (viele Kacheln) wird die Schrift kleiner statt der Titel kürzer. */
+  .grid[data-spalten="6"] .tile-title,
+  .grid[data-spalten="7"] .tile-title{ font-size: 11.5px; line-height: 1.26; -webkit-line-clamp: 7; }
+  .grid[data-spalten="6"] .tile,
+  .grid[data-spalten="7"] .tile{ padding: 10px; gap: 4px; }
+  .grid[data-spalten="6"] .tile-num,
+  .grid[data-spalten="7"] .tile-num{ height: 20px; padding: 0 6px; font-size: 11px; }
+  .grid[data-spalten="6"] .tile-frac, .grid[data-spalten="7"] .tile-frac,
+  .grid[data-spalten="6"] .tile-due,  .grid[data-spalten="7"] .tile-due{ font-size: 10px; }
 
-  .tile-bottom{ display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+  /* Fortschrittsblock unten angeheftet - ohne das entstand bei kurzen Titeln Leerraum. */
+  .tile-bottom{ display: flex; flex-direction: column; gap: 5px; flex: 0 0 auto; margin-top: auto; }
   .tile-bar-track{ height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
   .tile-bar-fill{ height: 100%; background: var(--accent); border-radius: 999px; }
   .tile-meta{ display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -1349,11 +1352,28 @@ function sepEl(){
   return sep;
 }
 
+/* Spaltenzahl nach Kachelanzahl. Quadratische Kacheln heißt: Höhe = Breite / Spalten,
+   also bestimmt die Spaltenzahl, ob alles ohne Scrollen passt. Wenige Kacheln dürfen
+   groß werden, viele rücken enger - bei 19 Kacheln (Station 3) wären vier Spalten
+   fünf Reihen hoch und damit nicht mehr auf einen Blick sichtbar. */
+function rasterSpalten(anzahl){
+  if(anzahl <= 4) return Math.max(anzahl, 1);
+  if(anzahl <= 8) return 4;    // 8 Stationen: 4 x 2, wie gewünscht
+  if(anzahl <= 12) return 5;
+  if(anzahl <= 18) return 6;
+  return 7;
+}
+function setzeRaster(grid){
+  const spalten = rasterSpalten(grid.children.length);
+  const reihen = Math.max(1, Math.ceil(grid.children.length / spalten));
+  grid.dataset.spalten = spalten;
+  grid.style.setProperty("--spalten", spalten);
+  grid.style.setProperty("--reihen", reihen);
+}
 function renderGrid(){
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
-  // Nur die oberste Ebene bekommt das kompakte, quadratische Raster.
-  grid.className = "grid" + (view.level === "grid" ? " grid-stations" : "");
+  grid.className = "grid";
 
   // Aggregat-Ebene (Station oder Kategorie mit Unterkacheln): dieselbe Kacheldarstellung
   // wie das oberste Dashboard - durchnummeriert, gleich groß, Fortschrittsbalken unten.
@@ -1403,6 +1423,7 @@ function renderGrid(){
           grid.appendChild(tile);
         });
       }
+      setzeRaster(grid);
       return;
     }
   }
@@ -1549,6 +1570,7 @@ function renderGrid(){
       grid.appendChild(tile);
     });
   }
+  setzeRaster(grid);
 }
 
 function renderForm(){
