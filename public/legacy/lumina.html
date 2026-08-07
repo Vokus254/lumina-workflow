@@ -4032,7 +4032,28 @@ function renderMilestones(){
   });
 }
 
+/* Bricht ein Renderer ab, ist renderBreadcrumb längst durch: Titel und Untertitel
+   stehen auf der neuen Kachel, der Inhaltsbereich zeigt aber unverändert die vorige
+   Ansicht. Dieser stille Zustand hat eine ganze Sitzung gekostet - deshalb wird der
+   Bereich jetzt geleert und der Abbruch benannt, statt ihn zu verschlucken. */
 function render(){
+  try{
+    renderAnsicht();
+  }catch(e){
+    console.error("Ansicht konnte nicht gerendert werden:", view, e);
+    const grid = document.getElementById("grid");
+    const box = document.getElementById("form-container");
+    if(grid) grid.style.display = "none";
+    if(box){
+      box.style.display = "";
+      box.innerHTML = '<div class="km-card"><div class="km-empty-note">Diese Ansicht konnte nicht aufgebaut werden: '
+        + luminaEsc(e && e.message ? e.message : String(e))
+        + '<br><br>Am Projektstand ändert das nichts. Bitte die Seite neu laden - bleibt die Meldung, gehört genau dieser Text in die Fehlermeldung.</div></div>';
+    }
+  }
+}
+
+function renderAnsicht(){
   updateHeaderBrand();
   renderStatusPill();
   renderBreadcrumb();
@@ -4123,6 +4144,42 @@ function deserializeStations(text){
   });
 }
 
+/* Welche Felder eines Subitems echte Sets sein müssen. Die Liste steht bewusst hier
+   neben dem Serialisierer und nicht in den Renderern - dort ist sie viermal halb
+   dupliziert worden, und genau die vergessenen Stellen sind uns um die Ohren geflogen. */
+const SUBITEM_SET_FELDER = {
+  tree: ["expanded"], mapping: ["accordionExpanded", "hiddenColumns"],
+  pbc: ["accordionExpanded", "hiddenColumns"], kontenmapping: ["hiddenColumns"],
+  statement: ["expanded"], milestones: ["hiddenColumns"], table: ["hiddenColumns"]
+};
+function alsSet(wert){
+  if(wert instanceof Set) return wert;
+  if(wert && typeof wert === "object" && wert.__isSet) return new Set(wert.values || []);
+  if(Array.isArray(wert)) return new Set(wert);
+  if(wert && typeof wert === "object") return new Set(Object.keys(wert));
+  return new Set();
+}
+/* Über Supabase überleben Sets den Weg nicht: serializeStations schreibt sie als
+   {__isSet:true,values:[...]}, das JSONB kommt vom Client aber bereits geparst zurück -
+   der Reviver aus deserializeStations läuft auf diesem Weg nie. Ohne Rückwandlung ist
+   accordionExpanded ein nacktes Objekt, und der erste .has()-Aufruf wirft.
+
+   Das fiel deshalb so schwer auf: renderBreadcrumb läuft vor dem Renderer und ist
+   schon durch, wenn der Renderer abbricht. Im Inhaltsbereich stand dann weiter die
+   zuvor geöffnete Ansicht - "Berichtsstruktur" und "Bilanz & GuV" zeigten beide die
+   Kontenzuordnung, weil beide Renderer warfen und niemand den Bereich überschrieb. */
+function normalisiereStationSets(){
+  stations.forEach(s => (s.measures || []).forEach(m => (m.subitems || []).forEach(sub => {
+    const d = sub && sub.data;
+    if(!d || typeof d !== "object") return;
+    (SUBITEM_SET_FELDER[sub.type] || []).forEach(feld => { d[feld] = alsSet(d[feld]); });
+    // Felder, die eine ältere Fassung geschrieben hat, aber der Typ nicht mehr kennt.
+    Object.keys(d).forEach(feld => {
+      if(d[feld] && typeof d[feld] === "object" && d[feld].__isSet) d[feld] = alsSet(d[feld]);
+    });
+  })));
+}
+
 function showTopNote(message, isError){
   const note = document.getElementById("top-export-note");
   note.textContent = message;
@@ -4154,6 +4211,7 @@ function importStateFromJsonText(text){
     const imported = deserializeStations(text);
     if(!Array.isArray(imported)) throw new Error("Datei enthält keine gültige Cockpit-Struktur.");
     stations.splice(0, stations.length, ...imported);
+    normalisiereStationSets();
     view = { level: "grid" };
     openMeasure = null;
     render();
@@ -4329,7 +4387,7 @@ function taskTiming(row,state){ const iso=taskEffectiveDate(row); if(!iso||["Abg
 function taskStats(){ const sub=getPbcSub(); const s={open:0,wip:0,submitted:0,review:0,overdue:0,done:0,total:0}; if(!sub)return s; sub.data.rows.forEach((row,ri)=>{const st=ensureTaskState(sub.data,row,ri);s.total++; if(st.workStatus==="Offen"||st.workStatus==="Angenommen")s.open++; if(st.workStatus==="In Bearbeitung")s.wip++; if(st.workStatus==="Eingereicht")s.submitted++; if(st.workStatus==="Eingereicht"&&st.reviewStatus!=="Akzeptiert")s.review++; if(taskTiming(row,st)==="Überfällig")s.overdue++; if(st.workStatus==="Abgeschlossen"||st.workStatus==="Nicht relevant")s.done++;}); return s; }
 function scheduleLuminaSave(){ clearTimeout(luminaSaveTimer); const el=document.getElementById("autosave-indicator"); if(el){el.textContent="Änderungen…";el.classList.remove("saved");} luminaSaveTimer=setTimeout(saveLuminaLocal,450); }
 function saveLuminaLocal(){ try{localStorage.setItem(LUMINA_STORAGE_KEY,serializeStations()); const el=document.getElementById("autosave-indicator");if(el){el.textContent="Automatisch gespeichert · "+new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});el.classList.add("saved");}}catch(e){showTopNote("Lokales Speichern fehlgeschlagen: "+e.message,true);} }
-function restoreLuminaLocal(){ try{const raw=localStorage.getItem(LUMINA_STORAGE_KEY);if(!raw)return false;const imported=deserializeStations(raw);if(Array.isArray(imported)){stations.splice(0,stations.length,...imported);return true;}}catch(e){console.warn("Autosave konnte nicht geladen werden",e)}return false; }
+function restoreLuminaLocal(){ try{const raw=localStorage.getItem(LUMINA_STORAGE_KEY);if(!raw)return false;const imported=deserializeStations(raw);if(Array.isArray(imported)){stations.splice(0,stations.length,...imported);normalisiereStationSets();return true;}}catch(e){console.warn("Autosave konnte nicht geladen werden",e)}return false; }
 function addActivity(st,text){st.activities=st.activities||[];st.activities.unshift({at:luminaNow(),text});scheduleLuminaSave();}
 function formatDateTime(iso){try{return new Date(iso).toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}catch(e){return iso}}
 function responsible(row){const r=getRole(row[4]);return {name:[r.vorname,r.nachname].filter(Boolean).join(" ")||row[4]||"Nicht zugeordnet",email:r.email||""};}
@@ -5455,6 +5513,7 @@ async function loadLuminaFromSupabase(){
   if(!projects||!projects.length)throw new Error('Für dieses Konto ist kein LUMINA-Projekt freigeschaltet.');
   if(!sourceStates||!sourceStates.length||!Array.isArray(sourceStates[0].state))throw new Error('Der geschützte LUMINA-Projektstand fehlt.');
   stations.splice(0,stations.length,...sourceStates[0].state);
+  normalisiereStationSets();
   await loadProcessStepTree();
   await loadProcessStepGuidance();
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
