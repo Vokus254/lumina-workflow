@@ -90,26 +90,18 @@
   .status-pill .dot{ width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
   /* ---------- Kachel-Grid (alle Ebenen, feste Größe) ---------- */
-  /* Kachelraster aller Ebenen: quadratisch und ohne Scrollen.
-     Die Spaltenzahl setzt renderGrid() je nach Kachelanzahl über --spalten - wenige
-     Kacheln werden groß, viele rücken enger zusammen. Quadratisch geht nur über
-     aspect-ratio statt fester Höhe, sonst entstünde bei kurzen Titeln wieder Leerraum. */
-  .grid{
-    display: grid; gap: 12px; align-content: start;
-    grid-template-columns: repeat(var(--spalten, 4), minmax(0, 1fr));
-  }
-  @media (max-width: 1180px){ .grid{ grid-template-columns: repeat(min(var(--spalten, 4), 4), minmax(0, 1fr)); } }
-  @media (max-width: 700px){  .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  /* Kachelraster aller Ebenen: feste, quadratische Kacheln, die umbrechen.
+     Bewusst nicht adaptiv - die Kachelgröße bleibt über alle Ebenen gleich, bei vielen
+     Kacheln wird gescrollt. Der Seitencontainer .page ist auf 1160px gedeckelt, davon
+     bleiben 1096px nutzbar: (1096 + 14) / (204 + 14) = 5 Kacheln je Reihe. */
+  .grid{ display: flex; flex-wrap: wrap; gap: 14px; align-content: flex-start; }
 
   .tile{
     all: unset; box-sizing: border-box; cursor: pointer;
-    /* Quadratisch über das Raster statt fester Maße. Die Breite ergibt sich aus der
-       Spaltenzahl, die Höhe folgt über aspect-ratio. Der max-width-Deckel begrenzt die
-       Kachel zusätzlich auf das, was bei der aktuellen Reihenzahl in die Fensterhöhe
-       passt - damit kann kein Raster senkrecht überlaufen, egal wie viele Kacheln. */
-    width: auto; height: auto; aspect-ratio: 1 / 1; min-width: 0;
-    max-width: calc((100vh - 250px - (var(--reihen, 2) - 1) * 12px) / var(--reihen, 2));
-    align-self: start;
+    /* Feste quadratische Kachel, 204x204 - die Größe, die sich im Betrieb bewährt hat.
+       Kein aspect-ratio und kein Höhendeckel mehr: die Kachel soll auf jeder Ebene
+       gleich groß sein, statt mit der Anzahl zu schrumpfen. */
+    width: 204px; height: 204px; flex-shrink: 0;
     background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 13px;
     display: flex; flex-direction: column; justify-content: flex-start; gap: 5px;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
@@ -136,15 +128,6 @@
     display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
     overflow-wrap: anywhere;
   }
-  /* Bei dichteren Rastern (viele Kacheln) wird die Schrift kleiner statt der Titel kürzer. */
-  .grid[data-spalten="6"] .tile-title,
-  .grid[data-spalten="7"] .tile-title{ font-size: 11.5px; line-height: 1.26; -webkit-line-clamp: 7; }
-  .grid[data-spalten="6"] .tile,
-  .grid[data-spalten="7"] .tile{ padding: 10px; gap: 4px; }
-  .grid[data-spalten="6"] .tile-num,
-  .grid[data-spalten="7"] .tile-num{ height: 20px; padding: 0 6px; font-size: 11px; }
-  .grid[data-spalten="6"] .tile-frac, .grid[data-spalten="7"] .tile-frac,
-  .grid[data-spalten="6"] .tile-due,  .grid[data-spalten="7"] .tile-due{ font-size: 10px; }
 
   /* Fortschrittsblock unten angeheftet - ohne das entstand bei kurzen Titeln Leerraum. */
   /* Kein margin-top:auto - der Titel verteilt den freien Platz über margin-block:auto
@@ -1359,24 +1342,9 @@ function sepEl(){
   return sep;
 }
 
-/* Spaltenzahl nach Kachelanzahl. Quadratische Kacheln heißt: Höhe = Breite / Spalten,
-   also bestimmt die Spaltenzahl, ob alles ohne Scrollen passt. Wenige Kacheln dürfen
-   groß werden, viele rücken enger - bei 19 Kacheln (Station 3) wären vier Spalten
-   fünf Reihen hoch und damit nicht mehr auf einen Blick sichtbar. */
-function rasterSpalten(anzahl){
-  if(anzahl <= 4) return Math.max(anzahl, 1);
-  if(anzahl <= 8) return 4;    // 8 Stationen: 4 x 2, wie gewünscht
-  if(anzahl <= 12) return 5;
-  if(anzahl <= 18) return 6;
-  return 7;
-}
-function setzeRaster(grid){
-  const spalten = rasterSpalten(grid.children.length);
-  const reihen = Math.max(1, Math.ceil(grid.children.length / spalten));
-  grid.dataset.spalten = spalten;
-  grid.style.setProperty("--spalten", spalten);
-  grid.style.setProperty("--reihen", reihen);
-}
+/* Die Kachelgröße ist fest (204x204) und auf allen Ebenen gleich; die Kacheln brechen
+   um. Eine spaltenabhängige Berechnung gibt es bewusst nicht mehr - sie ließ die Kacheln
+   mit steigender Anzahl schrumpfen und damit auf jeder Ebene anders aussehen. */
 function renderGrid(){
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
@@ -1430,7 +1398,6 @@ function renderGrid(){
           grid.appendChild(tile);
         });
       }
-      setzeRaster(grid);
       return;
     }
   }
@@ -1577,7 +1544,6 @@ function renderGrid(){
       grid.appendChild(tile);
     });
   }
-  setzeRaster(grid);
 }
 
 function renderForm(){
