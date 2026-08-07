@@ -949,19 +949,9 @@
   .guide-doc-name{color:var(--text-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .guide-doc-sub{font-size:11px;color:var(--text-faint);}
   .guide-note{font-size:11.5px;color:var(--text-faint);line-height:1.5;margin-top:12px;}
-  /* Aggregat-Seite: nur Navigation, keine Guidance-Blöcke. */
-  .guide-nav{max-width:760px;}
-  .guide-nav .guide-children{gap:9px;}
-  .guide-child.is-complete{border-color:#bfe3c8;background:#f6fbf7;}
-  .guide-child.is-complete .guide-child-code{color:#2f7d4a;}
-  /* Unterkacheln: Navigation in die nächste Ebene aus process_steps. */
-  .guide-children{display:grid;gap:8px;}
-  .guide-child{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:11px 13px;border:1px solid var(--border);border-radius:10px;background:#fff;transition:border-color .12s ease,box-shadow .12s ease;}
-  .guide-child:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(15,23,42,.07);}
-  .guide-child-code{grid-row:span 2;align-self:center;font-size:11.5px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;}
-  .guide-child-name{font-size:12.5px;font-weight:600;color:var(--text-primary);line-height:1.35;}
-  .guide-child-meta{font-size:11px;color:var(--text-faint);}
-  /* Kommentare */
+  /* Aggregat-Ebenen rendern ihre Kinder als normale .tile-Kacheln im Grid -
+     dieselbe Darstellung wie das oberste Dashboard, deshalb kein eigenes CSS. */
+  /* Notizen */
   .guide-comments{display:grid;gap:10px;margin-bottom:16px;}
   .guide-comment{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fff;}
   .guide-comment.is-reply{margin-left:22px;border-left:2px solid var(--accent);}
@@ -1307,6 +1297,35 @@ function renderGrid(){
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
 
+  // Aggregat-Ebene (Station oder Kategorie mit Unterkacheln): dieselbe Kacheldarstellung
+  // wie das oberste Dashboard - durchnummeriert, gleich groß, Fortschrittsbalken unten.
+  // Vorher stand hier ein Streifen mit unterschiedlich hohen Zeilen; jede Ebene sieht
+  // jetzt gleich aus, unabhängig davon, wie tief man gerade steckt.
+  if(view.level === "step" || view.level === "subitems"){
+    const kinder = viewStepChildren();
+    if(kinder.length){
+      kinder.forEach((child, i) => {
+        const p = guidanceSubtreeProgress(child.id);
+        const enkel = processStepChildren(child.id).length;
+        const complete = p.total > 0 && p.done === p.total;
+        const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+        const tile = document.createElement("button");
+        tile.className = "tile" + (complete ? " is-complete" : "");
+        tile.innerHTML = `
+          <span class="tile-num">${complete ? "✓" : String(i+1).padStart(2,"0")}</span>
+          <span class="tile-title">${luminaEsc(child.name)}</span>
+          <div class="tile-bottom">
+            <div class="tile-bar-track"><div class="tile-bar-fill" style="width:${pct}%"></div></div>
+            <span class="tile-frac">${p.total ? p.done + "/" + p.total : (enkel ? enkel + " Kacheln" : "–")}</span>
+          </div>
+        `;
+        tile.addEventListener("click", () => openProcessStepNode(child.id));
+        grid.appendChild(tile);
+      });
+      return;
+    }
+  }
+
   if(view.level === "grid"){
     stations.forEach((s, i) => {
       const d = stationDone(s);
@@ -1347,9 +1366,20 @@ function renderGrid(){
         const statementIdx = m.subitems.findIndex(x => x.type === "statement");
         if(statementIdx !== -1){
           view = { level: "statement", station: view.station, measure: j, sub: statementIdx };
-        } else {
-          view = { level: "subitems", station: view.station, measure: j };
+          render();
+          return;
         }
+        // Station ohne Unterkacheln, aber mit eigener Aufgabe: sie IST die Maßnahme und
+        // öffnet direkt das Aufgaben-Modal. Das betrifft die rund 55 Stationen aus den
+        // Kapiteln 1, 2 und 4 bis 8 sowie 3.7 und 3.10 - ohne diese Verzweigung landeten
+        // sie weiterhin auf der alten Seitenansicht.
+        const step = processStepForNode(m);
+        if(step && !processStepChildren(step.id).length && taskRiForStep(step.id) !== null){
+          view = { level: "subitems", station: view.station, measure: j };
+          openTaskModalForStep(step.id);
+          return;
+        }
+        view = { level: "subitems", station: view.station, measure: j };
         render();
       });
       grid.appendChild(tile);
@@ -3930,6 +3960,11 @@ function render(){
     grid.style.display = "none";
     formContainer.style.display = "";
     renderMilestones();
+  } else if((view.level === "step" || view.level === "subitems") && viewStepChildren().length){
+    // Aggregat: reine Kachelübersicht im Dashboard-Stil, gerendert ins Grid.
+    grid.style.display = "";
+    formContainer.style.display = "none";
+    renderGrid();
   } else if(view.level === "guidance" || view.level === "step"){
     grid.style.display = "none";
     formContainer.style.display = "";
@@ -4589,6 +4624,21 @@ function guidanceCurrentMeasure(){
   return view.level==='subitems'?measure:null;
 }
 function guidanceForView(){ return guidanceForMeasure(guidanceCurrentMeasure()); }
+// Kinder der gerade geöffneten Kachel. Sind welche da, ist die Ebene ein Aggregat.
+function viewStepChildren(){
+  const ctx=guidanceContext();
+  return ctx?processStepChildren(ctx.stepId):[];
+}
+// Eine Stelle für den Sprung in einen Prozessschritt, egal von welcher Ebene aus:
+// Aggregat öffnet die Kachelübersicht, Maßnahme das Aufgaben-Modal.
+function openProcessStepNode(stepId){
+  if(processStepChildren(stepId).length){
+    view={level:'step',station:view.station,measure:view.measure,stepId};
+    render();
+    return;
+  }
+  openTaskModalForStep(stepId);
+}
 // Die Vier-Block-Ansicht greift, sobald es eine Anleitung ODER Unterkacheln gibt.
 // Der zweite Fall ist der neue Pfad: eine Kachel mit Kindern in process_steps.
 function guidanceViewActive(){
@@ -5035,41 +5085,7 @@ function guidanceUploadBlock(d){
     </section>`;
 }
 
-// Unterkacheln aus process_steps - der gesamte Inhalt einer Aggregat-Seite.
-// Titel plus Fortschrittszahl je Kachel, damit auf einen Blick erkennbar ist,
-// wo noch etwas offen ist, ohne jede Kachel einzeln oeffnen zu muessen.
-function guidanceChildrenBlock(d){
-  if(!d.kinder.length) return '';
-  return `
-    <section class="guide-block guide-children-block">
-      <div class="guide-block-head"><div class="guide-block-title">${d.ctx.title?luminaEsc(d.ctx.title):'Unterkacheln'}</div><div class="guide-block-hint">${d.kinder.length} Kachel${d.kinder.length===1?'':'n'} · je eigener Datenraum</div></div>
-      <div class="guide-children">
-        ${d.kinder.map(child=>{
-          const childCtx={stepId:child.id,code:child.code};
-          const childTasks=guidanceTasksForContext(childCtx);
-          const childDocs=stepDataroomDocuments(childCtx);
-          const childOpen=childTasks.filter(task=>!['Abgeschlossen','Nicht relevant'].includes(task.state.workStatus)).length;
-          const enkel=processStepChildren(child.id).length;
-          // Fortschritt: bei Aggregaten die Summe der Blätter, beim Blatt die eigenen Schritte.
-          const p=guidanceSubtreeProgress(child.id);
-          const fortschritt=p.total?`${p.done}/${p.total} Schritte`:'';
-          // Aggregat (hat Kinder) oeffnet die Seite, Entitaet (eine Aufgabe) das Modal.
-          const alsAufgabe=!enkel&&taskRiForStep(child.id)!==null;
-          const meta=[
-            enkel?`${enkel} Unterkachel${enkel===1?'':'n'}`:'',
-            fortschritt,
-            `${childOpen} offen`,
-            `${childDocs.length} Dokument${childDocs.length===1?'':'e'}`
-          ].filter(Boolean).join(' · ');
-          return `<button type="button" class="guide-child${p.total&&p.done===p.total?' is-complete':''}" data-guide-child="${luminaEsc(child.id)}" data-guide-child-kind="${alsAufgabe?'aufgabe':'seite'}">
-            <span class="guide-child-code">${luminaEsc(child.code)}</span>
-            <span class="guide-child-name">${luminaEsc(child.name)}</span>
-            <span class="guide-child-meta">${luminaEsc(meta)}</span>
-          </button>`;
-        }).join('')}
-      </div>
-    </section>`;
-}
+
 
 // Datenraum der Kachel: gefilterte Dokumentenliste über process_step_id, kein Ordnerbaum.
 // Die thematische Ablage in dataroom_folders bleibt davon unberührt.
@@ -5085,12 +5101,6 @@ function guidanceDatenraumBlock(d){
 // Ereignisse aller Bloecke. root ist der Container, in den gerendert wurde -
 // Seite (form-container) oder Modal (task-modal-main).
 function bindGuidanceBlocks(root,d){
-  root.querySelectorAll('[data-guide-child]').forEach(button=>button.addEventListener('click',()=>{
-    const stepId=button.dataset.guideChild;
-    if(button.dataset.guideChildKind==='aufgabe'){ openTaskModalForStep(stepId); return; }
-    view={level:'step',station:view.station,measure:view.measure,stepId};
-    render();
-  }));
   root.querySelectorAll('[data-guide-step]').forEach(button=>button.addEventListener('click',()=>{
     const i=Number(button.dataset.guideStep);
     toggleGuidanceStep(d.ctx.stepId,i,d.steps[i],!d.checks[i]);
@@ -5117,23 +5127,14 @@ function renderStepGuidance(){
   if(!ctx){ container.innerHTML=''; return; }
   const d=guidanceViewData(ctx);
 
-  // Aggregat-Ebene (Station oder Kategorie): reine Navigationsseite.
+  // Aggregate kommen hier nicht mehr an - render() schickt sie als Kachelübersicht ins
+  // Grid. Diese Funktion zeigt ausschließlich die unterste Ebene, also die Kachel, die
+  // tatsächlich eine Maßnahme ist.
   //
-  // Frueher stand hier zusaetzlich die eigene Anleitung als Roll-up. Das ergab auf jeder
-  // Ebene dasselbe Bild und war beim Durchklicken nicht zu unterscheiden. Das volle Bild
-  // - Anleitung, Arbeitshilfe, Status, Upload, Datenraum, Notizen - zeigt jetzt nur noch
-  // die unterste Ebene, also die Kachel, die tatsaechlich eine Massnahme ist.
-  //
-  // Folge fuer die Inhalte: process_step_guidance wird nur noch fuer Blattknoten gepflegt.
-  // Vorhandene Anleitungen an Kategorie- und Stationsknoten (3.13.1-.3, 3.14) bleiben in
-  // der Datenbank stehen, werden hier aber nicht mehr gelesen.
-  if(d.kinder.length){
-    container.innerHTML=`<div class="guide-nav">${guidanceChildrenBlock(d)}</div>`;
-    bindGuidanceBlocks(container,d);
-    return;
-  }
-
-  if(!d.guide){ container.innerHTML=''; return; }
+  // Folge für die Inhalte: process_step_guidance wird nur noch für Blattknoten gepflegt.
+  // Vorhandene Anleitungen an Kategorie- und Stationsknoten (3.13.1-.3, 3.14, Massenseed)
+  // bleiben in der Datenbank stehen, werden aber nicht mehr gelesen.
+  if(d.kinder.length || !d.guide){ container.innerHTML=''; return; }
   container.innerHTML=`<div class="guide-wrap">`
     +`<div class="guide-col">${guidanceAnleitungBlock(d)}</div>`
     +`<div class="guide-col">${guidanceArbeitshilfeBlock(d)}${guidanceStatusBlock(d)}${guidanceUploadBlock(d)}${guidanceDatenraumBlock(d)}${renderStepCommentBlock(ctx)}</div>`
