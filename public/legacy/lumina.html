@@ -4464,7 +4464,11 @@ function getNodeAtPath(nodes,path){let list=nodes,node=null;for(const idx of pat
 let explorerExpandedFolders=new Set();
 function renderExplorerTreeNodes(nodes,parentPath=[],depth=0,selectedKey=""){
   return (nodes||[]).map((node,i)=>{
-    const path=[...parentPath,i],key=path.join('.'),name=explorerNodeName(node),children=explorerNodeChildren(node),hasChildren=children.length>0,isOpen=explorerExpandedFolders.has(key);
+    // Derselbe Schlüssel wie in flattenDataroomFolders - Code, sonst Position. Solange
+    // hier die reine Position stand, zeigte der Knopf auf einen Schlüssel, den
+    // explorerFolderByKey nicht kannte; die Ansicht fiel still auf den ersten Ordner
+    // zurück. Klick auf "4.0" ergab die Überschrift "3.0", und markiert war nichts.
+    const path=[...parentPath,i],key=node&&node.code?node.code:path.join('.'),name=explorerNodeName(node),children=explorerNodeChildren(node),hasChildren=children.length>0,isOpen=explorerExpandedFolders.has(key);
     return `<div class="explorer-folder-node"><button class="explorer-folder ${key===selectedKey?'active':''} ${isOpen?'is-open':''}" data-folder="${luminaEsc(key)}" data-has-children="${hasChildren?'1':'0'}" style="padding-left:${8+depth*14}px"><span class="explorer-folder-icon">${hasChildren?'▸':'·'}</span><span title="${luminaEsc(name)}">${luminaEsc(name)}</span></button>${hasChildren?`<div class="explorer-folder-children ${isOpen?'is-open':''}">${renderExplorerTreeNodes(children,path,depth+1,selectedKey)}</div>`:''}</div>`;
   }).join('');
 }
