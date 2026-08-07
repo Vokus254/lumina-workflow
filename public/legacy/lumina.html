@@ -2270,6 +2270,36 @@ function renderMapping(){
       }
       const rawRows = result.rows.filter(rr => rr.some(c => c !== ""));
       const dataRows = rawRows.slice(1);
+
+      /* Dieser Import ersetzt die gesamte Berichtsstruktur. Wird hier versehentlich die
+         SuSa-Datei gewählt, werden die Ausweisebenen durch Konten überschrieben - und
+         weil buildStatementTree() dieselben Zeilen als Struktur liest, zeigt danach auch
+         Bilanz/GuV nur noch Konten. Der Fehler ist von außen kaum als solcher erkennbar,
+         deshalb hier zwei Hürden: Rückfrage mit Zeilenzahlen und eine Plausibilitätsprüfung. */
+      const alteZeilen = d.rows.length, neueZeilen = dataRows.length;
+      const stichprobe = dataRows.slice(0, 25).map(rr => String(rr[0] ?? "").trim()).filter(Boolean);
+      const numerisch = stichprobe.filter(v => /^\d{3,}$/.test(v)).length;
+      // Eine Ausweisstruktur trägt in Spalte 1 Bezeichnungen, eine SuSa Kontonummern.
+      // Das ist das belastbare Signal und steht allein - die Zeilenzahl ist nur ein
+      // Nebenindiz: eine kleinere SuSa bliebe sonst unerkannt, weil sie den Faktor
+      // gegenüber der bisherigen Struktur nicht erreicht.
+      const wirktWieSusa = stichprobe.length > 0 && numerisch / stichprobe.length > 0.7;
+      const faktor = alteZeilen > 0 ? neueZeilen / alteZeilen : 0;
+      const warnung = wirktWieSusa
+        ? "Das sieht nach einer SuSa-Datei aus, nicht nach einer Ausweisstruktur.\n\n"
+          + "In Spalte 1 stehen überwiegend Kontonummern"
+          + (faktor >= 3 ? ", und die Datei hat gut " + Math.round(faktor) + "-mal so viele Zeilen wie die bisherige Struktur" : "")
+          + ". Importiert man sie hier, ersetzt sie die Berichtsstruktur - Bilanz/GuV zeigt "
+          + "danach dieselben Konten statt der Ausweisebenen.\n\n"
+          + "Die SuSa gehört in die Kachel „Datei ins Cockpit importieren\".\n\n"
+        : "";
+      if(!confirm(warnung + "Bestehende Berichtsstruktur ersetzen?\n\n"
+          + "Bisher: " + alteZeilen + " Zeilen\nNeu: " + neueZeilen + " Zeilen")){
+        note.textContent = "Import abgebrochen — die bestehende Struktur bleibt unverändert.";
+        note.style.display = "";
+        return;
+      }
+
       d.rows = dataRows.map(rr => {
         const r = rr.slice(0, 8).map(c => c === undefined ? "" : String(c));
         while(r.length < 8) r.push("");
