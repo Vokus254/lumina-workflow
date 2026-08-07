@@ -90,26 +90,18 @@
   .status-pill .dot{ width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
   /* ---------- Kachel-Grid (alle Ebenen, feste Größe) ---------- */
-  /* Kachelraster aller Ebenen: quadratisch und ohne Scrollen.
-     Die Spaltenzahl setzt renderGrid() je nach Kachelanzahl über --spalten - wenige
-     Kacheln werden groß, viele rücken enger zusammen. Quadratisch geht nur über
-     aspect-ratio statt fester Höhe, sonst entstünde bei kurzen Titeln wieder Leerraum. */
-  .grid{
-    display: grid; gap: 12px; align-content: start;
-    grid-template-columns: repeat(var(--spalten, 4), minmax(0, 1fr));
-  }
-  @media (max-width: 1180px){ .grid{ grid-template-columns: repeat(min(var(--spalten, 4), 4), minmax(0, 1fr)); } }
-  @media (max-width: 700px){  .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  /* Kachelraster aller Ebenen: feste, quadratische Kacheln, die umbrechen.
+     Bewusst nicht adaptiv - die Kachelgröße bleibt über alle Ebenen gleich, bei vielen
+     Kacheln wird gescrollt. Der Seitencontainer .page ist auf 1160px gedeckelt, davon
+     bleiben 1096px nutzbar: (1096 + 14) / (204 + 14) = 5 Kacheln je Reihe. */
+  .grid{ display: flex; flex-wrap: wrap; gap: 14px; align-content: flex-start; }
 
   .tile{
     all: unset; box-sizing: border-box; cursor: pointer;
-    /* Quadratisch über das Raster statt fester Maße. Die Breite ergibt sich aus der
-       Spaltenzahl, die Höhe folgt über aspect-ratio. Der max-width-Deckel begrenzt die
-       Kachel zusätzlich auf das, was bei der aktuellen Reihenzahl in die Fensterhöhe
-       passt - damit kann kein Raster senkrecht überlaufen, egal wie viele Kacheln. */
-    width: auto; height: auto; aspect-ratio: 1 / 1; min-width: 0;
-    max-width: calc((100vh - 250px - (var(--reihen, 2) - 1) * 12px) / var(--reihen, 2));
-    align-self: start;
+    /* Feste quadratische Kachel, 204x204 - die Größe, die sich im Betrieb bewährt hat.
+       Kein aspect-ratio und kein Höhendeckel mehr: die Kachel soll auf jeder Ebene
+       gleich groß sein, statt mit der Anzahl zu schrumpfen. */
+    width: 204px; height: 204px; flex-shrink: 0;
     background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 13px;
     display: flex; flex-direction: column; justify-content: flex-start; gap: 5px;
     transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
@@ -136,15 +128,6 @@
     display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
     overflow-wrap: anywhere;
   }
-  /* Bei dichteren Rastern (viele Kacheln) wird die Schrift kleiner statt der Titel kürzer. */
-  .grid[data-spalten="6"] .tile-title,
-  .grid[data-spalten="7"] .tile-title{ font-size: 11.5px; line-height: 1.26; -webkit-line-clamp: 7; }
-  .grid[data-spalten="6"] .tile,
-  .grid[data-spalten="7"] .tile{ padding: 10px; gap: 4px; }
-  .grid[data-spalten="6"] .tile-num,
-  .grid[data-spalten="7"] .tile-num{ height: 20px; padding: 0 6px; font-size: 11px; }
-  .grid[data-spalten="6"] .tile-frac, .grid[data-spalten="7"] .tile-frac,
-  .grid[data-spalten="6"] .tile-due,  .grid[data-spalten="7"] .tile-due{ font-size: 10px; }
 
   /* Fortschrittsblock unten angeheftet - ohne das entstand bei kurzen Titeln Leerraum. */
   /* Kein margin-top:auto - der Titel verteilt den freien Platz über margin-block:auto
@@ -862,6 +845,18 @@
   .explorer-folder-children{display:none}
   .explorer-folder-children.is-open{display:block}
   .explorer-main{padding:18px 20px;min-width:0}
+  .room-rollup{display:flex;flex-direction:column;gap:6px}
+  .room-rollup-head{font-size:12px;font-weight:600;color:var(--text-secondary);padding:2px 2px 8px}
+  .room-rollup-row{all:unset;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) 72px auto auto;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:#fff;transition:border-color .15s ease,background .15s ease}
+  .room-rollup-row:hover{border-color:#c7c7cc;background:#fafafb}
+  .room-rollup-row.is-complete .room-rollup-code{background:#e7f6ec;color:#1a7f3c}
+  .room-rollup-code{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;background:#EFEFF1;color:var(--text-secondary);border-radius:6px;padding:2px 7px;white-space:nowrap}
+  .room-rollup-name{font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .room-rollup-bar{height:5px;border-radius:3px;background:#EFEFF1;overflow:hidden}
+  .room-rollup-bar>span{display:block;height:100%;background:var(--accent,#0a84ff);border-radius:3px}
+  .room-rollup-frac,.room-rollup-due{font-size:11px;font-weight:650;color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .room-rollup-due.is-overdue{color:#b42318}
+  .room-rollup-due.is-soon{color:#8a5a00}
   .explorer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--border)}
   .explorer-breadcrumb{font-size:11.5px;color:var(--text-faint);line-height:1.55}.explorer-breadcrumb strong{color:var(--text-primary);font-size:15px;display:block;margin-top:2px}
   .explorer-toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
@@ -1359,24 +1354,9 @@ function sepEl(){
   return sep;
 }
 
-/* Spaltenzahl nach Kachelanzahl. Quadratische Kacheln heißt: Höhe = Breite / Spalten,
-   also bestimmt die Spaltenzahl, ob alles ohne Scrollen passt. Wenige Kacheln dürfen
-   groß werden, viele rücken enger - bei 19 Kacheln (Station 3) wären vier Spalten
-   fünf Reihen hoch und damit nicht mehr auf einen Blick sichtbar. */
-function rasterSpalten(anzahl){
-  if(anzahl <= 4) return Math.max(anzahl, 1);
-  if(anzahl <= 8) return 4;    // 8 Stationen: 4 x 2, wie gewünscht
-  if(anzahl <= 12) return 5;
-  if(anzahl <= 18) return 6;
-  return 7;
-}
-function setzeRaster(grid){
-  const spalten = rasterSpalten(grid.children.length);
-  const reihen = Math.max(1, Math.ceil(grid.children.length / spalten));
-  grid.dataset.spalten = spalten;
-  grid.style.setProperty("--spalten", spalten);
-  grid.style.setProperty("--reihen", reihen);
-}
+/* Die Kachelgröße ist fest (204x204) und auf allen Ebenen gleich; die Kacheln brechen
+   um. Eine spaltenabhängige Berechnung gibt es bewusst nicht mehr - sie ließ die Kacheln
+   mit steigender Anzahl schrumpfen und damit auf jeder Ebene anders aussehen. */
 function renderGrid(){
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
@@ -1430,7 +1410,6 @@ function renderGrid(){
           grid.appendChild(tile);
         });
       }
-      setzeRaster(grid);
       return;
     }
   }
@@ -1577,7 +1556,6 @@ function renderGrid(){
       grid.appendChild(tile);
     });
   }
-  setzeRaster(grid);
 }
 
 function renderForm(){
@@ -4066,7 +4044,28 @@ function renderMilestones(){
   });
 }
 
+/* Bricht ein Renderer ab, ist renderBreadcrumb längst durch: Titel und Untertitel
+   stehen auf der neuen Kachel, der Inhaltsbereich zeigt aber unverändert die vorige
+   Ansicht. Dieser stille Zustand hat eine ganze Sitzung gekostet - deshalb wird der
+   Bereich jetzt geleert und der Abbruch benannt, statt ihn zu verschlucken. */
 function render(){
+  try{
+    renderAnsicht();
+  }catch(e){
+    console.error("Ansicht konnte nicht gerendert werden:", view, e);
+    const grid = document.getElementById("grid");
+    const box = document.getElementById("form-container");
+    if(grid) grid.style.display = "none";
+    if(box){
+      box.style.display = "";
+      box.innerHTML = '<div class="km-card"><div class="km-empty-note">Diese Ansicht konnte nicht aufgebaut werden: '
+        + luminaEsc(e && e.message ? e.message : String(e))
+        + '<br><br>Am Projektstand ändert das nichts. Bitte die Seite neu laden - bleibt die Meldung, gehört genau dieser Text in die Fehlermeldung.</div></div>';
+    }
+  }
+}
+
+function renderAnsicht(){
   updateHeaderBrand();
   renderStatusPill();
   renderBreadcrumb();
@@ -4157,6 +4156,42 @@ function deserializeStations(text){
   });
 }
 
+/* Welche Felder eines Subitems echte Sets sein müssen. Die Liste steht bewusst hier
+   neben dem Serialisierer und nicht in den Renderern - dort ist sie viermal halb
+   dupliziert worden, und genau die vergessenen Stellen sind uns um die Ohren geflogen. */
+const SUBITEM_SET_FELDER = {
+  tree: ["expanded"], mapping: ["accordionExpanded", "hiddenColumns"],
+  pbc: ["accordionExpanded", "hiddenColumns"], kontenmapping: ["hiddenColumns"],
+  statement: ["expanded"], milestones: ["hiddenColumns"], table: ["hiddenColumns"]
+};
+function alsSet(wert){
+  if(wert instanceof Set) return wert;
+  if(wert && typeof wert === "object" && wert.__isSet) return new Set(wert.values || []);
+  if(Array.isArray(wert)) return new Set(wert);
+  if(wert && typeof wert === "object") return new Set(Object.keys(wert));
+  return new Set();
+}
+/* Über Supabase überleben Sets den Weg nicht: serializeStations schreibt sie als
+   {__isSet:true,values:[...]}, das JSONB kommt vom Client aber bereits geparst zurück -
+   der Reviver aus deserializeStations läuft auf diesem Weg nie. Ohne Rückwandlung ist
+   accordionExpanded ein nacktes Objekt, und der erste .has()-Aufruf wirft.
+
+   Das fiel deshalb so schwer auf: renderBreadcrumb läuft vor dem Renderer und ist
+   schon durch, wenn der Renderer abbricht. Im Inhaltsbereich stand dann weiter die
+   zuvor geöffnete Ansicht - "Berichtsstruktur" und "Bilanz & GuV" zeigten beide die
+   Kontenzuordnung, weil beide Renderer warfen und niemand den Bereich überschrieb. */
+function normalisiereStationSets(){
+  stations.forEach(s => (s.measures || []).forEach(m => (m.subitems || []).forEach(sub => {
+    const d = sub && sub.data;
+    if(!d || typeof d !== "object") return;
+    (SUBITEM_SET_FELDER[sub.type] || []).forEach(feld => { d[feld] = alsSet(d[feld]); });
+    // Felder, die eine ältere Fassung geschrieben hat, aber der Typ nicht mehr kennt.
+    Object.keys(d).forEach(feld => {
+      if(d[feld] && typeof d[feld] === "object" && d[feld].__isSet) d[feld] = alsSet(d[feld]);
+    });
+  })));
+}
+
 function showTopNote(message, isError){
   const note = document.getElementById("top-export-note");
   note.textContent = message;
@@ -4188,6 +4223,7 @@ function importStateFromJsonText(text){
     const imported = deserializeStations(text);
     if(!Array.isArray(imported)) throw new Error("Datei enthält keine gültige Cockpit-Struktur.");
     stations.splice(0, stations.length, ...imported);
+    normalisiereStationSets();
     view = { level: "grid" };
     openMeasure = null;
     render();
@@ -4363,7 +4399,7 @@ function taskTiming(row,state){ const iso=taskEffectiveDate(row); if(!iso||["Abg
 function taskStats(){ const sub=getPbcSub(); const s={open:0,wip:0,submitted:0,review:0,overdue:0,done:0,total:0}; if(!sub)return s; sub.data.rows.forEach((row,ri)=>{const st=ensureTaskState(sub.data,row,ri);s.total++; if(st.workStatus==="Offen"||st.workStatus==="Angenommen")s.open++; if(st.workStatus==="In Bearbeitung")s.wip++; if(st.workStatus==="Eingereicht")s.submitted++; if(st.workStatus==="Eingereicht"&&st.reviewStatus!=="Akzeptiert")s.review++; if(taskTiming(row,st)==="Überfällig")s.overdue++; if(st.workStatus==="Abgeschlossen"||st.workStatus==="Nicht relevant")s.done++;}); return s; }
 function scheduleLuminaSave(){ clearTimeout(luminaSaveTimer); const el=document.getElementById("autosave-indicator"); if(el){el.textContent="Änderungen…";el.classList.remove("saved");} luminaSaveTimer=setTimeout(saveLuminaLocal,450); }
 function saveLuminaLocal(){ try{localStorage.setItem(LUMINA_STORAGE_KEY,serializeStations()); const el=document.getElementById("autosave-indicator");if(el){el.textContent="Automatisch gespeichert · "+new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});el.classList.add("saved");}}catch(e){showTopNote("Lokales Speichern fehlgeschlagen: "+e.message,true);} }
-function restoreLuminaLocal(){ try{const raw=localStorage.getItem(LUMINA_STORAGE_KEY);if(!raw)return false;const imported=deserializeStations(raw);if(Array.isArray(imported)){stations.splice(0,stations.length,...imported);return true;}}catch(e){console.warn("Autosave konnte nicht geladen werden",e)}return false; }
+function restoreLuminaLocal(){ try{const raw=localStorage.getItem(LUMINA_STORAGE_KEY);if(!raw)return false;const imported=deserializeStations(raw);if(Array.isArray(imported)){stations.splice(0,stations.length,...imported);normalisiereStationSets();return true;}}catch(e){console.warn("Autosave konnte nicht geladen werden",e)}return false; }
 function addActivity(st,text){st.activities=st.activities||[];st.activities.unshift({at:luminaNow(),text});scheduleLuminaSave();}
 function formatDateTime(iso){try{return new Date(iso).toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}catch(e){return iso}}
 function responsible(row){const r=getRole(row[4]);return {name:[r.vorname,r.nachname].filter(Boolean).join(" ")||row[4]||"Nicht zugeordnet",email:r.email||""};}
@@ -4423,8 +4459,19 @@ function explorerCurrentFolder(st){
   if(!globalRoomFolderKey||!all.some(x=>x.key===globalRoomFolderKey)) globalRoomFolderKey=all[0]?.key||"";
   return explorerFolderByKey(globalRoomFolderKey);
 }
+/* Der Ordner IST der Prozessschritt - aus seiner stepId die Aufgabe ableiten, statt
+   eine zweite Auswahl danebenzustellen. Damit ist der Datenraum derselbe Zugang zu
+   derselben Aufgabe wie die Blattkachel und "Mein Tag", nur ueber den Ordnerbaum. */
+function syncGlobalRoomTask(){
+  if(!activeTaskContext||!activeTaskContext.globalRoom) return;
+  const folder=explorerCurrentFolder(null);
+  const stepId=folder?folder.stepId:null;
+  // Nur Blattknoten tragen eine Aufgabe. Aggregate zeigen stattdessen ihre Unterebenen.
+  const ri=(stepId&&!processStepChildren(stepId).length)?taskRiForStep(stepId):null;
+  activeTaskContext.ri=(ri===null||ri===undefined)?null:ri;
+}
 function explorerSelectFolder(st,key){
-  if(explorerIsGlobalRoom()){ globalRoomFolderKey=key; return; }
+  if(explorerIsGlobalRoom()){ globalRoomFolderKey=key; syncGlobalRoomTask(); return; }
   st.folderPath=key;
   addActivity(st,`Datenraumordner ausgewählt: ${explorerFolderByKey(key).names.join(' / ')}`);
 }
@@ -4440,12 +4487,80 @@ function getNodeAtPath(nodes,path){let list=nodes,node=null;for(const idx of pat
 let explorerExpandedFolders=new Set();
 function renderExplorerTreeNodes(nodes,parentPath=[],depth=0,selectedKey=""){
   return (nodes||[]).map((node,i)=>{
-    const path=[...parentPath,i],key=path.join('.'),name=explorerNodeName(node),children=explorerNodeChildren(node),hasChildren=children.length>0,isOpen=explorerExpandedFolders.has(key);
+    // Derselbe Schlüssel wie in flattenDataroomFolders - Code, sonst Position. Solange
+    // hier die reine Position stand, zeigte der Knopf auf einen Schlüssel, den
+    // explorerFolderByKey nicht kannte; die Ansicht fiel still auf den ersten Ordner
+    // zurück. Klick auf "4.0" ergab die Überschrift "3.0", und markiert war nichts.
+    const path=[...parentPath,i],key=node&&node.code?node.code:path.join('.'),name=explorerNodeName(node),children=explorerNodeChildren(node),hasChildren=children.length>0,isOpen=explorerExpandedFolders.has(key);
     return `<div class="explorer-folder-node"><button class="explorer-folder ${key===selectedKey?'active':''} ${isOpen?'is-open':''}" data-folder="${luminaEsc(key)}" data-has-children="${hasChildren?'1':'0'}" style="padding-left:${8+depth*14}px"><span class="explorer-folder-icon">${hasChildren?'▸':'·'}</span><span title="${luminaEsc(name)}">${luminaEsc(name)}</span></button>${hasChildren?`<div class="explorer-folder-children ${isOpen?'is-open':''}">${renderExplorerTreeNodes(children,path,depth+1,selectedKey)}</div>`:''}</div>`;
   }).join('');
 }
+// Der Baum steht jetzt ausserhalb des Reiterinhalts, damit er ueber allen Reitern
+// sichtbar bleibt. Deshalb als eigenes Stueck statt fest verdrahtet in der Schale.
+function explorerTreeAsideHtml(selectedKey){
+  const tree=renderExplorerTreeNodes(getDataroomTree(),[],0,selectedKey||'');
+  return `<aside class="explorer-tree"><div class="explorer-tree-head"><div class="explorer-tree-title">Ordnerstruktur</div><div class="explorer-tree-controls"><button class="explorer-tree-control" id="explorer-expand-all">Alle aufklappen</button><button class="explorer-tree-control" id="explorer-collapse-all">Alle zuklappen</button></div></div>${tree||'<div class="explorer-empty">Keine Ordnerstruktur vorhanden.</div>'}</aside>`;
+}
 function renderExplorerRoom(row,st){const global=explorerIsGlobalRoom();const folders=flattenDataroomFolders(),folder=explorerCurrentFolder(st),docs=explorerDocsInFolder(folder.key);const tree=renderExplorerTreeNodes(getDataroomTree(),[],0,folder.key);const rows=docs.map(doc=>`<div class="explorer-row"><div class="explorer-file-name"><div class="explorer-file-icon">${explorerFileKind(doc)}</div><div class="explorer-file-text"><div class="explorer-file-title" title="${luminaEsc(doc.name)}">${luminaEsc(doc.name)}</div><div class="explorer-file-sub">Aufgabe ${luminaEsc(doc.taskNumber||'–')} · ${luminaEsc(doc.comment||doc.taskTitle||'')}</div></div></div><div>${luminaEsc(doc.taskNumber||'–')}</div><div>V${luminaEsc(doc.version||1)}</div><div>${formatDateTime(doc.uploadedAt)}</div><div class="explorer-actions"><button class="explorer-action" data-download="${luminaEsc(doc.id)}">Öffnen</button><button class="explorer-action danger" data-remove="${luminaEsc(doc.id)}">×</button></div></div>`).join('');return `<div class="explorer-shell"><aside class="explorer-tree"><div class="explorer-tree-head"><div class="explorer-tree-title">Ordnerstruktur</div><div class="explorer-tree-controls"><button class="explorer-tree-control" id="explorer-expand-all">Alle aufklappen</button><button class="explorer-tree-control" id="explorer-collapse-all">Alle zuklappen</button></div></div>${tree||'<div class="explorer-empty">Keine Ordnerstruktur vorhanden.</div>'}</aside><section class="explorer-main"><div class="explorer-head"><div class="explorer-breadcrumb">${luminaEsc(folder.names.slice(0,-1).join(' › ')||'Datenraum')}<strong>${luminaEsc(folder.name)}</strong></div><div class="explorer-toolbar">${global?'':`<button class="btn-secondary" id="explorer-assign-folder">Aufgabe hier zuordnen</button><button class="btn-save" id="explorer-toggle-upload">Dokument hinzufügen</button>`}</div></div><div class="explorer-assignment">${global?`<span>Zentraler Datenraum — Ablegen erfolgt in der jeweiligen Maßnahme.</span>`:`<span>Diese Aufgabe ist dem Ordner <b>${luminaEsc(folder.names.join(' › '))}</b> zugeordnet.</span>`}<span>${docs.length} Dokument${docs.length===1?'':'e'} im Ordner</span></div>${global?'':`<div class="explorer-upload" id="explorer-upload"><div class="task-field"><label>Datei</label><input id="explorer-file" type="file"></div><div class="task-field"><label>oder externer Link</label><input id="explorer-url" type="url" placeholder="https://..."></div><div class="task-field span-2"><label>Anzeigename bei Link</label><input id="explorer-name" type="text" placeholder="z. B. Anlagenspiegel 2026"></div><div class="task-field span-2"><label>Kommentar</label><input id="explorer-comment" type="text" placeholder="optional"></div><div class="explorer-upload-actions"><button class="btn-secondary" id="explorer-cancel-upload">Abbrechen</button><button class="btn-save" id="explorer-save-document">Im Datenraum ablegen</button></div></div>`}<div class="explorer-list"><div class="explorer-row head"><div>Name</div><div>Aufgabe</div><div>Version</div><div>Hochgeladen</div><div>Aktion</div></div>${rows||(global?'<div class="explorer-empty"><strong>Noch keine Dokumente</strong>In diesem Ordner liegt noch nichts.</div>':'<div class="explorer-empty"><strong>Noch keine Dokumente</strong>Fügen Sie für diesen Ordner eine Datei oder einen Link hinzu.</div>')}</div><div class="dropbox-room-note"><strong>Dauerhaft gespeichert:</strong> Hochgeladene Dateien liegen im privaten Supabase-Datenraum und werden nach jeder Anmeldung erneut geladen.</div></section></div>`;}
-function bindExplorerRoom(row,st){document.querySelectorAll('.explorer-folder').forEach(b=>b.onclick=()=>{const key=b.dataset.folder,hasChildren=b.dataset.hasChildren==='1';if(hasChildren){if(explorerExpandedFolders.has(key))explorerExpandedFolders.delete(key);else explorerExpandedFolders.add(key);}explorerSelectFolder(st,key);renderTaskModal();});const expandAll=document.getElementById('explorer-expand-all');if(expandAll)expandAll.onclick=()=>{flattenDataroomFolders().forEach(f=>{if(explorerNodeChildren(getNodeAtPath(getDataroomTree(),f.path)).length)explorerExpandedFolders.add(f.key);});renderTaskModal();};const collapseAll=document.getElementById('explorer-collapse-all');if(collapseAll)collapseAll.onclick=()=>{explorerExpandedFolders.clear();renderTaskModal();};const toggle=document.getElementById('explorer-toggle-upload'),box=document.getElementById('explorer-upload');if(toggle&&box)toggle.onclick=()=>box.classList.toggle('open');const cancel=document.getElementById('explorer-cancel-upload');if(cancel&&box)cancel.onclick=()=>box.classList.remove('open');const save=document.getElementById('explorer-save-document');if(save&&!explorerIsGlobalRoom())save.onclick=()=>explorerAddDocument(st,row);const assign=document.getElementById('explorer-assign-folder');if(assign&&!explorerIsGlobalRoom())assign.onclick=()=>{addActivity(st,`Aufgabe dem Datenraumordner zugeordnet: ${ensureExplorerFolder(st).names.join(' / ')}`);showTopNote('Ordnerzuordnung gespeichert.');renderTaskModal();};const docs=allExplorerDocuments();document.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>{const d=docs.find(x=>x.id===b.dataset.download);if(d)explorerDownload(d);});document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const d=docs.find(x=>x.id===b.dataset.remove);if(d)explorerRemoveDocument(d);});}
+// Nur der Baum. Wird im zentralen Datenraum bei jedem Reiter gebunden, nicht nur im
+// Arbeitsbereich - der Baum steht dort ueber allen Reitern.
+function bindExplorerTree(st){
+  document.querySelectorAll('.explorer-folder').forEach(b=>b.onclick=()=>{
+    const key=b.dataset.folder,hasChildren=b.dataset.hasChildren==='1';
+    if(hasChildren){if(explorerExpandedFolders.has(key))explorerExpandedFolders.delete(key);else explorerExpandedFolders.add(key);}
+    explorerSelectFolder(st,key);renderTaskModal();
+  });
+  const expandAll=document.getElementById('explorer-expand-all');
+  if(expandAll)expandAll.onclick=()=>{flattenDataroomFolders().forEach(f=>{if(explorerNodeChildren(getNodeAtPath(getDataroomTree(),f.path)).length)explorerExpandedFolders.add(f.key);});renderTaskModal();};
+  const collapseAll=document.getElementById('explorer-collapse-all');
+  if(collapseAll)collapseAll.onclick=()=>{explorerExpandedFolders.clear();renderTaskModal();};
+}
+function bindExplorerRoom(row,st){bindExplorerTree(st);const toggle=document.getElementById('explorer-toggle-upload'),box=document.getElementById('explorer-upload');if(toggle&&box)toggle.onclick=()=>box.classList.toggle('open');const cancel=document.getElementById('explorer-cancel-upload');if(cancel&&box)cancel.onclick=()=>box.classList.remove('open');const save=document.getElementById('explorer-save-document');if(save&&!explorerIsGlobalRoom())save.onclick=()=>explorerAddDocument(st,row);const assign=document.getElementById('explorer-assign-folder');if(assign&&!explorerIsGlobalRoom())assign.onclick=()=>{addActivity(st,`Aufgabe dem Datenraumordner zugeordnet: ${ensureExplorerFolder(st).names.join(' / ')}`);showTopNote('Ordnerzuordnung gespeichert.');renderTaskModal();};const docs=allExplorerDocuments();document.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>{const d=docs.find(x=>x.id===b.dataset.download);if(d)explorerDownload(d);});document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const d=docs.find(x=>x.id===b.dataset.remove);if(d)explorerRemoveDocument(d);});}
+
+/* Aggregatordner tragen keine Aufgabe. Statt einer leeren Aufgabenmaske zeigen sie
+   ihre Unterebenen - dieselbe Information wie die Kachelseite, nur als schmale Liste,
+   weil die Mitte des Modals neben dem Baum keine Kachelbreite hat. Der Klick waehlt
+   den Ordner im Baum aus; ein Blatt landet damit direkt in seiner Aufgabe. */
+function renderRoomAggregate(folder){
+  const stepId=folder?folder.stepId:null;
+  const kinder=stepId?processStepChildren(stepId):[];
+  if(!kinder.length){
+    // Kein Unterbau und keine Aufgabe - dann zeigt der Ordner wenigstens, was in ihm liegt.
+    // Betrifft den Rueckfallbaum aus stations (ohne Prozessschritte) und Blattordner,
+    // deren Aufgabe fehlt. Ein blosser Hinweis waere hier eine Sackgasse.
+    const docs=explorerDocsInFolder(folder?folder.key:'');
+    if(!docs.length) return `<div class="explorer-empty"><strong>Nichts hinterlegt</strong>Zu diesem Ordner gibt es weder eine Maßnahme noch eine Unterebene noch ein Dokument.</div>`;
+    const dateien=docs.map(doc=>`<div class="room-rollup-row" title="${luminaEsc(doc.name)}">`
+      + `<span class="room-rollup-code">${luminaEsc(explorerFileKind(doc))}</span>`
+      + `<span class="room-rollup-name">${luminaEsc(doc.name)}</span>`
+      + `<span class="room-rollup-bar"></span>`
+      + `<span class="room-rollup-frac">Aufgabe ${luminaEsc(doc.taskNumber||'–')}</span>`
+      + `<span class="room-rollup-due">${luminaEsc(formatDateTime(doc.uploadedAt))}</span></div>`).join('');
+    return `<div class="room-rollup"><div class="room-rollup-head">${luminaEsc(folder?folder.names.join(' › '):'Datenraum')} · ${docs.length} Dokument${docs.length===1?'':'e'}</div>${dateien}</div>`;
+  }
+  const zeilen=kinder.map(child=>{
+    const fort=guidanceSubtreeProgress(child.id),enkel=processStepChildren(child.id).length;
+    const pct=fort.total?Math.round((fort.done/fort.total)*100):0;
+    const fertig=fort.total>0&&fort.done===fort.total;
+    const due=stepDueSummary(child.id);
+    const klasse=due?(due.zustand==='Überfällig'?' is-overdue':((due.zustand==='Heute fällig'||due.zustand==='Bald fällig')?' is-soon':'')):'';
+    return `<button class="room-rollup-row${fertig?' is-complete':''}" data-room-step="${luminaEsc(child.code||'')}" title="${luminaEsc(child.code+' · '+child.name)}">`
+      + `<span class="room-rollup-code">${fertig?'✓ ':''}${luminaEsc(child.code)}</span>`
+      + `<span class="room-rollup-name">${luminaEsc(child.name)}</span>`
+      + `<span class="room-rollup-bar"><span style="width:${pct}%"></span></span>`
+      + `<span class="room-rollup-frac">${luminaEsc(fort.total?fort.done+'/'+fort.total:(enkel?enkel+' Kacheln':'–'))}</span>`
+      + `<span class="room-rollup-due${klasse}">${due?luminaEsc(formatDateDE(due.iso)):'–'}</span></button>`;
+  }).join('');
+  return `<div class="room-rollup"><div class="room-rollup-head">${luminaEsc(folder?folder.names.join(' › '):'Datenraum')} · ${kinder.length} Unterebene${kinder.length===1?'':'n'}</div>${zeilen}</div>`;
+}
+function bindRoomAggregate(){
+  document.querySelectorAll('[data-room-step]').forEach(b=>b.onclick=()=>{
+    const aktuell=explorerCurrentFolder(null);
+    if(aktuell&&aktuell.key) explorerExpandedFolders.add(aktuell.key);
+    explorerSelectFolder(null,b.dataset.roomStep);
+    renderTaskModal();
+  });
+}
 
 function emailText(row,st,kind){const p=responsible(row),sd=getStammdaten(),due=taskEffectiveDate(row);const reminder=kind==="reminder";const roomUrl=recipientDataRoomLoginLink(row,st,p.email);const roomBlock=roomUrl?`\n\nDatenraum / Upload-Link:\n${roomUrl}`:`\n\nDatenraum-Link: noch nicht hinterlegt`;return {to:p.email,subject:`${reminder?"Erinnerung: ":"Neue Aufgabe: "}${row[3]||row[5]||"Abschlussmaßnahme"}`,body:`Guten Tag ${p.name},\n\n${reminder?"wir erinnern Sie an folgende Aufgabe":"im Rahmen des Jahresabschlusses wurde Ihnen folgende Aufgabe zugeordnet"}:\n\nAufgabe: ${row[3]||row[1]}\nBenötigte Unterlagen: ${row[5]||"–"}\nGesellschaft: ${row[6]||sd.gesellschaft}\nLiefertermin: ${due?formatDateDE(due):row[8]||"–"}\nAktueller Status: ${st.workStatus}${roomBlock}\n\nBitte öffnen Sie die Aufgabe in LUMINA und stellen Sie die benötigten Unterlagen im zugeordneten Datenraumordner bereit.\n\nFreundliche Grüße\n${sd.verantwortlich||"Abschlusskoordination"}`};}
 function markMailPrepared(st,kind,label){st[kind==="reminder"?"remindedAt":"sentAt"]=luminaNow();addActivity(st,`${kind==="reminder"?"Erinnerung":"Aufgaben-E-Mail"} in ${label} vorbereitet`);}
@@ -4497,9 +4612,11 @@ function renderDashboard(){
 function openDashboardDataroom(){
   const sub=getPbcSub();
   if(!sub||!sub.data||!Array.isArray(sub.data.rows)||!sub.data.rows.length){showTopNote('Es wurde keine Maßnahmenliste für den Datenraum gefunden.',true);return;}
-  activeTaskContext={sub,ri:0,globalRoom:true};
+  // Kein ri:0-Dummy mehr: die Aufgabe kommt aus dem gewaehlten Ordner. Solange keiner
+  // gewaehlt ist, bleibt ri null und die Mitte zeigt die Uebersicht der Unterebenen.
+  activeTaskContext={sub,ri:null,globalRoom:true};
   taskActiveTab='room';
-  ensureTaskState(sub.data,sub.data.rows[0],0);
+  syncGlobalRoomTask();
   document.getElementById('task-modal-backdrop').classList.add('open');
   document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','false');
   renderTaskModal();
@@ -4512,10 +4629,14 @@ function attachTaskActionsAccordion(sub,visible){document.querySelectorAll('#pbc
    ein Merker, der auseinanderlaufen kann - dieselbe Ueberlegung wie bei der
    Kinder-Weiche. Beide Wege ("Mein Tag" und Klick auf eine Blattkachel) landen
    damit zwangslaeufig beim selben Schritt. */
+// Der Prozessschritt der offenen Aufgabe - abgeleitet, nie gespeichert. Der zentrale
+// Datenraum ist hier bewusst nicht mehr ausgenommen: seit der Ordner die Aufgabe
+// bestimmt, hat auch er einen echten Schritt, und daran haengen Anleitung, Notizen
+// und Arbeitsbereich. Ohne Aufgabe (Aggregatordner) bleibt es bei null.
 function taskContextStepId(){
-  if(!activeTaskContext||activeTaskContext.globalRoom) return null;
+  if(!activeTaskContext) return null;
   const {sub,ri}=activeTaskContext;
-  const row=sub?.data?.rows?.[ri]; if(!row) return null;
+  const row=(ri===null||ri===undefined)?null:sub?.data?.rows?.[ri]; if(!row) return null;
   return ensureTaskState(sub.data,row,ri).remoteProcessStepId||null;
 }
 // Gegenrichtung: von der Kachel zur PBC-Zeile.
@@ -4674,23 +4795,43 @@ function bindTaskWorkPackage(row,st){
 }
 function renderTaskModal(){
   if(!activeTaskContext)return;
-  const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri),p=responsible(row),due=taskEffectiveDate(row);
-  document.getElementById('task-modal-title').textContent=activeTaskContext.globalRoom?'Datenraum':taskDisplayTitle(row,st);
-  // Kennung im Kopf: Prozessschritt-Code zuerst, dann die laufende Nummer aus der
-  // Maßnahmenliste. Ohne den Code war im Modal nicht erkennbar, welche Kachel offen ist.
+  const sub=activeTaskContext.sub;
+  const global=!!activeTaskContext.globalRoom;
+  // Der gewaehlte Ordner bestimmt die Aufgabe - kein zweiter Zustand daneben.
+  if(global) syncGlobalRoomTask();
+  const ri=activeTaskContext.ri;
+  const row=(ri===null||ri===undefined)?null:sub.data.rows[ri];
+  const st=row?ensureTaskState(sub.data,row,ri):null;
+  const p=row?responsible(row):{name:'–',email:''};
+  const due=row?taskEffectiveDate(row):null;
+  const raumOrdner=global?explorerCurrentFolder(st):null;
   const kopfStep=taskContextStepId()?processStepById(taskContextStepId()):null;
-  const kopfTermin=taskEffectiveDate(row);
-  document.getElementById('task-modal-sub').textContent=activeTaskContext.globalRoom
-    ?'Zentraler Datenraum · Ordnerstruktur und Dokumente'
+  document.getElementById('task-modal-title').textContent=global
+    ?(raumOrdner?raumOrdner.name:'Datenraum')
+    :taskDisplayTitle(row,st);
+  document.getElementById('task-modal-sub').textContent=global
+    ?['Datenraum',
+      raumOrdner&&raumOrdner.names.length>1?raumOrdner.names.slice(0,-1).join(' › '):null,
+      row?`Nr. ${row[0]||'–'}`:'Übersicht der Unterebenen',
+      due?`fällig ${formatDateDE(due)}`:null].filter(Boolean).join(' · ')
     :[kopfStep?kopfStep.code:null,`Nr. ${row[0]||'–'}`,row[1]||null,
-      kopfTermin?`fällig ${formatDateDE(kopfTermin)}`:null].filter(Boolean).join(' · ');
-  // Notizen (process_step_comments) sind bewusst ein eigener Reiter neben Kommunikation
-  // (task_messages): dort eine gerichtete Nachricht mit Empfaenger und Eingangskorb,
-  // hier eine formlose Notiz an der Sache, ohne Statuswirkung.
-  const tabs=`<div class="task-tabs"><button class="task-tab ${taskActiveTab==='details'?'active':''}" data-tab="details">Anleitung</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='previous'?'active':''}" data-tab="previous">Vorjahr</button>`}<button class="task-tab ${taskActiveTab==='room'?'active':''}" data-tab="room">Arbeitsbereich</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='notes'?'active':''}" data-tab="notes">Notizen</button>`}<button class="task-tab ${taskActiveTab==='email'?'active':''}" data-tab="email">E-Mail</button>${activeTaskContext.globalRoom?'':`<button class="task-tab ${taskActiveTab==='communication'?'active':''}" data-tab="communication">Kommunikation</button><button class="task-tab ${taskActiveTab==='review'?'active':''}" data-tab="review">Prüfung</button>`}</div>`;
+      due?`fällig ${formatDateDE(due)}`:null].filter(Boolean).join(' · ');
+  /* Ein Reitersatz, drei Zugaenge: "Mein Tag", Blattkachel und Datenraum landen im
+     selben Renderer. Der Datenraum unterscheidet sich nur noch dadurch, dass links der
+     Ordnerbaum steht - nicht mehr dadurch, dass Reiter fehlen.
+     Notizen (process_step_comments) bleiben bewusst neben Kommunikation (task_messages):
+     dort eine gerichtete Nachricht mit Empfaenger und Eingangskorb, hier eine formlose
+     Notiz an der Sache, ohne Statuswirkung. */
+  const AUFGABEN_REITER=[['details','Anleitung'],['previous','Vorjahr'],['room','Arbeitsbereich'],['notes','Notizen'],['email','E-Mail'],['communication','Kommunikation'],['review','Prüfung']];
+  const AGGREGAT_REITER=[['overview','Übersicht'],['alltasks','Alle Aufgaben'],['email','E-Mail']];
+  const reiter=row?AUFGABEN_REITER:AGGREGAT_REITER;
+  if(!reiter.some(([schluessel])=>schluessel===taskActiveTab)) taskActiveTab=reiter[0][0];
+  const tabs=`<div class="task-tabs">${reiter.map(([schluessel,beschriftung])=>`<button class="task-tab ${taskActiveTab===schluessel?'active':''}" data-tab="${schluessel}">${beschriftung}</button>`).join('')}</div>`;
   let content='';
-  if(activeTaskContext.globalRoom && taskActiveTab!=='room'){
-    content=renderGlobalTaskOverview(sub,taskActiveTab);
+  if(!row){
+    content=(taskActiveTab==='alltasks'||taskActiveTab==='email')
+      ?renderGlobalTaskOverview(sub,taskActiveTab==='email'?'email':'details')
+      :renderRoomAggregate(raumOrdner);
   }else if(taskActiveTab==='details'){
     content=renderTaskGuide(row,st,p,due);
   }else if(taskActiveTab==='previous'){
@@ -4699,14 +4840,18 @@ function renderTaskModal(){
     content=renderStepCommentBlock(taskGuidanceContext()||{stepId:null});
   }else if(taskActiveTab==='room'){
     // Hat die Aufgabe einen Prozessschritt, ist die Kachel der Datenraum: Dokumentenliste
-    // ueber process_step_id plus Upload, ohne Ordnerbaum. Der Baum war ohnehin folgenlos -
+    // ueber process_step_id plus Upload. Das gilt jetzt auch im zentralen Datenraum -
+    // dort steht der Ordnerbaum ohnehin schon links, ein zweiter im Inhalt waere doppelt.
     // prepare_document_upload kennt keinen Ordnerparameter, die Ablage bestimmt
-    // task_folder_assignments serverseitig. Er haette eine Steuerbarkeit vorgetaeuscht,
-    // die es nie gab. Der zentrale Datenraum (globalRoom) behaelt den Baum.
-    const roomCtx=activeTaskContext.globalRoom?null:taskGuidanceContext();
+    // task_folder_assignments serverseitig; der Baum im Inhalt hat nie etwas gesteuert.
+    const roomCtx=taskGuidanceContext();
     if(roomCtx){
       const d=guidanceViewData(roomCtx);
       content=`<div class="task-guide-stack">${guidanceDatenraumBlock(d)}${guidanceUploadBlock(d)}</div>`;
+    }else if(global){
+      // Ordner ohne Prozessschritt (Rueckfallbaum aus stations): nur die Dateiliste,
+      // der Baum kommt von aussen.
+      content=renderRoomAggregate(raumOrdner);
     }else{
       content=renderExplorerRoom(row,st);
     }
@@ -4720,35 +4865,44 @@ function renderTaskModal(){
     const outlookHref=`https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(e.to)}&subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body)}`;
     content=`<div class="email-compose"><div class="email-meta-card"><div class="task-field"><label>Empfänger</label><input value="${luminaEsc(e.to)}" disabled></div><div class="task-field"><label>Versandart</label><select id="email-kind"><option value="invite" ${kind==='invite'?'selected':''}>Aufgabeneinladung</option><option value="reminder" ${kind==='reminder'?'selected':''}>Terminerinnerung</option></select></div><div class="task-field email-subject"><label>Betreff</label><input value="${luminaEsc(e.subject)}" disabled></div></div><div class="email-letter"><div class="email-letter-head"><div class="email-letter-title">${luminaEsc(e.subject)}</div><div class="email-letter-to">An ${luminaEsc(recipient)} · ${luminaEsc(e.to)}</div></div><div class="email-letter-body"><p>Guten Tag ${luminaEsc(recipient)},</p><p>${kind==='reminder'?'wir erinnern Sie an die folgende noch offene Aufgabe im Abschlussprozess:':'im Rahmen des Jahresabschlusses wurde Ihnen die folgende Aufgabe zugeordnet:'}</p><div class="email-task-box"><div class="email-task-row"><span>Aufgabe</span><strong>${luminaEsc(taskTitle)}</strong></div><div class="email-task-row"><span>Benötigte Unterlagen</span><strong>${luminaEsc(docs)}</strong></div><div class="email-task-row"><span>Gesellschaft</span><strong>${luminaEsc(company)}</strong></div><div class="email-task-row"><span>Liefertermin</span><strong>${luminaEsc(dueText)}</strong></div><div class="email-task-row"><span>Datenraumordner</span><strong>${luminaEsc(folder.names.join(' › '))}</strong></div><div class="email-task-row"><span>Datenraum-Link</span><strong>${roomUrl?`<a href="${luminaEsc(roomUrl)}" target="_blank" rel="noopener">Aufgabe im Datenraum öffnen</a>`:'Noch nicht verfügbar'}</strong></div><div class="email-task-row"><span>Dokumente</span><strong>${docCount}</strong></div></div><p>Bitte öffnen Sie die Aufgabe in LUMINA und stellen Sie die benötigten Unterlagen im zugeordneten Datenraumordner bereit.</p><p>Freundliche Grüße<br>Abschlusskoordination</p></div></div><div class="email-actions"><span class="email-hint">Es wird nur ein Entwurf geöffnet. Der Versand erfolgt erst nach Ihrer Bestätigung in Outlook.</span><a class="btn-secondary" href="${luminaEsc(mailtoHref)}">Standard-Mail-App</a><a class="btn-save" href="${luminaEsc(outlookHref)}" target="_blank" rel="noopener noreferrer">Outlook Web öffnen</a></div></div>`;
   }
-  document.getElementById('task-modal-main').innerHTML=tabs+content;
+  // Im zentralen Datenraum umschliesst die Schale Reiter UND Inhalt, damit der Ordnerbaum
+  // links ueber allen Reitern steht statt nur im Arbeitsbereich.
+  document.getElementById('task-modal-main').innerHTML=global
+    ?`<div class="explorer-shell">${explorerTreeAsideHtml(raumOrdner?raumOrdner.key:'')}<section class="explorer-main">${tabs}${content}</section></div>`
+    :tabs+content;
   document.querySelectorAll('.task-tab').forEach(b=>b.onclick=()=>{taskActiveTab=b.dataset.tab;renderTaskModal();});
-  if(!activeTaskContext.globalRoom){loadTaskWorkPackage(st).catch(console.warn);if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);}
-  if(activeTaskContext.globalRoom && taskActiveTab!=='room')bindGlobalTaskOverview(sub);
   const modalMain=document.getElementById('task-modal-main');
-  if(taskActiveTab==='details' && !activeTaskContext.globalRoom){
+  if(global) bindExplorerTree(st);
+  if(!row){
+    // Aggregatordner: keine Aufgabe, also Uebersicht statt Aufgabenmaske.
+    if(taskActiveTab==='alltasks'||taskActiveTab==='email') bindGlobalTaskOverview(sub);
+    else bindRoomAggregate();
+    document.getElementById('task-modal-side').innerHTML=renderGlobalTaskSummary(sub);
+    document.getElementById('task-modal-delete-state').style.display='none';
+    return;
+  }
+  loadTaskWorkPackage(st).catch(console.warn);
+  if(['details','previous','review'].includes(taskActiveTab))bindTaskWorkPackage(row,st);
+  if(taskActiveTab==='details'){
     const ctx=taskGuidanceContext();
     if(ctx&&ctx.guide) bindGuidanceBlocks(modalMain,guidanceViewData(ctx));
   }
-  if(taskActiveTab==='notes' && !activeTaskContext.globalRoom){
+  if(taskActiveTab==='notes'){
     const ctx=taskGuidanceContext();
     if(ctx) bindStepCommentBlock(ctx,modalMain,renderTaskModal);
   }
   if(taskActiveTab==='room'){
     const ctx=taskGuidanceContext();
-    // Blattkachel: der Arbeitsbereich ist der Datenraum dieser einen Massnahme.
-    if(ctx&&!activeTaskContext.globalRoom) bindGuidanceBlocks(modalMain,guidanceViewData(ctx));
-    else bindExplorerRoom(row,st);
+    if(ctx) bindGuidanceBlocks(modalMain,guidanceViewData(ctx));
+    else if(!global) bindExplorerRoom(row,st);
   }
-  if(taskActiveTab==='communication' && !activeTaskContext.globalRoom)loadTaskCommunication(row,st);
-  if(taskActiveTab==='email' && !activeTaskContext.globalRoom){
+  if(taskActiveTab==='communication')loadTaskCommunication(row,st);
+  if(taskActiveTab==='email'){
     document.getElementById('email-kind').onchange=e=>{st.emailKind=e.target.value;renderTaskModal();};
   }
-  if(activeTaskContext.globalRoom){
-    document.getElementById('task-modal-side').innerHTML=renderGlobalTaskSummary(sub);
-    document.getElementById('task-modal-delete-state').style.display='none';
-    return;
-  }
-  document.getElementById('task-modal-delete-state').style.display='';
+  // "Aufgabenstatus zuruecksetzen" bleibt im Datenraum ausgeblendet: eine zerstoerende
+  // Aktion gehoert an die Aufgabe selbst, nicht in die Ordneransicht.
+  document.getElementById('task-modal-delete-state').style.display=global?'none':'';
   const folder=ensureExplorerFolder(st),docCount=(st.documents||[]).length;
   document.getElementById('task-modal-side').innerHTML=`<div class="task-section"><h3>Aufgabenstatus</h3><div class="status-summary"><div class="status-summary-main"><strong>${luminaEsc(st.workStatus)}</strong><span class="status-chip ${st.workStatus==='Abgeschlossen'?'done':''}">${luminaEsc(taskTiming(row,st))}</span></div><div class="status-summary-lines"><div class="status-line"><span>Prüfung</span><b>${luminaEsc(st.reviewStatus)}</b></div><div class="status-line"><span>Verantwortlich</span><b>${luminaEsc(p.name)}</b></div><div class="status-line"><span>Liefertermin</span><b>${luminaEsc(due?formatDateDE(due):(row[8]||'–'))}</b></div><div class="status-line"><span>Datenraum</span><b>${docCount} Dokument${docCount===1?'':'e'}</b></div><div class="status-line"><span>Ordner</span><b title="${luminaEsc(folder.names.join(' / '))}">${luminaEsc(folder.name)}</b></div></div></div></div><div class="task-section"><h3>Aktivitätsverlauf</h3><div class="activity-list">${(st.activities||[]).map(a=>`<div class="activity-item">${luminaEsc(a.text)}<div class="activity-meta">${formatDateTime(a.at)}</div></div>`).join('')||'<div class="activity-item">Noch keine Aktivität</div>'}</div></div>`;
 }
@@ -5489,6 +5643,7 @@ async function loadLuminaFromSupabase(){
   if(!projects||!projects.length)throw new Error('Für dieses Konto ist kein LUMINA-Projekt freigeschaltet.');
   if(!sourceStates||!sourceStates.length||!Array.isArray(sourceStates[0].state))throw new Error('Der geschützte LUMINA-Projektstand fehlt.');
   stations.splice(0,stations.length,...sourceStates[0].state);
+  normalisiereStationSets();
   await loadProcessStepTree();
   await loadProcessStepGuidance();
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
