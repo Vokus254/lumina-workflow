@@ -10,13 +10,17 @@
 --   Fortschritt -> project_source_states.state  (nur noch hier)
 --
 -- Die 13 Kategoriekarten unter state[2].measures[13] entfallen ersatzlos. An ihre Stelle
--- treten zwei Felder am Measure-Objekt:
+-- tritt ein Feld am Measure-Objekt:
 --   stepSource   = 'process_steps'  Marker fuer das Frontend: Kinder aus process_steps
---                                   laden, nicht aus subitems. Weil der Marker je Kachel
---                                   gesetzt wird, koennen die restlichen 77 Stationen
---                                   einzeln nachziehen - kein Big Bang beim Rollout.
---   stepProgress = {}               Fortschritt je Kachel, adressiert ueber die
---                                   process_steps-UUID statt ueber eine Array-Position.
+--                                   laden, nicht aus subitems.
+--
+-- Hinweis: Das Frontend wertet stepSource nicht aus. Die Weiche ist datengetrieben -
+-- eine Kachel rendert aus process_steps, sobald sie dort Kinder hat. Der Marker bleibt
+-- als Dokumentation der Absicht stehen.
+--
+-- Ein urspruenglich vorgesehenes Feld stepProgress entfaellt: der Anleitungs-Fortschritt
+-- liegt seit 20260807140000 serverseitig in process_step_guidance_progress und nicht mehr
+-- im State.
 --
 -- ACHTUNG - Kopplung an das Frontend:
 --   Diese Migration allein macht die Kachel 3.13 im Cockpit leer, weil das Frontend
@@ -96,9 +100,8 @@ begin
     end if;
 
     v_neu_measure := v_measure || jsonb_build_object(
-      'subitems',    '[]'::jsonb,
-      'stepSource',  'process_steps',
-      'stepProgress', '{}'::jsonb
+      'subitems',   '[]'::jsonb,
+      'stepSource', 'process_steps'
     );
 
     v_neu := jsonb_set(v_row.state, array['2','measures','13'], v_neu_measure, false);
