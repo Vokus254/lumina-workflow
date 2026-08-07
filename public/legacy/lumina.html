@@ -92,6 +92,26 @@
   /* ---------- Kachel-Grid (alle Ebenen, feste Größe) ---------- */
   .grid{ display: flex; flex-wrap: wrap; gap: 14px; }
 
+  /* Oberste Ebene: die acht Stationen sollen ohne Scrollen auf einen Blick sichtbar
+     sein. Ihre Titel sind kurz, deshalb quadratisch und kompakt - die festen 204x240
+     der tieferen Ebenen brauchen sie nicht und erzeugten nur Leerraum zwischen Titel
+     und Fortschrittsbalken. */
+  .grid.grid-stations{
+    display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px;
+  }
+  .grid-stations .tile{
+    width: auto; height: auto; aspect-ratio: 1 / 1;
+    padding: 12px; gap: 4px; justify-content: flex-start;
+  }
+  .grid-stations .tile-num{ height: 20px; min-width: 20px; padding: 0 6px; font-size: 11px; }
+  .grid-stations .tile-title{
+    font-size: 12px; line-height: 1.28; -webkit-line-clamp: 4; margin-top: 2px;
+  }
+  .grid-stations .tile-bottom{ margin-top: auto; gap: 4px; }
+  .grid-stations .tile-frac, .grid-stations .tile-due{ font-size: 10px; }
+  @media (max-width: 1180px){ .grid.grid-stations{ grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 640px){ .grid.grid-stations{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
   .tile{
     all: unset; box-sizing: border-box; cursor: pointer;
     /* Höher als früher (204): die Maßnahmentitel aus der PBC-Liste sind teils sehr lang
@@ -1332,6 +1352,8 @@ function sepEl(){
 function renderGrid(){
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
+  // Nur die oberste Ebene bekommt das kompakte, quadratische Raster.
+  grid.className = "grid" + (view.level === "grid" ? " grid-stations" : "");
 
   // Aggregat-Ebene (Station oder Kategorie mit Unterkacheln): dieselbe Kacheldarstellung
   // wie das oberste Dashboard - durchnummeriert, gleich groß, Fortschrittsbalken unten.
@@ -4033,6 +4055,17 @@ function render(){
     renderMilestones();
   } else if((view.level === "step" || view.level === "subitems") && viewStepChildren().length){
     // Aggregat: reine Kachelübersicht im Dashboard-Stil, gerendert ins Grid.
+    grid.style.display = "";
+    formContainer.style.display = "none";
+    renderGrid();
+  } else if(view.level === "subitems" && measureHatWerkzeug(stations[view.station]?.measures?.[view.measure])){
+    // Werkzeug-Stationen (2.0 Stammdaten, 2.1 Zeitplan, 2.2 Rollen, 2.4 Maßnahmenliste,
+    // 3.17 SuSa/Kontenzuordnung) zeigen ihre Werkzeugkacheln.
+    //
+    // Diese Verzweigung muss VOR der Vier-Block-Ansicht stehen: alle diese Stationen
+    // haben seit dem Massenseed eine Anleitung, und guidanceViewActive() greift dann -
+    // die Werkzeugkacheln waren dadurch auch dann nicht erreichbar, wenn der
+    // Klick-Handler korrekt hierher geleitet hat.
     grid.style.display = "";
     formContainer.style.display = "none";
     renderGrid();
