@@ -5233,7 +5233,13 @@ async function guidanceDownloadHelper(guide){
   try{
     if(guide.arbeitshilfe_storage_path){
       const bucket=guide.arbeitshilfe_storage_bucket||'lumina-templates';
-      const {data,error}=await luminaDb.storage.from(bucket).download(guide.arbeitshilfe_storage_path);
+      const {data,error}=await luminaDb.storage
+        .from(bucket)
+        .download(
+          guide.arbeitshilfe_storage_path,
+          { cacheNonce: Date.now().toString() },
+          { cache: 'no-store' }
+        );
       if(!error&&data){ guidanceDownloadBlob(data,fileName); showTopNote('Arbeitshilfe heruntergeladen.'); return; }
       console.warn('Vorlage nicht im Bucket verfügbar, erzeuge leere Arbeitshilfe',error);
     }
