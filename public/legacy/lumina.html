@@ -5228,27 +5228,110 @@ function guidanceBuildHelperWorkbook(guide,fileName){
 }
 async function guidanceDownloadHelper(guide){
   const button=document.getElementById('guide-helper-download');
-  const fileName=String(guide.arbeitshilfe_storage_path||guide.arbeitshilfe_name||'Arbeitshilfe').split('/').pop();
-  if(button){button.disabled=true;button.textContent='Wird geladen ...';}
+
+  if(button){
+    button.disabled=true;
+    button.textContent='Wird geladen ...';
+  }
+
   try{
+    const bucket=guide.arbeitshilfe_storage_bucket||'lumina-templates';
+
+    let folder='';
+
     if(guide.arbeitshilfe_storage_path){
-      const bucket=guide.arbeitshilfe_storage_bucket||'lumina-templates';
-      const {data,error}=await luminaDb.storage
-        .from(bucket)
-        .download(
-          guide.arbeitshilfe_storage_path,
-          { cacheNonce: Date.now().toString() },
-          { cache: 'no-store' }
-        );
-      if(!error&&data){ guidanceDownloadBlob(data,fileName); showTopNote('Arbeitshilfe heruntergeladen.'); return; }
-      console.warn('Vorlage nicht im Bucket verfügbar, erzeuge leere Arbeitshilfe',error);
+      const parts=String(guide.arbeitshilfe_storage_path).split('/');
+      if(parts.length>1){
+        parts.pop();
+        folder=parts.join('/');
+      }
     }
-    guidanceBuildHelperWorkbook(guide,fileName);
-    showTopNote('Vorlage ist noch nicht hinterlegt — leere Arbeitshilfe aus den Spalten erzeugt.');
+
+    if(!folder){
+      folder=String(
+        guide.code||
+        guide.process_step_code||
+        guide.legacy_source_key||
+        ''
+      ).trim();
+    }
+
+    if(!folder){
+      throw new Error('Kein Arbeitshilfen-Ordner f?r diese Kachel ermittelbar.');
+    }
+
+    const {data:items,error:listError}=await luminaDb.storage
+      .from(bucket)
+      .list(folder,{
+        limit:100,
+        offset:0,
+        sortBy:{
+          column:'name',
+          order:'asc'
+        }
+      });
+
+    if(listError){
+      throw listError;
+    }
+
+    const files=(items||[]).filter(item=>{
+      if(!item) return false;
+      if(!item.id) return false;
+      if(!item.name) return false;
+      if(item.name==='.emptyFolderPlaceholder') return false;
+      return true;
+    });
+
+    if(files.length===0){
+      throw new Error(
+        `Im Vorlagenordner "${folder}" wurde keine Arbeitshilfe gefunden.`
+      );
+    }
+
+    if(files.length>1){
+      throw new Error(
+        `Im Vorlagenordner "${folder}" befinden sich ${files.length} Dateien. Bitte genau eine aktuelle Arbeitshilfe im Ordner hinterlegen.`
+      );
+    }
+
+    const currentFile=files[0];
+    const storagePath=`${folder}/${currentFile.name}`;
+    const fileName=currentFile.name;
+
+    const {data,error}=await luminaDb.storage
+      .from(bucket)
+      .download(
+        storagePath,
+        {cacheNonce:Date.now().toString()},
+        {cache:'no-store'}
+      );
+
+    if(error){
+      throw error;
+    }
+
+    if(!data){
+      throw new Error('Supabase hat keine Dateidaten zur?ckgegeben.');
+    }
+
+    guidanceDownloadBlob(data,fileName);
+    showTopNote(`Arbeitshilfe "${fileName}" heruntergeladen.`);
+
   }catch(error){
-    showTopNote('Arbeitshilfe konnte nicht bereitgestellt werden: '+(error.message||error),true);
+    console.error('Arbeitshilfe konnte nicht heruntergeladen werden:',error);
+
+    showTopNote(
+      error?.message||
+      'Die Arbeitshilfe konnte nicht heruntergeladen werden.',
+      true
+    );
+
   }finally{
-    if(button){button.disabled=false;button.textContent='Arbeitshilfe herunterladen';}
+    if(button){
+      button.disabled=false;
+      button.textContent='Arbeitshilfe herunterladen';
+    }
   }
 }
 
