@@ -8005,26 +8005,43 @@ async function luminaUploadOrReplaceWorkAid(file,button){
       );
 
     /*
-     * Normalfall:
-     * Genau eine vorhandene Datei.
+     * ---------------------------------------------------------
+     * Zielpfad entspricht IMMER der neu ausgewaehlten Datei.
      *
-     * Wir ersetzen nur deren Inhalt.
-     * Der Storage-Pfad bleibt unveraendert.
+     * Beispiel:
+     *
+     * alt:
+     * 4.6/4.6_Word-Anhangsvorlage.docx
+     *
+     * neu:
+     * 4.6/4.6.1.2 Sonstige_finanzielle_Verpflichtungen.xlsx
+     *
+     * Damit stimmen Dateiname, Inhalt und Dateityp wieder
+     * miteinander ueberein.
+     * ---------------------------------------------------------
      */
-    if(existingFiles.length===1){
-      const existingFile=
-        existingFiles[0];
 
-      const existingPath=
-        `${folder}/${existingFile.name}`;
+    const targetPath=
+      `${folder}/${file.name}`;
+
+    const existingNames=
+      existingFiles
+        .map(item=>item.name);
+
+    /*
+     * Sicherheitsabfrage
+     */
+    if(existingFiles.length){
+      const names=
+        existingNames.join('\n');
 
       const confirmed=
         window.confirm(
           `Arbeitshilfe ${folder}\n\n`+
-          `Aktuell vorhanden:\n${existingFile.name}\n\n`+
+          `Aktuell vorhanden:\n${names}\n\n`+
           `Neue Datei:\n${file.name}\n\n`+
-          `Der Inhalt der vorhandenen Arbeitshilfe wird ersetzt.\n`+
-          `Der interne LUMINA-Dateipfad bleibt unveraendert.\n\n`+
+          `Die neue Datei wird zuerst hochgeladen und geprueft.\n`+
+          `Erst danach wird die bisherige Arbeitshilfe entfernt.\n\n`+
           `Fortfahren?`
         );
 
@@ -8035,91 +8052,7 @@ async function luminaUploadOrReplaceWorkAid(file,button){
 
         return;
       }
-
-      luminaWorkAidSetUploadState(
-        button,
-        true,
-        'Datei ersetzen ...'
-      );
-
-      luminaWorkAidShowProgress(
-        `${file.name} wird hochgeladen ...`,
-        55
-      );
-
-      const {error:updateError}=
-        await luminaDb.storage
-          .from(bucket)
-          .update(
-            existingPath,
-            file,
-            {
-              cacheControl:'0',
-              contentType:
-                file.type||
-                'application/octet-stream'
-            }
-          );
-
-      if(updateError){
-        console.error(
-          'Supabase Update fehlgeschlagen:',
-          updateError
-        );
-
-        throw updateError;
-      }
-
-      /*
-       * Sofort pruefen, ob die Datei im Bucket aktualisiert wurde.
-       */
-      luminaWorkAidShowProgress(
-        'Upload wird geprueft ...',
-        80
-      );
-
-      const {data:info,error:infoError}=
-        await luminaDb.storage
-          .from(bucket)
-          .info(
-            existingPath
-          );
-
-      if(infoError){
-        throw infoError;
-      }
-
-      console.log(
-        'LUMINA Upload erfolgreich:',
-        {
-          folder,
-          storagePath:existingPath,
-          selectedFile:file.name,
-          storedFile:existingFile.name,
-          info
-        }
-      );
-
-      luminaWorkAidShowProgress(
-        'Arbeitshilfe wurde erfolgreich ersetzt.',
-        100
-      );
-
-      showTopNote(
-        `Arbeitshilfe ${folder} wurde erfolgreich ersetzt.`
-      );
-
-      return;
-    }
-
-    /*
-     * Falls noch keine Datei existiert:
-     * Neue Datei normal anlegen.
-     */
-    if(existingFiles.length===0){
-      const storagePath=
-        `${folder}/${file.name}`;
-
+    }else{
       const confirmed=
         window.confirm(
           `Arbeitshilfe ${folder}\n\n`+
@@ -8135,26 +8068,40 @@ async function luminaUploadOrReplaceWorkAid(file,button){
 
         return;
       }
+    }
 
+    /*
+     * ---------------------------------------------------------
+     * FALL A:
+     * Gleicher Dateiname bereits vorhanden.
+     *
+     * Dann reicht update().
+     * ---------------------------------------------------------
+     */
+    const sameFile=
+      existingFiles.find(
+        item=>item.name===file.name
+      );
+
+    if(sameFile){
       luminaWorkAidSetUploadState(
         button,
         true,
-        'Datei hochladen ...'
+        'Datei aktualisieren ...'
       );
 
       luminaWorkAidShowProgress(
-        `${file.name} wird hochgeladen ...`,
-        55
+        `${file.name} wird aktualisiert ...`,
+        45
       );
 
-      const {error:uploadError}=
+      const {error:updateError}=
         await luminaDb.storage
           .from(bucket)
-          .upload(
-            storagePath,
+          .update(
+            targetPath,
             file,
             {
-              upsert:false,
               cacheControl:'0',
               contentType:
                 file.type||
@@ -8162,34 +8109,217 @@ async function luminaUploadOrReplaceWorkAid(file,button){
             }
           );
 
-      if(uploadError){
-        console.error(
-          'Supabase Upload fehlgeschlagen:',
-          uploadError
-        );
-
-        throw uploadError;
+      if(updateError){
+        throw updateError;
       }
 
+      /*
+       * Pruefen
+       */
       luminaWorkAidShowProgress(
-        'Arbeitshilfe wurde erfolgreich hochgeladen.',
+        'Upload wird geprueft ...',
+        75
+      );
+
+      const {data:info,error:infoError}=
+        await luminaDb.storage
+          .from(bucket)
+          .info(
+            targetPath
+          );
+
+      if(infoError){
+        throw infoError;
+      }
+
+      /*
+       * Falls wider Erwarten weitere alte Dateien im
+       * Kachelordner liegen, erst JETZT entfernen.
+       */
+      const obsoletePaths=
+        existingFiles
+          .filter(
+            item=>item.name!==file.name
+          )
+          .map(
+            item=>`${folder}/${item.name}`
+          );
+
+      if(obsoletePaths.length){
+        const {error:removeError}=
+          await luminaDb.storage
+            .from(bucket)
+            .remove(
+              obsoletePaths
+            );
+
+        if(removeError){
+          throw removeError;
+        }
+      }
+
+      console.log(
+        'LUMINA Arbeitshilfe erfolgreich aktualisiert:',
+        {
+          folder,
+          targetPath,
+          selectedFile:file.name,
+          info
+        }
+      );
+
+      luminaWorkAidShowProgress(
+        'Arbeitshilfe wurde erfolgreich aktualisiert.',
         100
       );
 
       showTopNote(
-        `Arbeitshilfe ${folder} wurde erfolgreich hochgeladen.`
+        `Arbeitshilfe ${folder}: "${file.name}" wurde erfolgreich gespeichert.`
       );
 
       return;
     }
 
     /*
-     * Sicherheitsfall:
-     * Mehrere Dateien im Kachelordner.
+     * ---------------------------------------------------------
+     * FALL B:
+     * Neuer Dateiname oder neuer Dateityp.
+     *
+     * WICHTIG:
+     * 1. neue Datei hochladen
+     * 2. neue Datei pruefen
+     * 3. erst danach alte Dateien loeschen
+     *
+     * Dadurch bleibt bei einem Uploadfehler die alte
+     * Arbeitshilfe erhalten.
+     * ---------------------------------------------------------
      */
-    throw new Error(
-      `Im Ordner ${folder} liegen ${existingFiles.length} Dateien. `+
-      `Bitte zuerst auf genau eine aktuelle Arbeitshilfe reduzieren.`
+
+    luminaWorkAidSetUploadState(
+      button,
+      true,
+      'Neue Datei hochladen ...'
+    );
+
+    luminaWorkAidShowProgress(
+      `${file.name} wird hochgeladen ...`,
+      40
+    );
+
+    const {error:uploadError}=
+      await luminaDb.storage
+        .from(bucket)
+        .upload(
+          targetPath,
+          file,
+          {
+            upsert:true,
+            cacheControl:'0',
+            contentType:
+              file.type||
+              'application/octet-stream'
+          }
+        );
+
+    if(uploadError){
+      throw uploadError;
+    }
+
+    /*
+     * Neue Datei kontrollieren.
+     */
+    luminaWorkAidSetUploadState(
+      button,
+      true,
+      'Upload pruefen ...'
+    );
+
+    luminaWorkAidShowProgress(
+      'Neue Datei wird geprueft ...',
+      70
+    );
+
+    const {data:newInfo,error:infoError}=
+      await luminaDb.storage
+        .from(bucket)
+        .info(
+          targetPath
+        );
+
+    if(infoError){
+      throw infoError;
+    }
+
+    if(!newInfo){
+      throw new Error(
+        'Die neue Datei konnte nach dem Upload nicht verifiziert werden.'
+      );
+    }
+
+    /*
+     * Alte Dateien erst JETZT entfernen.
+     */
+    const obsoletePaths=
+      existingFiles
+        .filter(
+          item=>item.name!==file.name
+        )
+        .map(
+          item=>`${folder}/${item.name}`
+        );
+
+    if(obsoletePaths.length){
+      luminaWorkAidSetUploadState(
+        button,
+        true,
+        'Alte Datei entfernen ...'
+      );
+
+      luminaWorkAidShowProgress(
+        'Bisherige Arbeitshilfe wird entfernt ...',
+        85
+      );
+
+      const {error:removeError}=
+        await luminaDb.storage
+          .from(bucket)
+          .remove(
+            obsoletePaths
+          );
+
+      if(removeError){
+        /*
+         * Neue Datei bleibt erhalten.
+         * Fehler wird sichtbar gemeldet.
+         */
+        console.error(
+          'Neue Datei wurde hochgeladen, alte Datei konnte aber nicht entfernt werden:',
+          removeError
+        );
+
+        throw new Error(
+          'Neue Datei wurde hochgeladen, die alte Datei konnte jedoch nicht entfernt werden.'
+        );
+      }
+    }
+
+    console.log(
+      'LUMINA Arbeitshilfe erfolgreich ersetzt:',
+      {
+        folder,
+        targetPath,
+        removed:obsoletePaths,
+        newInfo
+      }
+    );
+
+    luminaWorkAidShowProgress(
+      'Arbeitshilfe wurde erfolgreich ersetzt.',
+      100
+    );
+
+    showTopNote(
+      `Arbeitshilfe ${folder}: "${file.name}" wurde erfolgreich hochgeladen.`
     );
 
   }catch(error){
