@@ -7138,6 +7138,581 @@ if(document.readyState==='loading'){
    ENDE LUMINA GESAMT-WORKBOOK EXPORT / IMPORT
    ============================================================ */
 
+
+/* ============================================================
+   LUMINA ARBEITSHILFE UPLOAD / ERSETZEN
+   ============================================================ */
+
+function luminaResolveWorkAidFolderFromModal(){
+  const modal=
+    document.getElementById('task-modal-backdrop')||
+    document.querySelector('.task-modal-backdrop')||
+    document.querySelector('.task-modal');
+
+  if(!modal){
+    return '';
+  }
+
+  const modalText=String(
+    modal.innerText||
+    modal.textContent||
+    ''
+  );
+
+  const segments=modalText.split('?');
+
+  for(const rawSegment of segments){
+    const segment=String(rawSegment||'').trim();
+
+    if(!segment){
+      continue;
+    }
+
+    let firstToken=
+      String(
+        segment.split(/\s+/)[0]||
+        ''
+      ).trim();
+
+    if(firstToken.endsWith('.')){
+      firstToken=firstToken.slice(0,-1);
+    }
+
+    const parts=firstToken.split('.');
+
+    if(parts.length!==2){
+      continue;
+    }
+
+    const phase=Number(parts[0]);
+    const step=Number(parts[1]);
+
+    if(
+      Number.isInteger(phase) &&
+      Number.isInteger(step) &&
+      phase>=1 &&
+      phase<=8 &&
+      step>=0 &&
+      step<=99
+    ){
+      return `${phase}.${step}`;
+    }
+  }
+
+  return '';
+}
+
+
+async function luminaWorkAidListFiles(bucket,folder){
+  const {data,error}=await luminaDb.storage
+    .from(bucket)
+    .list(folder,{
+      limit:100,
+      offset:0,
+      sortBy:{
+        column:'name',
+        order:'asc'
+      }
+    });
+
+  if(error){
+    throw error;
+  }
+
+  return (data||[]).filter(item=>{
+    if(!item?.name){
+      return false;
+    }
+
+    if(item.name==='.emptyFolderPlaceholder'){
+      return false;
+    }
+
+    if(!item.id&&!item.metadata){
+      return false;
+    }
+
+    return true;
+  });
+}
+
+
+function luminaWorkAidSetUploadState(button,busy,text){
+  if(!button){
+    return;
+  }
+
+  button.disabled=busy;
+
+  button.textContent=
+    busy
+      ? (text||'Wird hochgeladen ...')
+      : 'Datei hochladen / ersetzen';
+}
+
+
+function luminaWorkAidEnsureProgress(){
+  let box=
+    document.getElementById(
+      'lumina-workaid-upload-progress'
+    );
+
+  if(box){
+    return box;
+  }
+
+  const uploadButton=
+    document.getElementById(
+      'lumina-workaid-upload-button'
+    );
+
+  if(!uploadButton){
+    return null;
+  }
+
+  const parent=uploadButton.parentElement;
+
+  if(!parent){
+    return null;
+  }
+
+  box=document.createElement('div');
+
+  box.id='lumina-workaid-upload-progress';
+
+  box.innerHTML=`
+    <div class="lumina-workaid-upload-progress-text"></div>
+    <div class="lumina-workaid-upload-progress-track">
+      <div class="lumina-workaid-upload-progress-bar"></div>
+    </div>
+  `;
+
+  parent.appendChild(box);
+
+  return box;
+}
+
+
+function luminaWorkAidShowProgress(text,percent){
+  const box=luminaWorkAidEnsureProgress();
+
+  if(!box){
+    return;
+  }
+
+  box.style.display='block';
+
+  const label=
+    box.querySelector(
+      '.lumina-workaid-upload-progress-text'
+    );
+
+  const bar=
+    box.querySelector(
+      '.lumina-workaid-upload-progress-bar'
+    );
+
+  if(label){
+    label.textContent=text||'';
+  }
+
+  if(bar){
+    bar.style.width=
+      `${Math.max(
+        0,
+        Math.min(
+          100,
+          Number(percent)||0
+        )
+      )}%`;
+  }
+}
+
+
+function luminaWorkAidHideProgress(){
+  const box=
+    document.getElementById(
+      'lumina-workaid-upload-progress'
+    );
+
+  if(box){
+    setTimeout(()=>{
+      box.style.display='none';
+    },1200);
+  }
+}
+
+
+async function luminaUploadOrReplaceWorkAid(file,button){
+  const bucket='lumina-templates';
+
+  try{
+    if(!file){
+      throw new Error(
+        'Keine Datei ausgew?hlt.'
+      );
+    }
+
+    const folder=
+      luminaResolveWorkAidFolderFromModal();
+
+    if(!folder){
+      throw new Error(
+        'Der Prozessschritt dieser Arbeitshilfe konnte nicht ermittelt werden.'
+      );
+    }
+
+    luminaWorkAidSetUploadState(
+      button,
+      true,
+      'Ordner pr?fen ...'
+    );
+
+    luminaWorkAidShowProgress(
+      `Arbeitshilfe ${folder} wird gepr?ft ...`,
+      10
+    );
+
+    const existingFiles=
+      await luminaWorkAidListFiles(
+        bucket,
+        folder
+      );
+
+    if(existingFiles.length){
+      const names=
+        existingFiles
+          .map(item=>item.name)
+          .join('\n');
+
+      const confirmed=
+        window.confirm(
+          `Arbeitshilfe ${folder}\n\n`+
+          `Aktuell vorhanden:\n${names}\n\n`+
+          `Neue Datei:\n${file.name}\n\n`+
+          `Die vorhandene(n) Datei(en) werden ersetzt.\n\n`+
+          `Fortfahren?`
+        );
+
+      if(!confirmed){
+        showTopNote(
+          'Upload abgebrochen.'
+        );
+
+        return;
+      }
+    }
+
+    /*
+     * Alte Datei(en) entfernen.
+     */
+    if(existingFiles.length){
+      luminaWorkAidSetUploadState(
+        button,
+        true,
+        'Alte Datei entfernen ...'
+      );
+
+      luminaWorkAidShowProgress(
+        `Vorhandene Arbeitshilfe ${folder} wird entfernt ...`,
+        35
+      );
+
+      const paths=
+        existingFiles.map(
+          item=>`${folder}/${item.name}`
+        );
+
+      const {error:removeError}=
+        await luminaDb.storage
+          .from(bucket)
+          .remove(paths);
+
+      if(removeError){
+        throw removeError;
+      }
+    }
+
+    /*
+     * Neue Datei hochladen.
+     */
+    luminaWorkAidSetUploadState(
+      button,
+      true,
+      'Neue Datei hochladen ...'
+    );
+
+    luminaWorkAidShowProgress(
+      `${file.name} wird hochgeladen ...`,
+      65
+    );
+
+    const storagePath=
+      `${folder}/${file.name}`;
+
+    const {error:uploadError}=
+      await luminaDb.storage
+        .from(bucket)
+        .upload(
+          storagePath,
+          file,
+          {
+            upsert:true,
+            cacheControl:'0',
+            contentType:
+              file.type||
+              'application/octet-stream'
+          }
+        );
+
+    if(uploadError){
+      throw uploadError;
+    }
+
+    luminaWorkAidShowProgress(
+      `${file.name} wurde gespeichert.`,
+      100
+    );
+
+    showTopNote(
+      `Arbeitshilfe ${folder}: "${file.name}" wurde erfolgreich hochgeladen.`
+    );
+
+  }catch(error){
+    console.error(
+      'Arbeitshilfe Upload fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Die Arbeitshilfe konnte nicht hochgeladen werden.',
+      true
+    );
+
+  }finally{
+    luminaWorkAidSetUploadState(
+      button,
+      false
+    );
+
+    luminaWorkAidHideProgress();
+  }
+}
+
+
+function luminaOpenWorkAidFilePicker(button){
+  let input=
+    document.getElementById(
+      'lumina-workaid-upload-input'
+    );
+
+  if(!input){
+    input=document.createElement('input');
+
+    input.id=
+      'lumina-workaid-upload-input';
+
+    input.type='file';
+
+    input.accept=
+      '.xlsx,.xls,.xlsm,.xlsb,.docx,.doc,.pdf,.csv,.txt';
+
+    input.style.display='none';
+
+    document.body.appendChild(input);
+  }
+
+  input.onchange=async()=>{
+    const selected=
+      input.files?.[0];
+
+    input.value='';
+
+    if(selected){
+      await luminaUploadOrReplaceWorkAid(
+        selected,
+        button
+      );
+    }
+  };
+
+  input.click();
+}
+
+
+function luminaInstallWorkAidUploadStyles(){
+  if(
+    document.getElementById(
+      'lumina-workaid-upload-style'
+    )
+  ){
+    return;
+  }
+
+  const style=document.createElement('style');
+
+  style.id=
+    'lumina-workaid-upload-style';
+
+  style.textContent=`
+    #guide-helper-download{
+      margin-right:8px;
+    }
+
+    .lumina-workaid-upload-button{
+      appearance:none;
+      border:1px solid #35a77c;
+      border-radius:9px;
+      background:#ffffff;
+      color:#258565;
+      padding:9px 13px;
+      font-size:13px;
+      font-weight:700;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .lumina-workaid-upload-button:hover{
+      background:#f0faf6;
+    }
+
+    .lumina-workaid-upload-button:disabled{
+      opacity:.65;
+      cursor:wait;
+    }
+
+    #lumina-workaid-upload-progress{
+      display:none;
+      width:100%;
+      margin-top:9px;
+    }
+
+    .lumina-workaid-upload-progress-text{
+      font-size:11px;
+      color:#64748b;
+      margin-bottom:4px;
+    }
+
+    .lumina-workaid-upload-progress-track{
+      width:100%;
+      height:6px;
+      overflow:hidden;
+      background:#e5e7eb;
+      border-radius:999px;
+    }
+
+    .lumina-workaid-upload-progress-bar{
+      height:100%;
+      width:0%;
+      background:#35a77c;
+      border-radius:999px;
+      transition:width .2s ease;
+    }
+
+    @media(max-width:800px){
+      .lumina-workaid-upload-button{
+        display:block;
+        width:100%;
+        margin-top:8px;
+      }
+
+      #guide-helper-download{
+        width:100%;
+        margin-right:0;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+
+function luminaInstallWorkAidUploadButton(){
+  const downloadButton=
+    document.getElementById(
+      'guide-helper-download'
+    );
+
+  if(!downloadButton){
+    return;
+  }
+
+  if(
+    document.getElementById(
+      'lumina-workaid-upload-button'
+    )
+  ){
+    return;
+  }
+
+  luminaInstallWorkAidUploadStyles();
+
+  const uploadButton=
+    document.createElement('button');
+
+  uploadButton.type='button';
+
+  uploadButton.id=
+    'lumina-workaid-upload-button';
+
+  uploadButton.className=
+    'lumina-workaid-upload-button';
+
+  uploadButton.textContent=
+    'Datei hochladen / ersetzen';
+
+  uploadButton.title=
+    'Neue Arbeitshilfe hochladen und die bisherige Datei ersetzen';
+
+  uploadButton.addEventListener(
+    'click',
+    ()=>{
+      luminaOpenWorkAidFilePicker(
+        uploadButton
+      );
+    }
+  );
+
+  downloadButton.insertAdjacentElement(
+    'afterend',
+    uploadButton
+  );
+}
+
+
+/*
+ * Das Aufgabenmodal wird dynamisch neu aufgebaut.
+ * Deshalb beobachten wir die Seite und setzen den Button
+ * automatisch wieder ein, sobald die Arbeitshilfe erscheint.
+ */
+const luminaWorkAidUploadObserver=
+  new MutationObserver(()=>{
+    luminaInstallWorkAidUploadButton();
+  });
+
+luminaWorkAidUploadObserver.observe(
+  document.documentElement,
+  {
+    childList:true,
+    subtree:true
+  }
+);
+
+
+if(document.readyState==='loading'){
+  document.addEventListener(
+    'DOMContentLoaded',
+    luminaInstallWorkAidUploadButton
+  );
+}else{
+  luminaInstallWorkAidUploadButton();
+}
+
+/* ============================================================
+   ENDE LUMINA ARBEITSHILFE UPLOAD / ERSETZEN
+   ============================================================ */
+
 async function guidanceDownloadHelper(guide){
   const button=document.getElementById('guide-helper-download');
 
