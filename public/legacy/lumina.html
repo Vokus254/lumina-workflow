@@ -5229,13 +5229,20 @@ function guidanceBuildHelperWorkbook(guide,fileName){
 
 /* ============================================================
    LUMINA GESAMT-WORKBOOK EXPORT / IMPORT
+   Version 2
+   - ExcelJS statt SheetJS
+   - Excel-Formatierungen weitgehend erhalten
+   - echte interne Hyperlinks
+   - Buttons in bestehender Bedienleiste
    ============================================================ */
 
 async function luminaEnsureScript(src,globalName){
   if(globalName && window[globalName]) return;
 
   await new Promise((resolve,reject)=>{
-    const existing=[...document.scripts].find(s=>s.src===src);
+    const existing=[...document.scripts].find(
+      script=>script.src===src
+    );
 
     if(existing){
       if(!globalName || window[globalName]){
@@ -5243,59 +5250,55 @@ async function luminaEnsureScript(src,globalName){
         return;
       }
 
-      existing.addEventListener('load',resolve,{once:true});
-      existing.addEventListener('error',reject,{once:true});
+      existing.addEventListener(
+        'load',
+        resolve,
+        {once:true}
+      );
+
+      existing.addEventListener(
+        'error',
+        reject,
+        {once:true}
+      );
+
       return;
     }
 
     const script=document.createElement('script');
+
     script.src=src;
     script.async=true;
+
     script.onload=resolve;
-    script.onerror=()=>reject(new Error('Bibliothek konnte nicht geladen werden: '+src));
+
+    script.onerror=()=>{
+      reject(
+        new Error(
+          'Bibliothek konnte nicht geladen werden: '+src
+        )
+      );
+    };
+
     document.head.appendChild(script);
   });
 }
 
 
-function luminaWorkbookSafeSheetName(code,title,usedNames){
-  let base=`${code} ${String(title||'Arbeitshilfe')}`;
-
-  base=base
-    .replace(/[\\\/\?\*\[\]\:]/g,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-
-  if(base.length>31){
-    base=base.slice(0,31).trim();
+function luminaDeepClone(value){
+  if(value===undefined || value===null){
+    return value;
   }
 
-  let result=base||code;
-  let counter=2;
-
-  while(usedNames.has(result)){
-    const suffix=` ${counter}`;
-    result=(base.slice(0,31-suffix.length)+suffix).trim();
-    counter++;
+  try{
+    return structuredClone(value);
+  }catch(error){
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(error2){
+      return value;
+    }
   }
-
-  usedNames.add(result);
-  return result;
-}
-
-
-function luminaWorkbookDownloadBlob(blob,fileName){
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-
-  a.href=url;
-  a.download=fileName;
-
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
 
 
@@ -5323,8 +5326,71 @@ function luminaWorkbookSortCodes(a,b){
   const ap=a.split('.').map(Number);
   const bp=b.split('.').map(Number);
 
-  if(ap[0]!==bp[0]) return ap[0]-bp[0];
+  if(ap[0]!==bp[0]){
+    return ap[0]-bp[0];
+  }
+
   return ap[1]-bp[1];
+}
+
+
+function luminaSafeSheetName(code,title,usedNames){
+  let name=`${code} ${String(title||'Arbeitshilfe')}`;
+
+  name=name
+    .replace(/[\\\/\?\*\[\]\:]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+
+  if(name.length>31){
+    name=name.slice(0,31).trim();
+  }
+
+  if(!name){
+    name=code;
+  }
+
+  let result=name;
+  let counter=2;
+
+  while(usedNames.has(result)){
+    const suffix=` ${counter}`;
+
+    result=(
+      name.slice(
+        0,
+        Math.max(1,31-suffix.length)
+      )+
+      suffix
+    ).trim();
+
+    counter++;
+  }
+
+  usedNames.add(result);
+
+  return result;
+}
+
+
+function luminaDownloadBlob(blob,fileName){
+  const url=URL.createObjectURL(blob);
+
+  const link=document.createElement('a');
+
+  link.href=url;
+  link.download=fileName;
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  link.remove();
+
+  setTimeout(
+    ()=>URL.revokeObjectURL(url),
+    2000
+  );
 }
 
 
@@ -5340,13 +5406,22 @@ async function luminaWorkbookListStepFolders(bucket){
       }
     });
 
-  if(error) throw error;
+  if(error){
+    throw error;
+  }
 
-  const codes=(data||[])
-    .map(item=>luminaWorkbookStepFromFolderName(item?.name))
-    .filter(Boolean);
-
-  return [...new Set(codes)].sort(luminaWorkbookSortCodes);
+  return [
+    ...new Set(
+      (data||[])
+        .map(
+          item=>
+            luminaWorkbookStepFromFolderName(
+              item?.name
+            )
+        )
+        .filter(Boolean)
+    )
+  ].sort(luminaWorkbookSortCodes);
 }
 
 
@@ -5362,129 +5437,489 @@ async function luminaWorkbookListFiles(bucket,code){
       }
     });
 
-  if(error) throw error;
+  if(error){
+    throw error;
+  }
 
   return (data||[]).filter(item=>{
     if(!item?.name) return false;
-    if(item.name==='.emptyFolderPlaceholder') return false;
-    if(!item.id&&!item.metadata) return false;
+
+    if(item.name==='.emptyFolderPlaceholder'){
+      return false;
+    }
+
+    if(!item.id && !item.metadata){
+      return false;
+    }
+
     return true;
   });
 }
 
 
-async function luminaWorkbookDownloadStorageFile(bucket,path){
+async function luminaWorkbookDownloadStorageFile(
+  bucket,
+  storagePath
+){
   const {data,error}=await luminaDb.storage
     .from(bucket)
     .download(
-      path,
-      {cacheNonce:Date.now().toString()},
-      {cache:'no-store'}
+      storagePath,
+      {
+        cacheNonce:Date.now().toString()
+      },
+      {
+        cache:'no-store'
+      }
     );
 
-  if(error) throw error;
-  if(!data) throw new Error(`Keine Dateidaten f?r ${path}.`);
+  if(error){
+    throw error;
+  }
+
+  if(!data){
+    throw new Error(
+      `Keine Dateidaten f?r ${storagePath}.`
+    );
+  }
 
   return data;
 }
 
 
-async function luminaWorkbookBlobToArrayBuffer(blob){
-  return await blob.arrayBuffer();
+function luminaCopyExcelCell(sourceCell,targetCell){
+  let value=sourceCell.value;
+
+  if(value instanceof Date){
+    value=new Date(value.getTime());
+  }else if(
+    value &&
+    typeof value==='object'
+  ){
+    value=luminaDeepClone(value);
+  }
+
+  targetCell.value=value;
+
+  if(sourceCell.style){
+    targetCell.style=
+      luminaDeepClone(sourceCell.style);
+  }
+
+  if(sourceCell.numFmt){
+    targetCell.numFmt=sourceCell.numFmt;
+  }
+
+  if(sourceCell.font){
+    targetCell.font=
+      luminaDeepClone(sourceCell.font);
+  }
+
+  if(sourceCell.fill){
+    targetCell.fill=
+      luminaDeepClone(sourceCell.fill);
+  }
+
+  if(sourceCell.border){
+    targetCell.border=
+      luminaDeepClone(sourceCell.border);
+  }
+
+  if(sourceCell.alignment){
+    targetCell.alignment=
+      luminaDeepClone(sourceCell.alignment);
+  }
+
+  if(sourceCell.protection){
+    targetCell.protection=
+      luminaDeepClone(sourceCell.protection);
+  }
+
+  if(sourceCell.note){
+    targetCell.note=
+      luminaDeepClone(sourceCell.note);
+  }
+
+  if(sourceCell.dataValidation){
+    targetCell.dataValidation=
+      luminaDeepClone(
+        sourceCell.dataValidation
+      );
+  }
 }
 
 
-async function luminaWorkbookDocxToRows(blob){
+function luminaCopyExcelWorksheet(
+  sourceWorkbook,
+  sourceSheet,
+  targetWorkbook,
+  targetSheetName
+){
+  const targetSheet=
+    targetWorkbook.addWorksheet(
+      targetSheetName
+    );
+
+  /*
+   * Blatt-Einstellungen
+   */
+  try{
+    targetSheet.properties=
+      luminaDeepClone(
+        sourceSheet.properties
+      );
+  }catch(error){}
+
+  try{
+    targetSheet.pageSetup=
+      luminaDeepClone(
+        sourceSheet.pageSetup
+      );
+  }catch(error){}
+
+  try{
+    targetSheet.headerFooter=
+      luminaDeepClone(
+        sourceSheet.headerFooter
+      );
+  }catch(error){}
+
+  try{
+    targetSheet.views=
+      luminaDeepClone(
+        sourceSheet.views
+      );
+  }catch(error){}
+
+  /*
+   * Spaltenbreiten und Spaltenformatierung
+   */
+  sourceSheet.columns.forEach(
+    (sourceColumn,index)=>{
+      const targetColumn=
+        targetSheet.getColumn(index+1);
+
+      if(sourceColumn.width!==undefined){
+        targetColumn.width=
+          sourceColumn.width;
+      }
+
+      if(sourceColumn.hidden!==undefined){
+        targetColumn.hidden=
+          sourceColumn.hidden;
+      }
+
+      if(sourceColumn.outlineLevel!==undefined){
+        targetColumn.outlineLevel=
+          sourceColumn.outlineLevel;
+      }
+
+      if(sourceColumn.style){
+        targetColumn.style=
+          luminaDeepClone(
+            sourceColumn.style
+          );
+      }
+    }
+  );
+
+  /*
+   * Zellen und Zeilen
+   */
+  sourceSheet.eachRow(
+    {
+      includeEmpty:true
+    },
+    (sourceRow,rowNumber)=>{
+      const targetRow=
+        targetSheet.getRow(rowNumber);
+
+      if(sourceRow.height!==undefined){
+        targetRow.height=
+          sourceRow.height;
+      }
+
+      targetRow.hidden=
+        sourceRow.hidden;
+
+      targetRow.outlineLevel=
+        sourceRow.outlineLevel;
+
+      sourceRow.eachCell(
+        {
+          includeEmpty:true
+        },
+        (sourceCell,columnNumber)=>{
+          const targetCell=
+            targetRow.getCell(columnNumber);
+
+          luminaCopyExcelCell(
+            sourceCell,
+            targetCell
+          );
+        }
+      );
+    }
+  );
+
+  /*
+   * Verbundene Zellen
+   */
+  try{
+    const merges=
+      sourceSheet.model?.merges||[];
+
+    merges.forEach(range=>{
+      try{
+        targetSheet.mergeCells(range);
+      }catch(error){}
+    });
+  }catch(error){}
+
+  /*
+   * Autofilter
+   */
+  try{
+    if(sourceSheet.autoFilter){
+      targetSheet.autoFilter=
+        luminaDeepClone(
+          sourceSheet.autoFilter
+        );
+    }
+  }catch(error){}
+
+  /*
+   * Bilder ?bernehmen, soweit ExcelJS sie lesen kann.
+   */
+  try{
+    const images=
+      sourceSheet.getImages();
+
+    const media=
+      sourceWorkbook.model?.media||[];
+
+    images.forEach(image=>{
+      const mediaItem=
+        media.find(
+          item=>
+            item.index===image.imageId ||
+            item.index===image.imageId-1
+        ) ||
+        media[image.imageId];
+
+      if(!mediaItem) return;
+
+      try{
+        const imageId=
+          targetWorkbook.addImage({
+            buffer:mediaItem.buffer,
+            extension:
+              mediaItem.extension||
+              'png'
+          });
+
+        targetSheet.addImage(
+          imageId,
+          luminaDeepClone(image.range)
+        );
+      }catch(error){}
+    });
+  }catch(error){}
+
+  return targetSheet;
+}
+
+
+function luminaAddBackLink(
+  worksheet,
+  targetSheetName
+){
+  /*
+   * Link rechts neben dem vorhandenen Datenbereich,
+   * damit keine Originalzelle ?berschrieben wird.
+   */
+  const columnNumber=
+    Math.max(
+      2,
+      Math.min(
+        (worksheet.columnCount||1)+2,
+        30
+      )
+    );
+
+  const cell=
+    worksheet.getCell(
+      1,
+      columnNumber
+    );
+
+  cell.value={
+    text:'? Inhaltsverzeichnis',
+    hyperlink:
+      "#'00_Inhaltsverzeichnis'!A1"
+  };
+
+  cell.font={
+    color:{
+      argb:'FF0563C1'
+    },
+    underline:true,
+    bold:true
+  };
+
+  return cell.address;
+}
+
+
+async function luminaDocxToExcelSheet(
+  blob,
+  workbook,
+  sheetName,
+  code,
+  displayTitle
+){
   await luminaEnsureScript(
     'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
     'JSZip'
   );
 
-  const buffer=await blob.arrayBuffer();
-  const zip=await JSZip.loadAsync(buffer);
+  const buffer=
+    await blob.arrayBuffer();
 
-  const documentFile=zip.file('word/document.xml');
+  const zip=
+    await JSZip.loadAsync(buffer);
 
-  if(!documentFile){
-    throw new Error('DOCX enth?lt keine word/document.xml.');
+  const documentXml=
+    zip.file('word/document.xml');
+
+  if(!documentXml){
+    throw new Error(
+      'DOCX enth?lt keine word/document.xml.'
+    );
   }
 
-  const xml=await documentFile.async('string');
+  const xml=
+    await documentXml.async('string');
 
-  const parser=new DOMParser();
-  const doc=parser.parseFromString(xml,'application/xml');
+  const parser=
+    new DOMParser();
 
-  const paragraphs=[...doc.getElementsByTagNameNS(
-    'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-    'p'
-  )];
+  const doc=
+    parser.parseFromString(
+      xml,
+      'application/xml'
+    );
 
-  const rows=[];
+  const namespace=
+    'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+  const paragraphs=[
+    ...doc.getElementsByTagNameNS(
+      namespace,
+      'p'
+    )
+  ];
+
+  const sheet=
+    workbook.addWorksheet(
+      sheetName
+    );
+
+  sheet.columns=[
+    {
+      width:4
+    },
+    {
+      width:110
+    }
+  ];
+
+  sheet.getCell('B2').value=
+    `${code} ? ${displayTitle}`;
+
+  sheet.getCell('B2').font={
+    size:16,
+    bold:true,
+    color:{
+      argb:'FF1F2937'
+    }
+  };
+
+  sheet.getCell('B2').alignment={
+    wrapText:true,
+    vertical:'top'
+  };
+
+  let row=4;
 
   for(const paragraph of paragraphs){
-    const textNodes=[
+    const nodes=[
       ...paragraph.getElementsByTagNameNS(
-        'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+        namespace,
         't'
       )
     ];
 
-    const text=textNodes
-      .map(n=>n.textContent||'')
-      .join('')
-      .trim();
+    const paragraphText=
+      nodes
+        .map(
+          node=>node.textContent||''
+        )
+        .join('')
+        .trim();
 
-    if(text){
-      rows.push([text]);
+    if(!paragraphText){
+      continue;
     }
+
+    const cell=
+      sheet.getCell(
+        row,
+        2
+      );
+
+    cell.value=paragraphText;
+
+    cell.alignment={
+      wrapText:true,
+      vertical:'top'
+    };
+
+    cell.font={
+      size:11,
+      color:{
+        argb:'FF374151'
+      }
+    };
+
+    row++;
   }
 
-  if(!rows.length){
-    rows.push(['Word-Dokument enth?lt keinen auslesbaren Text.']);
-  }
+  sheet.views=[
+    {
+      state:'frozen',
+      ySplit:2
+    }
+  ];
 
-  return rows;
-}
+  const backlink=
+    sheet.getCell('B1');
 
-
-function luminaWorkbookAddBackLink(ws){
-  if(!ws['A1']){
-    ws['A1']={t:'s',v:'? Zur?ck zum Inhaltsverzeichnis'};
-  }else{
-    XLSX.utils.sheet_add_aoa(
-      ws,
-      [['? Zur?ck zum Inhaltsverzeichnis']],
-      {origin:'A1'}
-    );
-  }
-
-  ws['A1'].l={
-    Target:"#'00_Inhaltsverzeichnis'!A1",
-    Tooltip:'Zur?ck zum Inhaltsverzeichnis'
+  backlink.value={
+    text:'? Inhaltsverzeichnis',
+    hyperlink:
+      "#'00_Inhaltsverzeichnis'!A1"
   };
-}
 
+  backlink.font={
+    color:{
+      argb:'FF0563C1'
+    },
+    underline:true,
+    bold:true
+  };
 
-function luminaWorkbookCloneFirstSheet(inputWorkbook){
-  const firstName=inputWorkbook.SheetNames[0];
-
-  if(!firstName) return XLSX.utils.aoa_to_sheet([]);
-
-  const source=inputWorkbook.Sheets[firstName];
-
-  const json=XLSX.utils.sheet_to_json(source,{
-    header:1,
-    raw:false,
-    defval:''
-  });
-
-  const ws=XLSX.utils.aoa_to_sheet(json);
-
-  if(source['!cols']) ws['!cols']=source['!cols'];
-  if(source['!rows']) ws['!rows']=source['!rows'];
-  if(source['!merges']) ws['!merges']=source['!merges'];
-
-  return ws;
+  return 'B1';
 }
 
 
@@ -5492,311 +5927,428 @@ async function luminaExportGesamtWorkbook(){
   const bucket='lumina-templates';
 
   try{
-    showTopNote('Gesamt-Workbook wird erstellt ...');
+    showTopNote(
+      'Gesamt-Workbook wird erstellt ...'
+    );
 
-    if(typeof XLSX==='undefined'){
-      await luminaEnsureScript(
-        'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-        'XLSX'
+    await luminaEnsureScript(
+      'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+      'ExcelJS'
+    );
+
+    const codes=
+      await luminaWorkbookListStepFolders(
+        bucket
+      );
+
+    if(!codes.length){
+      throw new Error(
+        'Keine Prozessschritt-Ordner 1.x bis 8.x gefunden.'
       );
     }
 
-    const codes=await luminaWorkbookListStepFolders(bucket);
+    const output=
+      new ExcelJS.Workbook();
 
-    if(!codes.length){
-      throw new Error('Keine Prozessschritt-Ordner 1.x bis 8.x gefunden.');
-    }
+    output.creator='LUMINA';
+    output.company='LUMINA';
+    output.subject='Jahresabschluss-Workbook';
 
-    const output=XLSX.utils.book_new();
+    const toc=
+      output.addWorksheet(
+        '00_Inhaltsverzeichnis',
+        {
+          views:[
+            {
+              state:'frozen',
+              ySplit:3
+            }
+          ]
+        }
+      );
 
-    const tocRows=[
+    toc.columns=[
+      {
+        header:'Prozessschritt',
+        key:'code',
+        width:18
+      },
+      {
+        header:'Arbeitshilfe',
+        key:'title',
+        width:52
+      },
+      {
+        header:'Status',
+        key:'status',
+        width:22
+      },
+      {
+        header:'Navigation',
+        key:'link',
+        width:18
+      }
+    ];
+
+    toc.spliceRows(
+      1,
+      0,
       ['LUMINA Abschluss-Workbook'],
-      [''],
-      ['Prozessschritt','Arbeitshilfe','Reiter','Status']
-    ];
+      ['Phasen 1 bis 8'],
+      []
+    );
 
-    const metaRows=[
-      [
-        'LUMINA_STEP_CODE',
-        'SHEET_NAME',
-        'SOURCE_FILE',
-        'SOURCE_TYPE',
-        'BUCKET'
-      ]
-    ];
+    toc.mergeCells('A1:D1');
 
-    const usedNames=new Set([
-      '00_Inhaltsverzeichnis',
-      '_LUMINA_META'
+    toc.getCell('A1').font={
+      size:18,
+      bold:true,
+      color:{
+        argb:'FF111827'
+      }
+    };
+
+    toc.getCell('A2').font={
+      size:11,
+      italic:true,
+      color:{
+        argb:'FF6B7280'
+      }
+    };
+
+    const headerRow=
+      toc.getRow(4);
+
+    headerRow.font={
+      bold:true,
+      color:{
+        argb:'FFFFFFFF'
+      }
+    };
+
+    headerRow.fill={
+      type:'pattern',
+      pattern:'solid',
+      fgColor:{
+        argb:'FF374151'
+      }
+    };
+
+    headerRow.alignment={
+      vertical:'middle'
+    };
+
+    headerRow.height=22;
+
+    const meta=
+      output.addWorksheet(
+        '_LUMINA_META'
+      );
+
+    meta.state='veryHidden';
+
+    meta.addRow([
+      'LUMINA_STEP_CODE',
+      'SHEET_NAME',
+      'SOURCE_FILE',
+      'SOURCE_TYPE',
+      'BUCKET',
+      'BACKLINK_CELL'
     ]);
 
-    const entries=[];
+    const usedNames=
+      new Set([
+        '00_Inhaltsverzeichnis',
+        '_LUMINA_META'
+      ]);
+
+    let currentPhase=null;
 
     for(const code of codes){
-      const files=await luminaWorkbookListFiles(bucket,code);
+      const phase=
+        code.split('.')[0];
+
+      if(phase!==currentPhase){
+        currentPhase=phase;
+
+        const phaseRow=
+          toc.addRow([
+            `PHASE ${phase}`,
+            '',
+            '',
+            ''
+          ]);
+
+        phaseRow.font={
+          bold:true,
+          size:12,
+          color:{
+            argb:'FF111827'
+          }
+        };
+
+        phaseRow.fill={
+          type:'pattern',
+          pattern:'solid',
+          fgColor:{
+            argb:'FFE5E7EB'
+          }
+        };
+      }
+
+      const files=
+        await luminaWorkbookListFiles(
+          bucket,
+          code
+        );
 
       if(!files.length){
-        entries.push({
+        toc.addRow([
           code,
-          status:'Keine Arbeitshilfe'
-        });
+          '',
+          'Keine Arbeitshilfe',
+          ''
+        ]);
 
         continue;
       }
 
       if(files.length>1){
-        entries.push({
+        toc.addRow([
           code,
-          status:`${files.length} Dateien ? ?bersprungen`
-        });
+          '',
+          `${files.length} Dateien`,
+          ''
+        ]);
 
         continue;
       }
 
-      const file=files[0];
-      const fileName=file.name;
-      const extension=(fileName.split('.').pop()||'').toLowerCase();
+      const file=
+        files[0];
 
-      const displayTitle=fileName
-        .replace(/\.[^.]+$/,'')
-        .replace(/_/g,' ');
+      const fileName=
+        file.name;
 
-      const sheetName=luminaWorkbookSafeSheetName(
-        code,
-        displayTitle,
-        usedNames
-      );
+      const extension=
+        (
+          fileName
+            .split('.')
+            .pop()||
+          ''
+        ).toLowerCase();
 
-      const blob=await luminaWorkbookDownloadStorageFile(
-        bucket,
-        `${code}/${fileName}`
-      );
+      const title=
+        fileName
+          .replace(/\.[^.]+$/,'')
+          .replace(/_/g,' ')
+          .trim();
 
-      let ws;
-      let sourceType=extension;
+      const sheetName=
+        luminaSafeSheetName(
+          code,
+          title,
+          usedNames
+        );
 
-      if(['xlsx','xls','xlsm','xlsb'].includes(extension)){
-        const buffer=await luminaWorkbookBlobToArrayBuffer(blob);
+      const blob=
+        await luminaWorkbookDownloadStorageFile(
+          bucket,
+          `${code}/${fileName}`
+        );
 
-        const input=XLSX.read(buffer,{
-          type:'array',
-          cellDates:true
-        });
+      let backlinkCell='';
 
-        ws=luminaWorkbookCloneFirstSheet(input);
+      if(
+        [
+          'xlsx',
+          'xlsm',
+          'xls'
+        ].includes(extension)
+      ){
+        const buffer=
+          await blob.arrayBuffer();
+
+        const sourceWorkbook=
+          new ExcelJS.Workbook();
+
+        await sourceWorkbook.xlsx.load(
+          buffer
+        );
+
+        const sourceSheet=
+          sourceWorkbook.worksheets[0];
+
+        if(!sourceSheet){
+          throw new Error(
+            `Keine Tabelle in ${fileName} gefunden.`
+          );
+        }
+
+        const targetSheet=
+          luminaCopyExcelWorksheet(
+            sourceWorkbook,
+            sourceSheet,
+            output,
+            sheetName
+          );
+
+        backlinkCell=
+          luminaAddBackLink(
+            targetSheet,
+            sheetName
+          );
 
       }else if(extension==='docx'){
-        const rows=await luminaWorkbookDocxToRows(blob);
-
-        ws=XLSX.utils.aoa_to_sheet([
-          [`LUMINA Arbeitshilfe ${code}`],
-          [displayTitle],
-          [''],
-          ...rows
-        ]);
+        backlinkCell=
+          await luminaDocxToExcelSheet(
+            blob,
+            output,
+            sheetName,
+            code,
+            title
+          );
 
       }else{
-        ws=XLSX.utils.aoa_to_sheet([
-          [`LUMINA Arbeitshilfe ${code}`],
-          [displayTitle],
-          [''],
-          [`Quelldatei: ${fileName}`],
-          [''],
-          ['Dieses Dateiformat wurde im Gesamt-Workbook nicht inhaltlich konvertiert.']
-        ]);
+        const targetSheet=
+          output.addWorksheet(
+            sheetName
+          );
+
+        targetSheet.getCell('A1').value={
+          text:'? Inhaltsverzeichnis',
+          hyperlink:
+            "#'00_Inhaltsverzeichnis'!A1"
+        };
+
+        targetSheet.getCell('A1').font={
+          color:{
+            argb:'FF0563C1'
+          },
+          underline:true,
+          bold:true
+        };
+
+        targetSheet.getCell('A3').value=
+          `${code} ? ${title}`;
+
+        targetSheet.getCell('A3').font={
+          size:15,
+          bold:true
+        };
+
+        targetSheet.getCell('A5').value=
+          `Dateiformat ${extension} wurde nicht inhaltlich konvertiert.`;
+
+        targetSheet.getColumn(1).width=90;
+
+        backlinkCell='A1';
       }
 
-      /*
-       * Zwei Kopfzeilen einf?gen.
-       * A1 = R?cklink
-       * A2 = Kachelkennung
-       */
-      const existing=XLSX.utils.sheet_to_json(ws,{
-        header:1,
-        raw:false,
-        defval:''
-      });
+      const tocRow=
+        toc.addRow([
+          code,
+          title,
+          'Enthalten',
+          {
+            text:'?ffnen',
+            hyperlink:
+              `#'${sheetName.replace(/'/g,"''")}'!A1`
+          }
+        ]);
 
-      ws=XLSX.utils.aoa_to_sheet([
-        ['? Zur?ck zum Inhaltsverzeichnis'],
-        [`LUMINA Prozessschritt: ${code}`],
-        [''],
-        ...existing
-      ]);
+      const linkCell=
+        tocRow.getCell(4);
 
-      ws['A1'].l={
-        Target:"#'00_Inhaltsverzeichnis'!A1",
-        Tooltip:'Zur?ck zum Inhaltsverzeichnis'
+      linkCell.font={
+        color:{
+          argb:'FF0563C1'
+        },
+        underline:true,
+        bold:true
       };
 
-      ws['!cols']=[
-        {wch:28},
-        {wch:24},
-        {wch:24},
-        {wch:24},
-        {wch:24},
-        {wch:24},
-        {wch:24},
-        {wch:24}
-      ];
+      tocRow.getCell(1).font={
+        bold:true
+      };
 
-      XLSX.utils.book_append_sheet(
-        output,
-        ws,
-        sheetName
-      );
-
-      metaRows.push([
+      meta.addRow([
         code,
         sheetName,
         fileName,
-        sourceType,
-        bucket
-      ]);
-
-      entries.push({
-        code,
-        title:displayTitle,
-        sheetName,
-        status:'Enthalten'
-      });
-    }
-
-    /*
-     * Inhaltsverzeichnis erstellen.
-     */
-    let currentPhase=null;
-
-    for(const entry of entries){
-      const phase=entry.code.split('.')[0];
-
-      if(phase!==currentPhase){
-        currentPhase=phase;
-
-        tocRows.push([]);
-        tocRows.push([
-          `PHASE ${phase}`,
-          '',
-          '',
-          ''
-        ]);
-      }
-
-      tocRows.push([
-        entry.code,
-        entry.title||'',
-        entry.sheetName||'',
-        entry.status
+        extension,
+        bucket,
+        backlinkCell
       ]);
     }
 
-    const toc=XLSX.utils.aoa_to_sheet(tocRows);
-
-    toc['!cols']=[
-      {wch:18},
-      {wch:52},
-      {wch:32},
-      {wch:28}
-    ];
-
-    /*
-     * Hyperlinks im Inhaltsverzeichnis.
-     */
-    let row=4;
-
-    for(const entry of entries){
-      const phase=entry.code.split('.')[0];
-
-      /*
-       * Bei Phasenwechsel wurde eine Leerzeile plus ?berschrift eingef?gt.
-       */
-      if(
-        row===4 ||
-        entries[entries.indexOf(entry)-1]?.code.split('.')[0]!==phase
-      ){
-        row+=2;
-      }
-
-      if(entry.sheetName){
-        const cellAddress=`A${row}`;
-
-        if(toc[cellAddress]){
-          toc[cellAddress].l={
-            Target:`#'${entry.sheetName.replace(/'/g,"''")}'!A1`,
-            Tooltip:`Zu ${entry.code}`
-          };
-        }
-      }
-
-      row++;
-    }
-
-    /*
-     * Inhaltsverzeichnis als erstes Blatt einf?gen.
-     */
-    output.SheetNames.unshift('00_Inhaltsverzeichnis');
-    output.Sheets['00_Inhaltsverzeichnis']=toc;
-
-    /*
-     * Technischen Mapping-Reiter anlegen.
-     */
-    const meta=XLSX.utils.aoa_to_sheet(metaRows);
-
-    XLSX.utils.book_append_sheet(
-      output,
-      meta,
-      '_LUMINA_META'
-    );
-
-    if(!output.Workbook){
-      output.Workbook={};
-    }
-
-    if(!output.Workbook.Sheets){
-      output.Workbook.Sheets=[];
-    }
-
-    const metaIndex=output.SheetNames.indexOf('_LUMINA_META');
-
-    while(output.Workbook.Sheets.length<output.SheetNames.length){
-      output.Workbook.Sheets.push({});
-    }
-
-    /*
-     * veryHidden
-     */
-    output.Workbook.Sheets[metaIndex].Hidden=2;
-
-    const date=new Date();
-
-    const stamp=[
-      date.getFullYear(),
-      String(date.getMonth()+1).padStart(2,'0'),
-      String(date.getDate()).padStart(2,'0')
-    ].join('-');
-
-    const binary=XLSX.write(output,{
-      bookType:'xlsx',
-      type:'array',
-      compression:true
-    });
-
-    const exportBlob=new Blob(
-      [binary],
+    toc.eachRow(
       {
-        type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        includeEmpty:true
+      },
+      row=>{
+        row.alignment={
+          vertical:'top'
+        };
+
+        row.eachCell(
+          {
+            includeEmpty:true
+          },
+          cell=>{
+            cell.alignment={
+              ...cell.alignment,
+              wrapText:true
+            };
+          }
+        );
       }
     );
 
-    luminaWorkbookDownloadBlob(
-      exportBlob,
+    meta.getRow(1).font={
+      bold:true
+    };
+
+    const now=
+      new Date();
+
+    const stamp=
+      [
+        now.getFullYear(),
+        String(
+          now.getMonth()+1
+        ).padStart(2,'0'),
+        String(
+          now.getDate()
+        ).padStart(2,'0')
+      ].join('-');
+
+    const buffer=
+      await output.xlsx.writeBuffer();
+
+    const blob=
+      new Blob(
+        [buffer],
+        {
+          type:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+      );
+
+    luminaDownloadBlob(
+      blob,
       `LUMINA_Abschluss-Workbook_${stamp}.xlsx`
     );
 
-    showTopNote('Gesamt-Workbook wurde erstellt.');
+    showTopNote(
+      'Gesamt-Workbook wurde erstellt.'
+    );
 
   }catch(error){
-    console.error('Gesamt-Workbook Export fehlgeschlagen:',error);
+    console.error(
+      'Gesamt-Workbook Export fehlgeschlagen:',
+      error
+    );
 
     showTopNote(
       error?.message||
@@ -5813,33 +6365,46 @@ async function luminaWorkbookReplaceFolderFile(
   blob,
   fileName
 ){
-  const files=await luminaWorkbookListFiles(bucket,code);
-
-  if(files.length){
-    const paths=files.map(file=>`${code}/${file.name}`);
-
-    const {error:removeError}=await luminaDb.storage
-      .from(bucket)
-      .remove(paths);
-
-    if(removeError) throw removeError;
-  }
-
-  const path=`${code}/${fileName}`;
-
-  const {error:uploadError}=await luminaDb.storage
-    .from(bucket)
-    .upload(
-      path,
-      blob,
-      {
-        cacheControl:'0',
-        upsert:true,
-        contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      }
+  const files=
+    await luminaWorkbookListFiles(
+      bucket,
+      code
     );
 
-  if(uploadError) throw uploadError;
+  if(files.length){
+    const paths=
+      files.map(
+        file=>
+          `${code}/${file.name}`
+      );
+
+    const {error:removeError}=
+      await luminaDb.storage
+        .from(bucket)
+        .remove(paths);
+
+    if(removeError){
+      throw removeError;
+    }
+  }
+
+  const {error:uploadError}=
+    await luminaDb.storage
+      .from(bucket)
+      .upload(
+        `${code}/${fileName}`,
+        blob,
+        {
+          cacheControl:'0',
+          upsert:true,
+          contentType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+      );
+
+  if(uploadError){
+    throw uploadError;
+  }
 }
 
 
@@ -5848,72 +6413,106 @@ async function luminaImportGesamtWorkbookFile(file){
 
   try{
     if(!file){
-      throw new Error('Keine Workbook-Datei ausgew?hlt.');
-    }
-
-    showTopNote('Gesamt-Workbook wird gepr?ft ...');
-
-    if(typeof XLSX==='undefined'){
-      await luminaEnsureScript(
-        'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-        'XLSX'
+      throw new Error(
+        'Keine Workbook-Datei ausgew?hlt.'
       );
     }
 
-    const buffer=await file.arrayBuffer();
+    await luminaEnsureScript(
+      'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+      'ExcelJS'
+    );
 
-    const workbook=XLSX.read(buffer,{
-      type:'array',
-      cellDates:true
-    });
+    showTopNote(
+      'Gesamt-Workbook wird gepr?ft ...'
+    );
 
-    const metaSheet=workbook.Sheets['_LUMINA_META'];
+    const buffer=
+      await file.arrayBuffer();
 
-    if(!metaSheet){
+    const workbook=
+      new ExcelJS.Workbook();
+
+    await workbook.xlsx.load(buffer);
+
+    const meta=
+      workbook.getWorksheet(
+        '_LUMINA_META'
+      );
+
+    if(!meta){
       throw new Error(
         'Dieses Workbook enth?lt keine LUMINA-Zuordnungsinformationen.'
       );
     }
 
-    const metaRows=XLSX.utils.sheet_to_json(
-      metaSheet,
+    const mappings=[];
+
+    meta.eachRow(
       {
-        header:1,
-        raw:false,
-        defval:''
+        includeEmpty:false
+      },
+      (row,rowNumber)=>{
+        if(rowNumber===1){
+          return;
+        }
+
+        const code=
+          String(
+            row.getCell(1).value||''
+          ).trim();
+
+        const sheetName=
+          String(
+            row.getCell(2).value||''
+          ).trim();
+
+        const sourceFile=
+          String(
+            row.getCell(3).value||''
+          ).trim();
+
+        const sourceType=
+          String(
+            row.getCell(4).value||''
+          ).trim();
+
+        const backlinkCell=
+          String(
+            row.getCell(6).value||''
+          ).trim();
+
+        if(code && sheetName){
+          mappings.push({
+            code,
+            sheetName,
+            sourceFile,
+            sourceType,
+            backlinkCell
+          });
+        }
       }
     );
 
-    if(metaRows.length<2){
-      throw new Error(
-        'Das LUMINA-Mapping im Workbook ist leer.'
-      );
-    }
-
-    const mappings=metaRows
-      .slice(1)
-      .map(row=>({
-        code:String(row[0]||'').trim(),
-        sheetName:String(row[1]||'').trim(),
-        sourceFile:String(row[2]||'').trim()
-      }))
-      .filter(item=>item.code&&item.sheetName);
-
     if(!mappings.length){
       throw new Error(
-        'Keine importierbaren Prozessschritte im Workbook gefunden.'
+        'Keine importierbaren Prozessschritte gefunden.'
       );
     }
 
-    const confirmed=window.confirm(
-      `${mappings.length} Arbeitshilfen wurden erkannt.\n\n`+
-      `Beim Import werden die vorhandenen Dateien in den jeweiligen `+
-      `Supabase-Kachelordnern ersetzt.\n\n`+
-      `Import jetzt starten?`
-    );
+    const confirmed=
+      window.confirm(
+        `${mappings.length} Arbeitshilfen wurden erkannt.\n\n`+
+        `Beim Import werden die bisherigen Dateien in den jeweiligen `+
+        `Kachelordnern ersetzt.\n\n`+
+        `Import jetzt starten?`
+      );
 
     if(!confirmed){
-      showTopNote('Workbook-Import abgebrochen.');
+      showTopNote(
+        'Workbook-Import abgebrochen.'
+      );
+
       return;
     }
 
@@ -5922,61 +6521,84 @@ async function luminaImportGesamtWorkbookFile(file){
 
     for(const mapping of mappings){
       try{
-        const ws=workbook.Sheets[mapping.sheetName];
+        const sourceSheet=
+          workbook.getWorksheet(
+            mapping.sheetName
+          );
 
-        if(!ws){
+        if(!sourceSheet){
           throw new Error(
             `Reiter "${mapping.sheetName}" fehlt.`
           );
         }
 
+        const single=
+          new ExcelJS.Workbook();
+
+        const targetSheet=
+          luminaCopyExcelWorksheet(
+            workbook,
+            sourceSheet,
+            single,
+            'Arbeitshilfe'
+          );
+
         /*
-         * Die ersten drei LUMINA-Kopfzeilen beim R?ckexport entfernen.
+         * Technischen R?cklink entfernen.
          */
-        const rows=XLSX.utils.sheet_to_json(
-          ws,
-          {
-            header:1,
-            raw:false,
-            defval:''
-          }
-        );
+        if(mapping.backlinkCell){
+          try{
+            targetSheet.getCell(
+              mapping.backlinkCell
+            ).value=null;
 
-        const cleanedRows=rows.slice(3);
+            targetSheet.getCell(
+              mapping.backlinkCell
+            ).style={};
+          }catch(error){}
+        }
 
-        const cleanWs=XLSX.utils.aoa_to_sheet(cleanedRows);
+        const exportBuffer=
+          await single.xlsx.writeBuffer();
 
-        const singleWorkbook=XLSX.utils.book_new();
+        const blob=
+          new Blob(
+            [exportBuffer],
+            {
+              type:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            }
+          );
 
-        XLSX.utils.book_append_sheet(
-          singleWorkbook,
-          cleanWs,
-          'Arbeitshilfe'
-        );
+        let fileName='';
 
-        const binary=XLSX.write(
-          singleWorkbook,
-          {
-            bookType:'xlsx',
-            type:'array',
-            compression:true
-          }
-        );
+        if(
+          [
+            'xlsx',
+            'xlsm',
+            'xls'
+          ].includes(
+            mapping.sourceType.toLowerCase()
+          )
+        ){
+          fileName=
+            mapping.sourceFile
+              .replace(
+                /\.(xls|xlsx|xlsm)$/i,
+                '.xlsx'
+              );
 
-        const blob=new Blob(
-          [binary],
-          {
-            type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          }
-        );
+        }else{
+          const baseName=
+            (
+              mapping.sourceFile||
+              `${mapping.code}_Arbeitshilfe`
+            )
+              .replace(/\.[^.]+$/,'');
 
-        const safeTitle=mapping.sheetName
-          .replace(/[\\\/\?\*\[\]\:]/g,' ')
-          .replace(/\s+/g,' ')
-          .trim();
-
-        const fileName=
-          `${mapping.code}_${safeTitle}.xlsx`;
+          fileName=
+            `${baseName}.xlsx`;
+        }
 
         await luminaWorkbookReplaceFolderFile(
           bucket,
@@ -5989,13 +6611,16 @@ async function luminaImportGesamtWorkbookFile(file){
 
       }catch(error){
         console.error(
-          'Workbook-Import Fehler',
+          'Workbook-Import Fehler:',
           mapping,
           error
         );
 
         errors.push(
-          `${mapping.code}: ${error?.message||error}`
+          `${mapping.code}: ${
+            error?.message||
+            error
+          }`
         );
       }
     }
@@ -6003,7 +6628,7 @@ async function luminaImportGesamtWorkbookFile(file){
     if(errors.length){
       showTopNote(
         `${imported} Arbeitshilfen importiert, `+
-        `${errors.length} Fehler. Details in der Browser-Konsole.`,
+        `${errors.length} Fehler. Details in der Konsole.`,
         true
       );
     }else{
@@ -6028,15 +6653,22 @@ async function luminaImportGesamtWorkbookFile(file){
 
 
 function luminaOpenGesamtWorkbookImport(){
-  let input=document.getElementById(
-    'lumina-workbook-import-input'
-  );
+  let input=
+    document.getElementById(
+      'lumina-workbook-import-input'
+    );
 
   if(!input){
-    input=document.createElement('input');
+    input=
+      document.createElement(
+        'input'
+      );
 
-    input.id='lumina-workbook-import-input';
+    input.id=
+      'lumina-workbook-import-input';
+
     input.type='file';
+
     input.accept='.xlsx';
 
     input.style.display='none';
@@ -6044,38 +6676,103 @@ function luminaOpenGesamtWorkbookImport(){
     input.addEventListener(
       'change',
       async()=>{
-        const file=input.files?.[0];
+        const file=
+          input.files?.[0];
 
         input.value='';
 
         if(file){
-          await luminaImportGesamtWorkbookFile(file);
+          await luminaImportGesamtWorkbookFile(
+            file
+          );
         }
       }
     );
 
-    document.body.appendChild(input);
+    document.body.appendChild(
+      input
+    );
   }
 
   input.click();
 }
 
 
+function luminaFindWorkbookToolbarHost(){
+  const buttons=[
+    ...document.querySelectorAll(
+      'button'
+    )
+  ];
+
+  const resetButton=
+    buttons.find(
+      button=>
+        String(
+          button.textContent||''
+        )
+          .trim()
+          .includes(
+            'Lokalen Stand zur?cksetzen'
+          )
+    );
+
+  if(resetButton?.parentElement){
+    return resetButton.parentElement;
+  }
+
+  const notificationButton=
+    buttons.find(
+      button=>
+        String(
+          button.textContent||''
+        )
+          .trim()
+          .includes(
+            'Alle benachrichtigen'
+          )
+    );
+
+  if(notificationButton?.parentElement){
+    return notificationButton.parentElement;
+  }
+
+  return null;
+}
+
+
 function luminaInstallWorkbookButtons(){
-  if(document.getElementById('lumina-workbook-toolbar')){
+  if(
+    document.getElementById(
+      'lumina-workbook-toolbar'
+    )
+  ){
     return;
   }
 
-  const toolbar=document.createElement('div');
+  const host=
+    luminaFindWorkbookToolbarHost();
 
-  toolbar.id='lumina-workbook-toolbar';
+  if(!host){
+    setTimeout(
+      luminaInstallWorkbookButtons,
+      750
+    );
+
+    return;
+  }
+
+  const toolbar=
+    document.createElement('div');
+
+  toolbar.id=
+    'lumina-workbook-toolbar';
 
   toolbar.innerHTML=`
     <button
       type="button"
       id="lumina-workbook-export"
       class="lumina-workbook-action"
-      title="Alle Arbeitshilfen als ein Excel-Workbook exportieren"
     >
       Gesamt-Workbook exportieren
     </button>
@@ -6084,78 +6781,89 @@ function luminaInstallWorkbookButtons(){
       type="button"
       id="lumina-workbook-import"
       class="lumina-workbook-action secondary"
-      title="Bearbeitetes LUMINA-Workbook wieder importieren"
     >
       Gesamt-Workbook importieren
     </button>
   `;
 
-  document.body.appendChild(toolbar);
+  host.appendChild(toolbar);
 
-  const style=document.createElement('style');
+  if(
+    !document.getElementById(
+      'lumina-workbook-toolbar-style'
+    )
+  ){
+    const style=
+      document.createElement('style');
 
-  style.id='lumina-workbook-toolbar-style';
+    style.id=
+      'lumina-workbook-toolbar-style';
 
-  style.textContent=`
-    #lumina-workbook-toolbar{
-      position:fixed;
-      top:96px;
-      right:22px;
-      z-index:8000;
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-      max-width:560px;
-    }
-
-    .lumina-workbook-action{
-      appearance:none;
-      border:0;
-      border-radius:10px;
-      padding:10px 15px;
-      background:#35a77c;
-      color:#fff;
-      font-size:13px;
-      font-weight:700;
-      cursor:pointer;
-      box-shadow:0 4px 12px rgba(0,0,0,.10);
-    }
-
-    .lumina-workbook-action:hover{
-      filter:brightness(.96);
-    }
-
-    .lumina-workbook-action.secondary{
-      background:#fff;
-      color:#354052;
-      border:1px solid #d9dee7;
-    }
-
-    body:not(.lumina-authenticated)
-    #lumina-workbook-toolbar{
-      display:none;
-    }
-
-    @media(max-width:900px){
+    style.textContent=`
       #lumina-workbook-toolbar{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        margin-left:8px;
+        margin-top:4px;
+        margin-bottom:4px;
+        vertical-align:middle;
         position:static;
-        margin:12px;
+        z-index:auto;
       }
-    }
-  `;
 
-  document.head.appendChild(style);
+      .lumina-workbook-action{
+        appearance:none;
+        border:0;
+        border-radius:10px;
+        padding:10px 15px;
+        background:#35a77c;
+        color:#fff;
+        font-size:13px;
+        font-weight:700;
+        cursor:pointer;
+        white-space:nowrap;
+      }
+
+      .lumina-workbook-action:hover{
+        filter:brightness(.96);
+      }
+
+      .lumina-workbook-action.secondary{
+        background:#fff;
+        color:#354052;
+        border:1px solid #d9dee7;
+      }
+
+      @media(max-width:1000px){
+        #lumina-workbook-toolbar{
+          display:flex;
+          width:100%;
+          margin-left:0;
+          margin-top:8px;
+          flex-wrap:wrap;
+        }
+      }
+    `;
+
+    document.head.appendChild(
+      style
+    );
+  }
 
   document
-    .getElementById('lumina-workbook-export')
+    .getElementById(
+      'lumina-workbook-export'
+    )
     .addEventListener(
       'click',
       luminaExportGesamtWorkbook
     );
 
   document
-    .getElementById('lumina-workbook-import')
+    .getElementById(
+      'lumina-workbook-import'
+    )
     .addEventListener(
       'click',
       luminaOpenGesamtWorkbookImport
