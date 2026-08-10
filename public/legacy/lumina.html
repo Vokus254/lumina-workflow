@@ -10956,6 +10956,2250 @@ if(document.readyState==='loading'){
    ENDE LUMINA PHASE 2 - ARBEITSHILFEN
    ============================================================ */
 
+
+/* ============================================================
+   LUMINA DYNAMISCHE MASSNAHMENHIERARCHIE
+   ============================================================ */
+
+const LUMINA_CUSTOM_TABLE='custom_process_nodes';
+const LUMINA_CUSTOM_BUCKET='lumina-templates';
+
+let luminaCustomProjectId=null;
+let luminaCustomCurrentAnchor='';
+let luminaCustomRefreshRunning=false;
+
+
+/* ------------------------------------------------------------
+   BASIS
+   ------------------------------------------------------------ */
+
+function luminaCustomEsc(value){
+  return String(value??'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+
+function luminaCustomArray(value){
+  if(Array.isArray(value)){
+    return value;
+  }
+
+  if(!value){
+    return [];
+  }
+
+  return String(value)
+    .split(/\r?\n/)
+    .map(item=>item.trim())
+    .filter(Boolean);
+}
+
+
+function luminaCustomArrayText(value){
+  return luminaCustomArray(value).join('\n');
+}
+
+
+function luminaCustomSafeFileName(fileName){
+  let safe=String(fileName||'Datei')
+    .replace(/\u00e4/g,'ae')
+    .replace(/\u00c4/g,'Ae')
+    .replace(/\u00f6/g,'oe')
+    .replace(/\u00d6/g,'Oe')
+    .replace(/\u00fc/g,'ue')
+    .replace(/\u00dc/g,'Ue')
+    .replace(/\u00df/g,'ss');
+
+  try{
+    safe=safe
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'');
+  }catch(error){}
+
+  safe=safe
+    .replace(/\s+/g,'_')
+    .replace(/[^A-Za-z0-9._,'!&$@=;()+?\-]/g,'_')
+    .replace(/_+/g,'_')
+    .replace(/^_+|_+$/g,'');
+
+  return safe||'Datei';
+}
+
+
+/* ------------------------------------------------------------
+   AKTUELLE LUMINA-EBENE ERMITTELN
+   ------------------------------------------------------------ */
+
+function luminaCustomResolveAnchorCode(){
+  const elements=[
+    ...document.querySelectorAll(
+      'div,span,p,h1,h2,h3'
+    )
+  ].filter(element=>{
+    if(!element.offsetParent){
+      return false;
+    }
+
+    const value=String(
+      element.innerText||
+      element.textContent||
+      ''
+    ).trim();
+
+    return (
+      value.includes('Jahresabschlussprozess') &&
+      value.length<700
+    );
+  });
+
+  elements.sort((a,b)=>{
+    return (
+      String(a.innerText||a.textContent||'').length -
+      String(b.innerText||b.textContent||'').length
+    );
+  });
+
+  for(const element of elements){
+    const value=String(
+      element.innerText||
+      element.textContent||
+      ''
+    );
+
+    const segments=value.split('/');
+
+    for(let i=segments.length-1;i>=0;i--){
+      const segment=
+        segments[i].trim();
+
+      const match=
+        segment.match(
+          /^([1-8](?:\.\d+)*)\.\s/
+        );
+
+      if(match){
+        return match[1];
+      }
+    }
+  }
+
+  return '';
+}
+
+
+/* ------------------------------------------------------------
+   AKTUELLES PROJEKT
+   ------------------------------------------------------------ */
+
+async function luminaCustomResolveProjectId(){
+  if(luminaCustomProjectId){
+    return luminaCustomProjectId;
+  }
+
+  const {data,error}=
+    await luminaDb
+      .from('projects')
+      .select('id,name,updated_at')
+      .order(
+        'updated_at',
+        {
+          ascending:false
+        }
+      );
+
+  if(error){
+    throw error;
+  }
+
+  const projects=data||[];
+
+  if(!projects.length){
+    throw new Error(
+      'Kein zugaengliches LUMINA-Projekt gefunden.'
+    );
+  }
+
+  if(projects.length===1){
+    luminaCustomProjectId=
+      projects[0].id;
+
+    return luminaCustomProjectId;
+  }
+
+  const pageText=String(
+    document.body.innerText||
+    ''
+  ).toLowerCase();
+
+  const matched=
+    projects.find(project=>{
+      const name=
+        String(project.name||'')
+          .toLowerCase()
+          .trim();
+
+      return (
+        name &&
+        pageText.includes(name)
+      );
+    });
+
+  luminaCustomProjectId=
+    matched?.id||
+    projects[0].id;
+
+  return luminaCustomProjectId;
+}
+
+
+/* ------------------------------------------------------------
+   DATEN
+   ------------------------------------------------------------ */
+
+async function luminaCustomLoadAnchorNodes(anchorCode){
+  const projectId=
+    await luminaCustomResolveProjectId();
+
+  const {data,error}=
+    await luminaDb
+      .from(LUMINA_CUSTOM_TABLE)
+      .select('*')
+      .eq(
+        'project_id',
+        projectId
+      )
+      .eq(
+        'anchor_code',
+        anchorCode
+      )
+      .eq(
+        'is_active',
+        true
+      )
+      .order(
+        'sort_order',
+        {
+          ascending:true
+        }
+      )
+      .order(
+        'created_at',
+        {
+          ascending:true
+        }
+      );
+
+  if(error){
+    throw error;
+  }
+
+  return data||[];
+}
+
+
+async function luminaCustomLoadNode(nodeId){
+  const {data,error}=
+    await luminaDb
+      .from(LUMINA_CUSTOM_TABLE)
+      .select('*')
+      .eq(
+        'id',
+        nodeId
+      )
+      .single();
+
+  if(error){
+    throw error;
+  }
+
+  return data;
+}
+
+
+async function luminaCustomChildren(anchorCode,parentId){
+  const nodes=
+    await luminaCustomLoadAnchorNodes(
+      anchorCode
+    );
+
+  return nodes.filter(node=>{
+    return (
+      (node.parent_custom_node_id||null)===
+      (parentId||null)
+    );
+  });
+}
+
+
+/* ------------------------------------------------------------
+   NUMMERIERUNG
+   ------------------------------------------------------------ */
+
+function luminaCustomBuildCodes(
+  anchorCode,
+  nodes
+){
+  const result=new Map();
+
+  const walk=(parentId,parentCode)=>{
+    const children=
+      nodes
+        .filter(node=>{
+          return (
+            (node.parent_custom_node_id||null)===
+            (parentId||null)
+          );
+        })
+        .sort((a,b)=>{
+          return (
+            Number(a.sort_order||0) -
+            Number(b.sort_order||0)
+          );
+        });
+
+    children.forEach((node,index)=>{
+      const code=
+        `${parentCode}.${index+1}`;
+
+      result.set(
+        node.id,
+        code
+      );
+
+      walk(
+        node.id,
+        code
+      );
+    });
+  };
+
+  walk(
+    null,
+    anchorCode
+  );
+
+  return result;
+}
+
+
+/* ------------------------------------------------------------
+   GRID FINDEN
+   ------------------------------------------------------------ */
+
+function luminaCustomFindGrid(){
+  /*
+   * LUMINA verwendet auf vielen Ebenen #grid.
+   */
+  const direct=
+    document.getElementById('grid');
+
+  if(
+    direct &&
+    direct.offsetParent
+  ){
+    return direct;
+  }
+
+  /*
+   * Fallback fuer andere Ebenen.
+   */
+  const candidates=[
+    ...document.querySelectorAll(
+      '.grid,[class*="grid"]'
+    )
+  ].filter(element=>{
+    if(!element.offsetParent){
+      return false;
+    }
+
+    const rect=
+      element.getBoundingClientRect();
+
+    if(
+      rect.width<350 ||
+      rect.height<120
+    ){
+      return false;
+    }
+
+    const cardChildren=[
+      ...element.children
+    ].filter(child=>{
+      const r=
+        child.getBoundingClientRect();
+
+      return (
+        r.width>=140 &&
+        r.width<=400 &&
+        r.height>=120 &&
+        r.height<=400
+      );
+    });
+
+    return cardChildren.length>=1;
+  });
+
+  candidates.sort((a,b)=>{
+    const ar=a.getBoundingClientRect();
+    const br=b.getBoundingClientRect();
+
+    return (
+      ar.width*ar.height -
+      br.width*br.height
+    );
+  });
+
+  return candidates[0]||null;
+}
+
+
+/* ------------------------------------------------------------
+   CSS
+   ------------------------------------------------------------ */
+
+function luminaCustomEnsureStyles(){
+  if(
+    document.getElementById(
+      'lumina-custom-hierarchy-style'
+    )
+  ){
+    return;
+  }
+
+  const style=
+    document.createElement('style');
+
+  style.id=
+    'lumina-custom-hierarchy-style';
+
+  style.textContent=`
+    .lumina-custom-toolbar{
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      margin:0 0 14px;
+    }
+
+    .lumina-custom-add{
+      appearance:none;
+      border:0;
+      border-radius:9px;
+      padding:9px 14px;
+      background:#35a77c;
+      color:#fff;
+      font-size:12px;
+      font-weight:800;
+      cursor:pointer;
+    }
+
+    .lumina-custom-card{
+      position:relative;
+      box-sizing:border-box;
+      cursor:pointer;
+    }
+
+    .lumina-custom-card-inner{
+      width:100%;
+      height:100%;
+      box-sizing:border-box;
+      padding:15px;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .lumina-custom-card-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:8px;
+    }
+
+    .lumina-custom-code{
+      display:inline-flex;
+      padding:5px 9px;
+      border-radius:8px;
+      background:#f0f1f4;
+      color:#6b7280;
+      font-size:11px;
+      font-weight:800;
+    }
+
+    .lumina-custom-type{
+      display:inline-flex;
+      padding:4px 8px;
+      border-radius:999px;
+      background:#e7f5ee;
+      color:#29936d;
+      font-size:9px;
+      font-weight:800;
+      text-transform:uppercase;
+    }
+
+    .lumina-custom-menu{
+      appearance:none;
+      border:0;
+      background:transparent;
+      font-size:20px;
+      line-height:1;
+      cursor:pointer;
+      color:#64748b;
+      padding:0 2px;
+    }
+
+    .lumina-custom-card-title{
+      margin:auto 0;
+      font-size:14px;
+      line-height:1.28;
+      font-weight:700;
+      color:#111827;
+    }
+
+    .lumina-custom-card-foot{
+      margin-top:auto;
+      padding-top:10px;
+      border-top:3px solid #e5e7eb;
+      color:#94a3b8;
+      font-size:10px;
+    }
+
+    .lumina-custom-modal-backdrop{
+      position:fixed;
+      inset:0;
+      z-index:16000;
+      background:rgba(31,41,55,.58);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+
+    .lumina-custom-modal{
+      width:min(1050px,96vw);
+      max-height:92vh;
+      background:#fff;
+      border-radius:18px;
+      box-shadow:0 26px 80px rgba(15,23,42,.28);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .lumina-custom-modal-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:18px;
+      padding:22px 26px 17px;
+      border-bottom:1px solid #e5e7eb;
+    }
+
+    .lumina-custom-modal-title{
+      margin:0;
+      font-size:21px;
+      color:#111827;
+    }
+
+    .lumina-custom-modal-sub{
+      margin-top:4px;
+      font-size:12px;
+      color:#94a3b8;
+    }
+
+    .lumina-custom-close{
+      appearance:none;
+      border:1px solid #d9dee7;
+      background:#fff;
+      width:36px;
+      height:36px;
+      border-radius:9px;
+      font-size:20px;
+      cursor:pointer;
+    }
+
+    .lumina-custom-modal-body{
+      overflow:auto;
+      padding:22px 26px 28px;
+    }
+
+    .lumina-custom-form-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:14px 18px;
+    }
+
+    .lumina-custom-field.full{
+      grid-column:1/-1;
+    }
+
+    .lumina-custom-field label{
+      display:block;
+      margin-bottom:5px;
+      font-size:11px;
+      font-weight:800;
+      color:#64748b;
+      text-transform:uppercase;
+    }
+
+    .lumina-custom-field input,
+    .lumina-custom-field select,
+    .lumina-custom-field textarea{
+      width:100%;
+      box-sizing:border-box;
+      border:1px solid #d9dee7;
+      border-radius:9px;
+      padding:9px 10px;
+      font:inherit;
+      font-size:13px;
+      background:#fff;
+    }
+
+    .lumina-custom-field textarea{
+      min-height:90px;
+      resize:vertical;
+    }
+
+    .lumina-custom-form-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:18px;
+    }
+
+    .lumina-custom-btn{
+      appearance:none;
+      border:1px solid #d9dee7;
+      background:#fff;
+      border-radius:9px;
+      padding:9px 13px;
+      font-size:12px;
+      font-weight:800;
+      cursor:pointer;
+    }
+
+    .lumina-custom-btn.primary{
+      border-color:#35a77c;
+      background:#35a77c;
+      color:#fff;
+    }
+
+    .lumina-custom-btn.danger{
+      border-color:#efb4ad;
+      color:#b42318;
+    }
+
+    .lumina-custom-child-toolbar{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:14px;
+    }
+
+    .lumina-custom-child-grid{
+      display:grid;
+      grid-template-columns:
+        repeat(auto-fill,minmax(190px,1fr));
+      gap:14px;
+    }
+
+    .lumina-custom-child-card{
+      min-height:190px;
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      background:#fff;
+      cursor:pointer;
+    }
+
+    .lumina-custom-section{
+      border:1px solid #e5e7eb;
+      border-radius:13px;
+      padding:16px;
+      margin-bottom:15px;
+    }
+
+    .lumina-custom-section h3{
+      margin:0 0 10px;
+      font-size:14px;
+    }
+
+    .lumina-custom-list{
+      margin:0;
+      padding-left:20px;
+    }
+
+    .lumina-custom-list li{
+      margin:5px 0;
+      font-size:13px;
+      line-height:1.4;
+    }
+
+    .lumina-custom-workaid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    @media(max-width:760px){
+      .lumina-custom-form-grid{
+        grid-template-columns:1fr;
+      }
+
+      .lumina-custom-field.full{
+        grid-column:auto;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+
+/* ------------------------------------------------------------
+   MODAL
+   ------------------------------------------------------------ */
+
+function luminaCustomModal(
+  title,
+  subtitle=''
+){
+  luminaCustomEnsureStyles();
+
+  const old=
+    document.getElementById(
+      'lumina-custom-modal-backdrop'
+    );
+
+  if(old){
+    old.remove();
+  }
+
+  const backdrop=
+    document.createElement('div');
+
+  backdrop.id=
+    'lumina-custom-modal-backdrop';
+
+  backdrop.className=
+    'lumina-custom-modal-backdrop';
+
+  backdrop.innerHTML=`
+    <div class="lumina-custom-modal">
+      <div class="lumina-custom-modal-head">
+        <div>
+          <h2 class="lumina-custom-modal-title">
+            ${luminaCustomEsc(title)}
+          </h2>
+
+          <div class="lumina-custom-modal-sub">
+            ${luminaCustomEsc(subtitle)}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="lumina-custom-close"
+        >
+          \u00d7
+        </button>
+      </div>
+
+      <div class="lumina-custom-modal-body">
+      </div>
+    </div>
+  `;
+
+  backdrop.addEventListener(
+    'click',
+    event=>{
+      if(event.target===backdrop){
+        backdrop.remove();
+      }
+    }
+  );
+
+  backdrop
+    .querySelector('.lumina-custom-close')
+    .addEventListener(
+      'click',
+      ()=>{
+        backdrop.remove();
+      }
+    );
+
+  document.body.appendChild(
+    backdrop
+  );
+
+  return {
+    backdrop,
+    body:backdrop.querySelector(
+      '.lumina-custom-modal-body'
+    )
+  };
+}
+
+
+/* ------------------------------------------------------------
+   ANLEGEN / BEARBEITEN
+   ------------------------------------------------------------ */
+
+async function luminaCustomOpenNodeForm({
+  anchorCode,
+  parentId=null,
+  node=null
+}){
+  const isEdit=!!node;
+
+  const displayTitle=
+    isEdit
+      ? 'Massnahme bearbeiten'
+      : 'Neue Massnahme';
+
+  const modal=
+    luminaCustomModal(
+      displayTitle,
+      anchorCode
+    );
+
+  modal.body.innerHTML=`
+    <div class="lumina-custom-form-grid">
+
+      <div class="lumina-custom-field full">
+        <label>Titel</label>
+
+        <input
+          id="lumina-custom-title"
+          type="text"
+          value="${luminaCustomEsc(node?.title||'')}"
+          placeholder="z. B. Stellvertretungsregelung"
+        >
+      </div>
+
+      <div class="lumina-custom-field">
+        <label>Typ</label>
+
+        <select id="lumina-custom-type-select">
+          <option
+            value="workspace"
+            ${
+              (node?.node_type||'workspace')==='workspace'
+                ? 'selected'
+                : ''
+            }
+          >
+            Arbeitsflaeche
+          </option>
+
+          <option
+            value="container"
+            ${
+              node?.node_type==='container'
+                ? 'selected'
+                : ''
+            }
+          >
+            Unterstruktur / weitere Kacheln
+          </option>
+        </select>
+      </div>
+
+      <div class="lumina-custom-field">
+        <label>Ziel / Kurzbeschreibung</label>
+
+        <input
+          id="lumina-custom-ziel"
+          type="text"
+          value="${luminaCustomEsc(node?.ziel||'')}"
+        >
+      </div>
+
+    </div>
+
+    <div class="lumina-custom-form-actions">
+      <button
+        type="button"
+        class="lumina-custom-btn"
+        id="lumina-custom-cancel"
+      >
+        Abbrechen
+      </button>
+
+      <button
+        type="button"
+        class="lumina-custom-btn primary"
+        id="lumina-custom-save"
+      >
+        ${isEdit ? 'Speichern' : 'Anlegen'}
+      </button>
+    </div>
+  `;
+
+  modal.body
+    .querySelector('#lumina-custom-cancel')
+    .addEventListener(
+      'click',
+      ()=>{
+        modal.backdrop.remove();
+      }
+    );
+
+  modal.body
+    .querySelector('#lumina-custom-save')
+    .addEventListener(
+      'click',
+      async()=>{
+        try{
+          const title=
+            modal.body
+              .querySelector('#lumina-custom-title')
+              .value
+              .trim();
+
+          const nodeType=
+            modal.body
+              .querySelector('#lumina-custom-type-select')
+              .value;
+
+          const ziel=
+            modal.body
+              .querySelector('#lumina-custom-ziel')
+              .value
+              .trim();
+
+          if(!title){
+            throw new Error(
+              'Bitte einen Titel eingeben.'
+            );
+          }
+
+          const projectId=
+            await luminaCustomResolveProjectId();
+
+          if(isEdit){
+            /*
+             * Container mit Kindern darf nicht direkt
+             * in Arbeitsflaeche umgewandelt werden.
+             */
+            if(
+              node.node_type==='container' &&
+              nodeType==='workspace'
+            ){
+              const children=
+                await luminaCustomChildren(
+                  node.anchor_code,
+                  node.id
+                );
+
+              if(children.length){
+                throw new Error(
+                  'Diese Unterstruktur besitzt noch Kinder. Bitte diese zuerst verschieben oder loeschen.'
+                );
+              }
+            }
+
+            const {error}=
+              await luminaDb
+                .from(LUMINA_CUSTOM_TABLE)
+                .update({
+                  title,
+                  node_type:nodeType,
+                  ziel
+                })
+                .eq(
+                  'id',
+                  node.id
+                );
+
+            if(error){
+              throw error;
+            }
+
+          }else{
+            const siblings=
+              await luminaCustomChildren(
+                anchorCode,
+                parentId
+              );
+
+            const maxSort=
+              siblings.reduce(
+                (max,item)=>
+                  Math.max(
+                    max,
+                    Number(item.sort_order||0)
+                  ),
+                0
+              );
+
+            const {error}=
+              await luminaDb
+                .from(LUMINA_CUSTOM_TABLE)
+                .insert({
+                  project_id:projectId,
+                  anchor_code:anchorCode,
+                  parent_custom_node_id:parentId,
+                  title,
+                  node_type:nodeType,
+                  sort_order:maxSort+10,
+                  ziel
+                });
+
+            if(error){
+              throw error;
+            }
+          }
+
+          modal.backdrop.remove();
+
+          showTopNote(
+            isEdit
+              ? 'Massnahme wurde aktualisiert.'
+              : 'Massnahme wurde angelegt.'
+          );
+
+          await luminaCustomRefreshPage(
+            true
+          );
+
+        }catch(error){
+          console.error(
+            'Massnahme speichern fehlgeschlagen:',
+            error
+          );
+
+          showTopNote(
+            error?.message||
+            'Massnahme konnte nicht gespeichert werden.',
+            true
+          );
+        }
+      }
+    );
+}
+
+
+/* ------------------------------------------------------------
+   LOESCHEN
+   ------------------------------------------------------------ */
+
+async function luminaCustomDeleteNode(node){
+  try{
+    const children=
+      await luminaCustomChildren(
+        node.anchor_code,
+        node.id
+      );
+
+    let message=
+      `"${node.title}" wirklich loeschen?`;
+
+    if(children.length){
+      message=
+        `"${node.title}" enthaelt ${children.length} direkte Unterma?nahmen.\n\n`+
+        `Der gesamte Zweig wird geloescht.\n\n`+
+        `Fortfahren?`;
+    }
+
+    if(!window.confirm(message)){
+      return;
+    }
+
+    /*
+     * Arbeitshilfe des Knotens entfernen.
+     * Kinder werden DB-seitig per CASCADE geloescht.
+     */
+    if(node.arbeitshilfe_storage_path){
+      const {error:storageError}=
+        await luminaDb.storage
+          .from(
+            node.arbeitshilfe_storage_bucket||
+            LUMINA_CUSTOM_BUCKET
+          )
+          .remove([
+            node.arbeitshilfe_storage_path
+          ]);
+
+      if(storageError){
+        console.warn(
+          'Arbeitshilfe konnte beim Loeschen nicht entfernt werden:',
+          storageError
+        );
+      }
+    }
+
+    const {error}=
+      await luminaDb
+        .from(LUMINA_CUSTOM_TABLE)
+        .delete()
+        .eq(
+          'id',
+          node.id
+        );
+
+    if(error){
+      throw error;
+    }
+
+    const modal=
+      document.getElementById(
+        'lumina-custom-modal-backdrop'
+      );
+
+    if(modal){
+      modal.remove();
+    }
+
+    showTopNote(
+      'Massnahme wurde geloescht.'
+    );
+
+    await luminaCustomRefreshPage(
+      true
+    );
+
+  }catch(error){
+    console.error(
+      'Massnahme loeschen fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Massnahme konnte nicht geloescht werden.',
+      true
+    );
+  }
+}
+
+
+/* ------------------------------------------------------------
+   ARBEITSHILFE
+   ------------------------------------------------------------ */
+
+async function luminaCustomDownloadWorkAid(node){
+  try{
+    if(!node.arbeitshilfe_storage_path){
+      throw new Error(
+        'Noch keine Arbeitshilfe hinterlegt.'
+      );
+    }
+
+    const bucket=
+      node.arbeitshilfe_storage_bucket||
+      LUMINA_CUSTOM_BUCKET;
+
+    const {data,error}=
+      await luminaDb.storage
+        .from(bucket)
+        .download(
+          node.arbeitshilfe_storage_path,
+          {
+            cacheNonce:
+              Date.now().toString()
+          },
+          {
+            cache:'no-store'
+          }
+        );
+
+    if(error){
+      throw error;
+    }
+
+    if(!data){
+      throw new Error(
+        'Keine Dateidaten erhalten.'
+      );
+    }
+
+    const fileName=
+      node.arbeitshilfe_storage_path
+        .split('/')
+        .pop();
+
+    guidanceDownloadBlob(
+      data,
+      fileName
+    );
+
+  }catch(error){
+    console.error(
+      'Arbeitshilfe Download fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Arbeitshilfe konnte nicht heruntergeladen werden.',
+      true
+    );
+  }
+}
+
+
+function luminaCustomChooseWorkAid(node){
+  const input=
+    document.createElement('input');
+
+  input.type='file';
+
+  input.accept=
+    '.xlsx,.xls,.xlsm,.docx,.doc,.pdf,.csv,.txt,.json';
+
+  input.style.display='none';
+
+  input.onchange=async()=>{
+    const file=
+      input.files?.[0];
+
+    input.remove();
+
+    if(!file){
+      return;
+    }
+
+    await luminaCustomUploadWorkAid(
+      node,
+      file
+    );
+  };
+
+  document.body.appendChild(input);
+
+  input.click();
+}
+
+
+async function luminaCustomUploadWorkAid(
+  node,
+  file
+){
+  try{
+    const projectId=
+      await luminaCustomResolveProjectId();
+
+    const safeName=
+      luminaCustomSafeFileName(
+        file.name
+      );
+
+    const storagePath=
+      `_custom/${projectId}/${node.id}/${safeName}`;
+
+    const oldPath=
+      node.arbeitshilfe_storage_path||
+      '';
+
+    const bucket=
+      LUMINA_CUSTOM_BUCKET;
+
+    const samePath=
+      oldPath===storagePath;
+
+    if(samePath){
+      const {error}=
+        await luminaDb.storage
+          .from(bucket)
+          .update(
+            storagePath,
+            file,
+            {
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
+
+      if(error){
+        throw error;
+      }
+
+    }else{
+      const {error}=
+        await luminaDb.storage
+          .from(bucket)
+          .upload(
+            storagePath,
+            file,
+            {
+              upsert:true,
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
+
+      if(error){
+        throw error;
+      }
+
+      /*
+       * Alte Datei erst nach erfolgreichem Upload entfernen.
+       */
+      if(oldPath){
+        const {error:removeError}=
+          await luminaDb.storage
+            .from(
+              node.arbeitshilfe_storage_bucket||
+              bucket
+            )
+            .remove([
+              oldPath
+            ]);
+
+        if(removeError){
+          console.warn(
+            'Alte Arbeitshilfe konnte nicht entfernt werden:',
+            removeError
+          );
+        }
+      }
+    }
+
+    const {error:updateError}=
+      await luminaDb
+        .from(LUMINA_CUSTOM_TABLE)
+        .update({
+          arbeitshilfe_name:file.name,
+          arbeitshilfe_storage_bucket:bucket,
+          arbeitshilfe_storage_path:storagePath
+        })
+        .eq(
+          'id',
+          node.id
+        );
+
+    if(updateError){
+      throw updateError;
+    }
+
+    showTopNote(
+      'Arbeitshilfe wurde gespeichert.'
+    );
+
+    await luminaCustomOpenWorkspace(
+      node.id
+    );
+
+  }catch(error){
+    console.error(
+      'Arbeitshilfe Upload fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Arbeitshilfe konnte nicht gespeichert werden.',
+      true
+    );
+  }
+}
+
+
+/* ------------------------------------------------------------
+   ARBEITSFLAECHE
+   ------------------------------------------------------------ */
+
+async function luminaCustomOpenWorkspace(nodeId){
+  try{
+    const node=
+      await luminaCustomLoadNode(
+        nodeId
+      );
+
+    const all=
+      await luminaCustomLoadAnchorNodes(
+        node.anchor_code
+      );
+
+    const codes=
+      luminaCustomBuildCodes(
+        node.anchor_code,
+        all
+      );
+
+    const displayCode=
+      codes.get(node.id)||
+      node.anchor_code;
+
+    const modal=
+      luminaCustomModal(
+        node.title,
+        `${displayCode} ? Arbeitsflaeche`
+      );
+
+    modal.body.innerHTML=`
+      <div class="lumina-custom-form-grid">
+
+        <div class="lumina-custom-field full">
+          <label>Ziel / Anleitung</label>
+          <textarea id="lumina-ws-ziel">${luminaCustomEsc(node.ziel||'')}</textarea>
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Was ist zu tun - eine Zeile je Punkt</label>
+          <textarea id="lumina-ws-todo">${luminaCustomEsc(
+            luminaCustomArrayText(node.was_ist_zu_tun)
+          )}</textarea>
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Benoetigte Unterlagen</label>
+          <textarea id="lumina-ws-docs">${luminaCustomEsc(
+            luminaCustomArrayText(node.benoetigte_unterlagen)
+          )}</textarea>
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Liefergegenstand</label>
+          <textarea id="lumina-ws-deliver">${luminaCustomEsc(
+            luminaCustomArrayText(node.liefergegenstand)
+          )}</textarea>
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Typische Fehler</label>
+          <textarea id="lumina-ws-errors">${luminaCustomEsc(
+            luminaCustomArrayText(node.typische_fehler)
+          )}</textarea>
+        </div>
+
+        <div class="lumina-custom-field full">
+          <label>Erledigt wenn</label>
+          <textarea id="lumina-ws-done">${luminaCustomEsc(
+            node.erledigt_wenn||''
+          )}</textarea>
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Zustaendige Rolle</label>
+          <input
+            id="lumina-ws-role"
+            value="${luminaCustomEsc(node.zustaendige_rolle||'')}"
+          >
+        </div>
+
+        <div class="lumina-custom-field">
+          <label>Rechtsgrundlage</label>
+          <input
+            id="lumina-ws-law"
+            value="${luminaCustomEsc(node.rechtsgrundlage||'')}"
+          >
+        </div>
+
+      </div>
+
+      <div class="lumina-custom-section">
+        <h3>Arbeitshilfe</h3>
+
+        <div class="lumina-custom-workaid">
+          <strong id="lumina-custom-workaid-name">
+            ${
+              luminaCustomEsc(
+                node.arbeitshilfe_name||
+                'Noch keine Datei hinterlegt'
+              )
+            }
+          </strong>
+
+          <button
+            type="button"
+            class="lumina-custom-btn primary"
+            id="lumina-custom-workaid-download"
+            ${
+              node.arbeitshilfe_storage_path
+                ? ''
+                : 'disabled'
+            }
+          >
+            Herunterladen
+          </button>
+
+          <button
+            type="button"
+            class="lumina-custom-btn"
+            id="lumina-custom-workaid-upload"
+          >
+            ${
+              node.arbeitshilfe_storage_path
+                ? 'Datei ersetzen'
+                : 'Datei hochladen'
+            }
+          </button>
+        </div>
+      </div>
+
+      <div class="lumina-custom-form-actions">
+
+        <button
+          type="button"
+          class="lumina-custom-btn"
+          id="lumina-workspace-edit-node"
+        >
+          Kachel bearbeiten
+        </button>
+
+        <button
+          type="button"
+          class="lumina-custom-btn danger"
+          id="lumina-workspace-delete"
+        >
+          Loeschen
+        </button>
+
+        <button
+          type="button"
+          class="lumina-custom-btn primary"
+          id="lumina-workspace-save"
+        >
+          Arbeitsflaeche speichern
+        </button>
+
+      </div>
+    `;
+
+    const download=
+      modal.body.querySelector(
+        '#lumina-custom-workaid-download'
+      );
+
+    if(download){
+      download.addEventListener(
+        'click',
+        ()=>{
+          luminaCustomDownloadWorkAid(
+            node
+          );
+        }
+      );
+    }
+
+    modal.body
+      .querySelector(
+        '#lumina-custom-workaid-upload'
+      )
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomChooseWorkAid(
+            node
+          );
+        }
+      );
+
+    modal.body
+      .querySelector(
+        '#lumina-workspace-edit-node'
+      )
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomOpenNodeForm({
+            anchorCode:node.anchor_code,
+            parentId:
+              node.parent_custom_node_id,
+            node
+          });
+        }
+      );
+
+    modal.body
+      .querySelector(
+        '#lumina-workspace-delete'
+      )
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomDeleteNode(
+            node
+          );
+        }
+      );
+
+    modal.body
+      .querySelector(
+        '#lumina-workspace-save'
+      )
+      .addEventListener(
+        'click',
+        async()=>{
+          try{
+            const payload={
+              ziel:
+                modal.body
+                  .querySelector('#lumina-ws-ziel')
+                  .value
+                  .trim(),
+
+              was_ist_zu_tun:
+                luminaCustomArray(
+                  modal.body
+                    .querySelector('#lumina-ws-todo')
+                    .value
+                ),
+
+              benoetigte_unterlagen:
+                luminaCustomArray(
+                  modal.body
+                    .querySelector('#lumina-ws-docs')
+                    .value
+                ),
+
+              liefergegenstand:
+                luminaCustomArray(
+                  modal.body
+                    .querySelector('#lumina-ws-deliver')
+                    .value
+                ),
+
+              typische_fehler:
+                luminaCustomArray(
+                  modal.body
+                    .querySelector('#lumina-ws-errors')
+                    .value
+                ),
+
+              erledigt_wenn:
+                modal.body
+                  .querySelector('#lumina-ws-done')
+                  .value
+                  .trim(),
+
+              zustaendige_rolle:
+                modal.body
+                  .querySelector('#lumina-ws-role')
+                  .value
+                  .trim(),
+
+              rechtsgrundlage:
+                modal.body
+                  .querySelector('#lumina-ws-law')
+                  .value
+                  .trim()
+            };
+
+            const {error}=
+              await luminaDb
+                .from(LUMINA_CUSTOM_TABLE)
+                .update(payload)
+                .eq(
+                  'id',
+                  node.id
+                );
+
+            if(error){
+              throw error;
+            }
+
+            showTopNote(
+              'Arbeitsflaeche wurde gespeichert.'
+            );
+
+          }catch(error){
+            console.error(
+              'Arbeitsflaeche speichern fehlgeschlagen:',
+              error
+            );
+
+            showTopNote(
+              error?.message||
+              'Arbeitsflaeche konnte nicht gespeichert werden.',
+              true
+            );
+          }
+        }
+      );
+
+  }catch(error){
+    console.error(
+      'Arbeitsflaeche konnte nicht geoeffnet werden:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Arbeitsflaeche konnte nicht geoeffnet werden.',
+      true
+    );
+  }
+}
+
+
+/* ------------------------------------------------------------
+   CONTAINER / KINDER
+   ------------------------------------------------------------ */
+
+async function luminaCustomOpenContainer(nodeId){
+  try{
+    const node=
+      await luminaCustomLoadNode(
+        nodeId
+      );
+
+    const all=
+      await luminaCustomLoadAnchorNodes(
+        node.anchor_code
+      );
+
+    const codes=
+      luminaCustomBuildCodes(
+        node.anchor_code,
+        all
+      );
+
+    const displayCode=
+      codes.get(node.id)||
+      node.anchor_code;
+
+    const children=
+      all.filter(item=>{
+        return (
+          item.parent_custom_node_id===
+          node.id
+        );
+      });
+
+    const modal=
+      luminaCustomModal(
+        node.title,
+        `${displayCode} ? Unterstruktur`
+      );
+
+    modal.body.innerHTML=`
+      <div class="lumina-custom-child-toolbar">
+
+        <button
+          type="button"
+          class="lumina-custom-btn"
+          id="lumina-container-edit"
+        >
+          Bearbeiten
+        </button>
+
+        <button
+          type="button"
+          class="lumina-custom-btn danger"
+          id="lumina-container-delete"
+          style="margin-left:8px"
+        >
+          Loeschen
+        </button>
+
+        <button
+          type="button"
+          class="lumina-custom-btn primary"
+          id="lumina-container-add"
+          style="margin-left:8px"
+        >
+          + Unterma?nahme
+        </button>
+
+      </div>
+
+      <div
+        id="lumina-custom-child-grid"
+        class="lumina-custom-child-grid"
+      >
+      </div>
+    `;
+
+    const childGrid=
+      modal.body.querySelector(
+        '#lumina-custom-child-grid'
+      );
+
+    if(!children.length){
+      childGrid.innerHTML=`
+        <div style="
+          color:#94a3b8;
+          padding:18px;
+          border:1px dashed #d9dee7;
+          border-radius:12px;
+        ">
+          Noch keine Unterma?nahmen vorhanden.
+        </div>
+      `;
+    }else{
+      children.forEach(child=>{
+        const card=
+          luminaCustomCreateStandaloneCard(
+            child,
+            codes.get(child.id)
+          );
+
+        childGrid.appendChild(
+          card
+        );
+      });
+    }
+
+    modal.body
+      .querySelector('#lumina-container-add')
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomOpenNodeForm({
+            anchorCode:node.anchor_code,
+            parentId:node.id
+          });
+        }
+      );
+
+    modal.body
+      .querySelector('#lumina-container-edit')
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomOpenNodeForm({
+            anchorCode:node.anchor_code,
+            parentId:
+              node.parent_custom_node_id,
+            node
+          });
+        }
+      );
+
+    modal.body
+      .querySelector('#lumina-container-delete')
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomDeleteNode(
+            node
+          );
+        }
+      );
+
+  }catch(error){
+    console.error(
+      'Unterstruktur konnte nicht geoeffnet werden:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Unterstruktur konnte nicht geoeffnet werden.',
+      true
+    );
+  }
+}
+
+
+/* ------------------------------------------------------------
+   KACHEL
+   ------------------------------------------------------------ */
+
+function luminaCustomCardClick(node){
+  if(node.node_type==='container'){
+    luminaCustomOpenContainer(
+      node.id
+    );
+  }else{
+    luminaCustomOpenWorkspace(
+      node.id
+    );
+  }
+}
+
+
+function luminaCustomCreateStandaloneCard(
+  node,
+  displayCode
+){
+  const card=
+    document.createElement('div');
+
+  card.className=
+    'lumina-custom-child-card lumina-custom-card';
+
+  luminaCustomFillCard(
+    card,
+    node,
+    displayCode
+  );
+
+  return card;
+}
+
+
+function luminaCustomFillCard(
+  card,
+  node,
+  displayCode
+){
+  card.dataset.luminaCustomNode=
+    node.id;
+
+  card.innerHTML=`
+    <div class="lumina-custom-card-inner">
+
+      <div class="lumina-custom-card-top">
+
+        <span class="lumina-custom-code">
+          ${luminaCustomEsc(displayCode)}
+        </span>
+
+        <span class="lumina-custom-type">
+          ${
+            node.node_type==='container'
+              ? 'Struktur'
+              : 'Arbeitsflaeche'
+          }
+        </span>
+
+        <button
+          type="button"
+          class="lumina-custom-menu"
+          title="Bearbeiten"
+        >
+          \u22ef
+        </button>
+
+      </div>
+
+      <div class="lumina-custom-card-title">
+        ${luminaCustomEsc(node.title)}
+      </div>
+
+      <div class="lumina-custom-card-foot">
+        ${
+          node.node_type==='container'
+            ? 'Weitere Unterma?nahmen'
+            : (
+              node.arbeitshilfe_name
+                ? 'Arbeitshilfe vorhanden'
+                : 'Arbeitsflaeche'
+            )
+        }
+      </div>
+
+    </div>
+  `;
+
+  card.addEventListener(
+    'click',
+    event=>{
+      if(
+        event.target.closest(
+          '.lumina-custom-menu'
+        )
+      ){
+        return;
+      }
+
+      luminaCustomCardClick(
+        node
+      );
+    }
+  );
+
+  card
+    .querySelector(
+      '.lumina-custom-menu'
+    )
+    .addEventListener(
+      'click',
+      event=>{
+        event.preventDefault();
+        event.stopPropagation();
+
+        luminaCustomOpenNodeForm({
+          anchorCode:node.anchor_code,
+          parentId:
+            node.parent_custom_node_id,
+          node
+        });
+      }
+    );
+}
+
+
+/* ------------------------------------------------------------
+   SEITE RENDERN
+   ------------------------------------------------------------ */
+
+function luminaCustomRemovePageNodes(){
+  document
+    .querySelectorAll(
+      '[data-lumina-custom-page-node]'
+    )
+    .forEach(element=>{
+      element.remove();
+    });
+
+  const toolbar=
+    document.getElementById(
+      'lumina-custom-page-toolbar'
+    );
+
+  if(toolbar){
+    toolbar.remove();
+  }
+}
+
+
+async function luminaCustomRefreshPage(force=false){
+  if(luminaCustomRefreshRunning){
+    return;
+  }
+
+  const anchorCode=
+    luminaCustomResolveAnchorCode();
+
+  if(!anchorCode){
+    luminaCustomRemovePageNodes();
+    luminaCustomCurrentAnchor='';
+    return;
+  }
+
+  const grid=
+    luminaCustomFindGrid();
+
+  if(!grid){
+    return;
+  }
+
+  if(
+    !force &&
+    anchorCode===luminaCustomCurrentAnchor &&
+    document.getElementById(
+      'lumina-custom-page-toolbar'
+    )
+  ){
+    return;
+  }
+
+  luminaCustomRefreshRunning=true;
+
+  try{
+    luminaCustomEnsureStyles();
+
+    const nodes=
+      await luminaCustomLoadAnchorNodes(
+        anchorCode
+      );
+
+    const roots=
+      nodes.filter(node=>{
+        return !node.parent_custom_node_id;
+      });
+
+    const codes=
+      luminaCustomBuildCodes(
+        anchorCode,
+        nodes
+      );
+
+    luminaCustomRemovePageNodes();
+
+    /*
+     * + Massnahme direkt ueber dem Kachelraster.
+     */
+    const toolbar=
+      document.createElement('div');
+
+    toolbar.id=
+      'lumina-custom-page-toolbar';
+
+    toolbar.className=
+      'lumina-custom-toolbar';
+
+    toolbar.innerHTML=`
+      <button
+        type="button"
+        class="lumina-custom-add"
+      >
+        + Ma\u00dfnahme
+      </button>
+    `;
+
+    grid.parentElement.insertBefore(
+      toolbar,
+      grid
+    );
+
+    toolbar
+      .querySelector(
+        '.lumina-custom-add'
+      )
+      .addEventListener(
+        'click',
+        ()=>{
+          luminaCustomOpenNodeForm({
+            anchorCode,
+            parentId:null
+          });
+        }
+      );
+
+    /*
+     * Bestehende Kacheln NICHT veraendern.
+     * Neue Kacheln nur hinten anfuegen.
+     */
+    const referenceCard=[
+      ...grid.children
+    ].find(child=>{
+      const rect=
+        child.getBoundingClientRect();
+
+      return (
+        !child.dataset.luminaCustomPageNode &&
+        rect.width>=140 &&
+        rect.width<=400 &&
+        rect.height>=120 &&
+        rect.height<=400
+      );
+    });
+
+    roots.forEach(node=>{
+      let card;
+
+      if(referenceCard){
+        card=
+          document.createElement(
+            referenceCard.tagName||
+            'div'
+          );
+
+        card.className=
+          referenceCard.className;
+      }else{
+        card=
+          document.createElement('div');
+
+        card.className=
+          'lumina-custom-child-card';
+      }
+
+      card.classList.add(
+        'lumina-custom-card'
+      );
+
+      card.dataset.luminaCustomPageNode='1';
+
+      luminaCustomFillCard(
+        card,
+        node,
+        codes.get(node.id)
+      );
+
+      grid.appendChild(card);
+    });
+
+    luminaCustomCurrentAnchor=
+      anchorCode;
+
+  }catch(error){
+    console.error(
+      'Dynamische Massnahmen konnten nicht geladen werden:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Dynamische Massnahmen konnten nicht geladen werden.',
+      true
+    );
+
+  }finally{
+    luminaCustomRefreshRunning=false;
+  }
+}
+
+
+/* ------------------------------------------------------------
+   NAVIGATION
+   ------------------------------------------------------------ */
+
+let luminaCustomLastLocation=
+  window.location.href;
+
+function luminaCustomNavigationCheck(){
+  const anchor=
+    luminaCustomResolveAnchorCode();
+
+  if(
+    anchor!==luminaCustomCurrentAnchor
+  ){
+    luminaCustomCurrentAnchor='';
+
+    setTimeout(
+      ()=>{
+        luminaCustomRefreshPage(
+          true
+        );
+      },
+      40
+    );
+  }
+}
+
+
+/*
+ * Klicks auf LUMINA-Kacheln / Breadcrumbs:
+ * unmittelbar nach der internen Navigation neu pruefen.
+ */
+document.addEventListener(
+  'click',
+  ()=>{
+    setTimeout(
+      luminaCustomNavigationCheck,
+      60
+    );
+
+    setTimeout(
+      luminaCustomNavigationCheck,
+      220
+    );
+  },
+  true
+);
+
+
+/*
+ * Ruhiger Fallback fuer dynamisch neu gebaute Seiten.
+ * Keine DOM-Aenderung, solange sich die Ebene nicht aendert.
+ */
+setInterval(
+  luminaCustomNavigationCheck,
+  900
+);
+
+
+if(document.readyState==='loading'){
+  document.addEventListener(
+    'DOMContentLoaded',
+    ()=>{
+      setTimeout(
+        ()=>{
+          luminaCustomRefreshPage(
+            true
+          );
+        },
+        100
+      );
+    }
+  );
+}else{
+  setTimeout(
+    ()=>{
+      luminaCustomRefreshPage(
+        true
+      );
+    },
+    100
+  );
+}
+
+/* ============================================================
+   ENDE LUMINA DYNAMISCHE MASSNAHMENHIERARCHIE
+   ============================================================ */
+
 async function guidanceDownloadHelper(guide){
   const button=document.getElementById('guide-helper-download');
 
