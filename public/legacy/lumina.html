@@ -7143,13 +7143,25 @@ if(document.readyState==='loading'){
    LUMINA ARBEITSHILFE UPLOAD / ERSETZEN
    ============================================================ */
 
-function luminaResolveWorkAidFolderFromModal(){
+function luminaResolveWorkAidFolderFromButton(button){
+  /*
+   * Wir suchen ausschlie?lich im aktuell ge?ffneten Aufgabenmodal.
+   * Dadurch k?nnen keine Werte aus anderen Bereichen der Seite
+   * versehentlich als Prozessschritt verwendet werden.
+   */
+
   const modal=
-    document.getElementById('task-modal-backdrop')||
-    document.querySelector('.task-modal-backdrop')||
+    button?.closest('.task-modal')||
+    button?.closest('#task-modal-backdrop')||
+    button?.closest('.task-modal-backdrop')||
+    document.querySelector('#task-modal-backdrop.open .task-modal')||
+    document.querySelector('.task-modal-backdrop.open .task-modal')||
     document.querySelector('.task-modal');
 
   if(!modal){
+    console.warn(
+      'LUMINA Upload: aktuelles Aufgabenmodal wurde nicht gefunden.'
+    );
     return '';
   }
 
@@ -7159,28 +7171,69 @@ function luminaResolveWorkAidFolderFromModal(){
     ''
   );
 
-  const segments=modalText.split('?');
+  /*
+   * Text in einzelne W?rter zerlegen.
+   *
+   * Beispiel:
+   *
+   * 3.3.1.1
+   * Nr.
+   * 74
+   * 3.3.
+   * Intercompany-Abstimmung
+   * f?llig
+   * 21.01.2027
+   *
+   * Nur "3.3." hat nach Entfernen des letzten Punktes
+   * exakt zwei numerische Bestandteile.
+   */
+  const tokens=
+    modalText
+      .replace(/?/g,' ')
+      .replace(/\n/g,' ')
+      .split(/\s+/)
+      .map(token=>String(token||'').trim())
+      .filter(Boolean);
 
-  for(const rawSegment of segments){
-    const segment=String(rawSegment||'').trim();
+  const candidates=[];
 
-    if(!segment){
+  for(let token of tokens){
+    /*
+     * Satzzeichen am Anfang/Ende entfernen.
+     * Punkte innerhalb des Wertes bleiben erhalten.
+     */
+    token=token
+      .replace(/^[,;:()[\]{}]+/,'')
+      .replace(/[,;:()[\]{}]+$/,'');
+
+    /*
+     * "3.3." -> "3.3"
+     */
+    while(token.endsWith('.')){
+      token=token.slice(0,-1);
+    }
+
+    const parts=token.split('.');
+
+    /*
+     * Nur genau:
+     *
+     * 3.3
+     * 4.2
+     * 7.0
+     *
+     * akzeptieren.
+     *
+     * Nicht:
+     * 3.3.1.1
+     * 21.01.2027
+     * 10.08.26
+     */
+    if(parts.length!==2){
       continue;
     }
 
-    let firstToken=
-      String(
-        segment.split(/\s+/)[0]||
-        ''
-      ).trim();
-
-    if(firstToken.endsWith('.')){
-      firstToken=firstToken.slice(0,-1);
-    }
-
-    const parts=firstToken.split('.');
-
-    if(parts.length!==2){
+    if(parts[0]==='' || parts[1]===''){
       continue;
     }
 
@@ -7188,20 +7241,118 @@ function luminaResolveWorkAidFolderFromModal(){
     const step=Number(parts[1]);
 
     if(
-      Number.isInteger(phase) &&
-      Number.isInteger(step) &&
-      phase>=1 &&
-      phase<=8 &&
-      step>=0 &&
-      step<=99
+      !Number.isInteger(phase) ||
+      !Number.isInteger(step)
     ){
-      return `${phase}.${step}`;
+      continue;
+    }
+
+    /*
+     * LUMINA hat die Phasen 1 bis 8.
+     */
+    if(
+      phase<1 ||
+      phase>8 ||
+      step<0 ||
+      step>99
+    ){
+      continue;
+    }
+
+    candidates.push(
+      `${phase}.${step}`
+    );
+  }
+
+  /*
+   * Doppelte Treffer entfernen.
+   */
+  const unique=[
+    ...new Set(candidates)
+  ];
+
+  if(unique.length===1){
+    console.log(
+      'LUMINA Upload: Prozessschritt erkannt =',
+      unique[0]
+    );
+
+    return unique[0];
+  }
+
+  /*
+   * Falls mehrere Kandidaten gefunden wurden:
+   * Wir bevorzugen den Wert aus dem Kopfbereich des Modals.
+   */
+  if(unique.length>1){
+    const header=
+      modal.querySelector(
+        '.task-modal-head, .task-modal-header, header'
+      );
+
+    if(header){
+      const headerText=String(
+        header.innerText||
+        header.textContent||
+        ''
+      );
+
+      const headerTokens=
+        headerText
+          .replace(/?/g,' ')
+          .replace(/\n/g,' ')
+          .split(/\s+/)
+          .filter(Boolean);
+
+      for(let token of headerTokens){
+        token=String(token)
+          .trim()
+          .replace(/[,;:()[\]{}]+$/,'');
+
+        while(token.endsWith('.')){
+          token=token.slice(0,-1);
+        }
+
+        const parts=token.split('.');
+
+        if(parts.length!==2){
+          continue;
+        }
+
+        const phase=Number(parts[0]);
+        const step=Number(parts[1]);
+
+        if(
+          Number.isInteger(phase) &&
+          Number.isInteger(step) &&
+          phase>=1 &&
+          phase<=8 &&
+          step>=0 &&
+          step<=99
+        ){
+          const result=`${phase}.${step}`;
+
+          console.log(
+            'LUMINA Upload: Prozessschritt aus Kopf erkannt =',
+            result
+          );
+
+          return result;
+        }
+      }
     }
   }
 
+  console.warn(
+    'LUMINA Upload: Prozessschritt konnte nicht eindeutig bestimmt werden.',
+    {
+      candidates:unique,
+      modalText:modalText.slice(0,500)
+    }
+  );
+
   return '';
 }
-
 
 async function luminaWorkAidListFiles(bucket,folder){
   const {data,error}=await luminaDb.storage
@@ -7354,7 +7505,7 @@ async function luminaUploadOrReplaceWorkAid(file,button){
     }
 
     const folder=
-      luminaResolveWorkAidFolderFromModal();
+      luminaResolveWorkAidFolderFromButton(button);
 
     if(!folder){
       throw new Error(
