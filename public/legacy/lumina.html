@@ -5239,10 +5239,17 @@ async function guidanceDownloadHelper(guide){
 
     let folder='';
 
-    // 1. Kachelordner aus vorhandenem Storage-Pfad ermitteln.
-    // Unterst?tzt z.B.:
-    // 4.2/Datei.xlsx
-    // templates/3.12/Datei.xlsx
+    /*
+     * 1. Vorhandenen Storage-Pfad auswerten.
+     *
+     * Beispiele:
+     * 4.2/Datei.xlsx
+     * templates/3.12/Datei.xlsx
+     *
+     * Ergebnis:
+     * 4.2
+     * 3.12
+     */
     if(guide?.arbeitshilfe_storage_path){
       const pathParts=String(guide.arbeitshilfe_storage_path)
         .split('/')
@@ -5256,7 +5263,9 @@ async function guidanceDownloadHelper(guide){
       }
     }
 
-    // 2. Kachelcode aus m?glichen Guide-Feldern ermitteln.
+    /*
+     * 2. Kachelcode aus bekannten Guide-Feldern lesen.
+     */
     if(!folder){
       const candidates=[
         guide?.code,
@@ -5272,8 +5281,17 @@ async function guidanceDownloadHelper(guide){
       for(const candidate of candidates){
         if(!candidate) continue;
 
-        const match=String(candidate).match(
-          /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9]|$)/
+        const value=String(candidate).trim();
+
+        // Exakte Kachelkennung wie 3.12 oder 4.2
+        if(/^\d+\.\d+$/.test(value)){
+          folder=value;
+          break;
+        }
+
+        // Kachelkennung innerhalb eines Textfeldes.
+        const match=value.match(
+          /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9.]|$)/
         );
 
         if(match){
@@ -5283,7 +5301,19 @@ async function guidanceDownloadHelper(guide){
       }
     }
 
-    // 3. Fallback: Kachelcode aus dem aktuell ge?ffneten Modal lesen.
+    /*
+     * 3. Fallback aus dem ge?ffneten Modal.
+     *
+     * Wichtig:
+     * Wir suchen NICHT mehr irgendeine Zahl wie 10.08.
+     *
+     * Stattdessen suchen wir gezielt die sichtbare
+     * Prozessschritt-Struktur:
+     *
+     * "? 3.12. Vorbereitung R?ckstellungen"
+     *
+     * Dadurch werden Datumsangaben ignoriert.
+     */
     if(!folder){
       const modal=document.getElementById('task-modal-side');
 
@@ -5294,15 +5324,18 @@ async function guidanceDownloadHelper(guide){
           ''
         );
 
-        const matches=[
-          ...modalText.matchAll(
-            /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9]|$)/g
-          )
-        ];
+        let match=modalText.match(
+          /?\s*(\d+\.\d+)\.\s+[A-Za-z???????]/
+        );
 
-        if(matches.length){
-          // Bevorzugt den letzten gefundenen Prozessschritt.
-          folder=matches[matches.length-1][1];
+        if(!match){
+          match=modalText.match(
+            /(?:^|\s)(\d+\.\d+)\.\s+[A-Za-z???????][A-Za-z???????\- ]+/m
+          );
+        }
+
+        if(match){
+          folder=match[1];
         }
       }
     }
@@ -5314,11 +5347,13 @@ async function guidanceDownloadHelper(guide){
     }
 
     console.log(
-      'LUMINA Arbeitshilfe: verwende Ordner',
+      'LUMINA Arbeitshilfe: verwende Prozessschritt-Ordner',
       folder
     );
 
-    // Aktuellen Inhalt dieses Supabase-Ordners lesen.
+    /*
+     * 4. Aktuellen Inhalt des Supabase-Kachelordners lesen.
+     */
     const {data:items,error:listError}=await luminaDb.storage
       .from(bucket)
       .list(folder,{
@@ -5334,7 +5369,9 @@ async function guidanceDownloadHelper(guide){
       throw listError;
     }
 
-    // Nur echte Dateien ber?cksichtigen.
+    /*
+     * 5. Nur echte Dateien ber?cksichtigen.
+     */
     const files=(items||[]).filter(item=>{
       if(!item) return false;
       if(!item.name) return false;
@@ -5355,6 +5392,10 @@ async function guidanceDownloadHelper(guide){
       );
     }
 
+    /*
+     * 6. Die tats?chlich vorhandene Datei verwenden.
+     * Der Dateiname ist damit nicht mehr fest verdrahtet.
+     */
     const currentFile=files[0];
 
     const storagePath=`${folder}/${currentFile.name}`;
@@ -5366,7 +5407,9 @@ async function guidanceDownloadHelper(guide){
       storagePath
     );
 
-    // Datei immer frisch laden.
+    /*
+     * 7. Datei frisch aus Supabase laden.
+     */
     const {data,error}=await luminaDb.storage
       .from(bucket)
       .download(
@@ -5385,6 +5428,9 @@ async function guidanceDownloadHelper(guide){
       );
     }
 
+    /*
+     * 8. Originaldatei mit ihrem tats?chlichen Namen herunterladen.
+     */
     guidanceDownloadBlob(data,fileName);
 
     showTopNote(
