@@ -9816,6 +9816,864 @@ if(document.readyState==='loading'){
    ENDE LUMINA STRUKTUREN & MAPPING BIBLIOTHEK
    ============================================================ */
 
+
+/* ============================================================
+   LUMINA PHASE 2 - ARBEITSHILFEN AUF PROZESSSCHRITT-EBENE
+   Nur fuer 2.0 / 2.1 / 2.2 / 2.4
+   Bestehende Kacheln bleiben unveraendert.
+   ============================================================ */
+
+const LUMINA_PHASE2_PARENT_WORKAIDS={
+  '2.0':{
+    title:'Projektplanungs-Checkliste',
+    typeLabel:'Excel-Vorlage',
+    fields:[
+      'Zeitplan festgelegt',
+      'Rollen abgestimmt',
+      'Pruefungsfahrplan abgestimmt',
+      'Massnahmenliste erstellt',
+      'Ressourcen geplant',
+      'Kick-off durchgefuehrt',
+      'Projektplan freigegeben'
+    ]
+  },
+
+  '2.1':{
+    title:'Abschlusskalender / Meilensteinplan',
+    typeLabel:'Excel-Vorlage',
+    fields:[
+      'Meilenstein',
+      'Termin',
+      'Verantwortlich',
+      'Abhaengigkeit',
+      'Status',
+      'Kommentar'
+    ]
+  },
+
+  '2.2':{
+    title:'RACI-Matrix Rollen & Verantwortlichkeiten',
+    typeLabel:'Excel-Vorlage',
+    fields:[
+      'Aufgabe / Prozess',
+      'Rolle',
+      'Responsible',
+      'Accountable',
+      'Consulted',
+      'Informed',
+      'Stellvertretung'
+    ]
+  },
+
+  '2.4':{
+    title:'Massnahmen- und Aufgabenliste',
+    typeLabel:'Excel-Vorlage',
+    fields:[
+      'Massnahme / Aufgabe',
+      'Verantwortlich',
+      'Faelligkeit',
+      'Prioritaet',
+      'Status',
+      'Abhaengigkeit',
+      'Kommentar'
+    ]
+  }
+};
+
+
+function luminaPhase2ResolveCurrentCode(){
+  /*
+   * Breadcrumb / Seitenkopf auslesen.
+   *
+   * Beispiele:
+   * 2.0 Projektplanung & Kick-off allgemein
+   * 2.1 Festlegung Zeitplan Abschluss
+   * 2.2 Definition Rollen & Verantwortlichkeiten
+   * 2.4 Erstellung Massnahmen-/Aufgabenliste
+   */
+
+  const pageText=String(
+    document.body.innerText||
+    document.body.textContent||
+    ''
+  );
+
+  const candidates=[
+    '2.0',
+    '2.1',
+    '2.2',
+    '2.4'
+  ];
+
+  for(const code of candidates){
+    const patterns=[
+      `${code}. `,
+      `${code} `,
+      `/ ${code}.`,
+      `/ ${code} `
+    ];
+
+    if(
+      patterns.some(
+        pattern=>pageText.includes(pattern)
+      )
+    ){
+      return code;
+    }
+  }
+
+  return '';
+}
+
+
+function luminaPhase2FindContentHost(){
+  /*
+   * Der Arbeitshilfen-Bereich soll UNTER den bestehenden
+   * kleinen Kacheln erscheinen.
+   */
+
+  const pageCode=
+    luminaPhase2ResolveCurrentCode();
+
+  if(!pageCode){
+    return null;
+  }
+
+  /*
+   * Wir suchen die sichtbaren kleinen Kacheln.
+   */
+  const cards=[
+    ...document.querySelectorAll(
+      '.task-card, .step-card, .subtask-card, .activity-card, [class*="card"]'
+    )
+  ].filter(element=>{
+    if(!element.offsetParent){
+      return false;
+    }
+
+    const rect=
+      element.getBoundingClientRect();
+
+    return (
+      rect.width>140 &&
+      rect.height>120 &&
+      rect.width<500 &&
+      rect.height<500
+    );
+  });
+
+  /*
+   * Gemeinsamen Container der sichtbaren Kacheln finden.
+   */
+  if(cards.length){
+    const first=cards[0];
+
+    let parent=first.parentElement;
+
+    while(
+      parent &&
+      parent!==document.body
+    ){
+      const matchingChildren=[
+        ...parent.children
+      ].filter(child=>{
+        if(!child.offsetParent){
+          return false;
+        }
+
+        const rect=
+          child.getBoundingClientRect();
+
+        return (
+          rect.width>140 &&
+          rect.height>120
+        );
+      });
+
+      if(matchingChildren.length>=2){
+        return parent;
+      }
+
+      parent=parent.parentElement;
+    }
+  }
+
+  /*
+   * Fallback:
+   * Breadcrumb / Prozessbeschreibung als Ausgangspunkt.
+   */
+  const textElements=[
+    ...document.querySelectorAll(
+      'div, section, main'
+    )
+  ];
+
+  const breadcrumbContainer=
+    textElements.find(element=>{
+      const content=
+        String(
+          element.textContent||
+          ''
+        );
+
+      return (
+        content.includes(
+          'Jahresabschlussprozess'
+        ) &&
+        content.includes(
+          pageCode
+        ) &&
+        content.length<1200
+      );
+    });
+
+  return breadcrumbContainer||null;
+}
+
+
+async function luminaPhase2ListFiles(code){
+  const bucket='lumina-templates';
+
+  const {data,error}=
+    await luminaDb.storage
+      .from(bucket)
+      .list(
+        code,
+        {
+          limit:100,
+          offset:0,
+          sortBy:{
+            column:'name',
+            order:'asc'
+          }
+        }
+      );
+
+  if(error){
+    throw error;
+  }
+
+  return (data||[]).filter(item=>{
+    if(!item?.name){
+      return false;
+    }
+
+    if(
+      item.name===
+      '.emptyFolderPlaceholder'
+    ){
+      return false;
+    }
+
+    if(!item.id&&!item.metadata){
+      return false;
+    }
+
+    return true;
+  });
+}
+
+
+async function luminaPhase2Download(code){
+  const bucket='lumina-templates';
+
+  try{
+    const files=
+      await luminaPhase2ListFiles(
+        code
+      );
+
+    if(!files.length){
+      throw new Error(
+        `Fuer ${code} wurde noch keine Arbeitshilfe hinterlegt.`
+      );
+    }
+
+    /*
+     * Wie bei den uebrigen Arbeitshilfen:
+     * genau die aktuell vorhandene Datei verwenden.
+     */
+    const file=files[0];
+
+    const storagePath=
+      `${code}/${file.name}`;
+
+    const {data,error}=
+      await luminaDb.storage
+        .from(bucket)
+        .download(
+          storagePath,
+          {
+            cacheNonce:
+              Date.now().toString()
+          },
+          {
+            cache:'no-store'
+          }
+        );
+
+    if(error){
+      throw error;
+    }
+
+    if(!data){
+      throw new Error(
+        'Keine Dateidaten erhalten.'
+      );
+    }
+
+    guidanceDownloadBlob(
+      data,
+      file.name
+    );
+
+    showTopNote(
+      `Arbeitshilfe ${code} wurde heruntergeladen.`
+    );
+
+  }catch(error){
+    console.error(
+      'Phase-2-Arbeitshilfe Download fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Arbeitshilfe konnte nicht heruntergeladen werden.',
+      true
+    );
+  }
+}
+
+
+function luminaPhase2ChooseUpload(code){
+  const input=
+    document.createElement('input');
+
+  input.type='file';
+
+  input.accept=
+    '.xlsx,.xls,.xlsm,.xlsb,.docx,.doc,.pdf,.csv,.txt';
+
+  input.style.display='none';
+
+  input.onchange=async()=>{
+    const file=
+      input.files?.[0];
+
+    input.remove();
+
+    if(!file){
+      return;
+    }
+
+    await luminaPhase2Upload(
+      code,
+      file
+    );
+  };
+
+  document.body.appendChild(
+    input
+  );
+
+  input.click();
+}
+
+
+async function luminaPhase2Upload(code,file){
+  const bucket='lumina-templates';
+
+  try{
+    const files=
+      await luminaPhase2ListFiles(
+        code
+      );
+
+    const existingText=
+      files.length
+        ? files
+            .map(item=>item.name)
+            .join('\n')
+        : 'Keine';
+
+    const confirmed=
+      window.confirm(
+        `Arbeitshilfe ${code}\n\n`+
+        `Aktuell vorhanden:\n${existingText}\n\n`+
+        `Neue Datei:\n${file.name}\n\n`+
+        `Die neue Datei wird zuerst hochgeladen und geprueft.\n`+
+        `Erst danach werden alte Arbeitshilfen entfernt.\n\n`+
+        `Fortfahren?`
+      );
+
+    if(!confirmed){
+      return;
+    }
+
+    const targetPath=
+      `${code}/${file.name}`;
+
+    /*
+     * Neue Datei zuerst speichern.
+     */
+    const sameFile=
+      files.find(
+        item=>item.name===file.name
+      );
+
+    if(sameFile){
+      const {error:updateError}=
+        await luminaDb.storage
+          .from(bucket)
+          .update(
+            targetPath,
+            file,
+            {
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
+
+      if(updateError){
+        throw updateError;
+      }
+
+    }else{
+      const {error:uploadError}=
+        await luminaDb.storage
+          .from(bucket)
+          .upload(
+            targetPath,
+            file,
+            {
+              upsert:true,
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
+
+      if(uploadError){
+        throw uploadError;
+      }
+    }
+
+    /*
+     * Neue Datei pruefen.
+     */
+    const {data:info,error:infoError}=
+      await luminaDb.storage
+        .from(bucket)
+        .info(
+          targetPath
+        );
+
+    if(infoError){
+      throw infoError;
+    }
+
+    if(!info){
+      throw new Error(
+        'Die neue Arbeitshilfe konnte nach dem Upload nicht verifiziert werden.'
+      );
+    }
+
+    /*
+     * Alte Dateien erst danach entfernen.
+     */
+    const obsoletePaths=
+      files
+        .filter(
+          item=>item.name!==file.name
+        )
+        .map(
+          item=>`${code}/${item.name}`
+        );
+
+    if(obsoletePaths.length){
+      const {error:removeError}=
+        await luminaDb.storage
+          .from(bucket)
+          .remove(
+            obsoletePaths
+          );
+
+      if(removeError){
+        throw removeError;
+      }
+    }
+
+    showTopNote(
+      `Arbeitshilfe ${code}: "${file.name}" wurde gespeichert.`
+    );
+
+    await luminaRenderPhase2ParentWorkAid();
+
+  }catch(error){
+    console.error(
+      'Phase-2-Arbeitshilfe Upload fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Arbeitshilfe konnte nicht gespeichert werden.',
+      true
+    );
+  }
+}
+
+
+function luminaPhase2EnsureStyles(){
+  if(
+    document.getElementById(
+      'lumina-phase2-parent-workaid-style'
+    )
+  ){
+    return;
+  }
+
+  const style=
+    document.createElement('style');
+
+  style.id=
+    'lumina-phase2-parent-workaid-style';
+
+  style.textContent=`
+    .lumina-phase2-parent-workaid{
+      margin-top:28px;
+      margin-bottom:28px;
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      background:#fff;
+      padding:20px 22px;
+      max-width:900px;
+    }
+
+    .lumina-phase2-workaid-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:20px;
+      margin-bottom:14px;
+    }
+
+    .lumina-phase2-workaid-title{
+      margin:0 0 4px;
+      font-size:16px;
+      font-weight:800;
+      color:#111827;
+    }
+
+    .lumina-phase2-workaid-type{
+      font-size:11px;
+      color:#94a3b8;
+      white-space:nowrap;
+    }
+
+    .lumina-phase2-workaid-file{
+      margin-top:4px;
+      color:#64748b;
+      font-size:12px;
+    }
+
+    .lumina-phase2-workaid-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin:15px 0 16px;
+    }
+
+    .lumina-phase2-workaid-download,
+    .lumina-phase2-workaid-upload{
+      appearance:none;
+      border-radius:9px;
+      padding:9px 13px;
+      font-size:12px;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    .lumina-phase2-workaid-download{
+      border:0;
+      background:#35a77c;
+      color:#fff;
+    }
+
+    .lumina-phase2-workaid-upload{
+      border:1px solid #35a77c;
+      background:#fff;
+      color:#258565;
+    }
+
+    .lumina-phase2-workaid-fields-title{
+      margin-top:5px;
+      margin-bottom:8px;
+      font-size:10px;
+      color:#94a3b8;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    .lumina-phase2-workaid-fields{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+
+    .lumina-phase2-workaid-field{
+      padding:5px 9px;
+      border-radius:999px;
+      background:#f1f5f9;
+      color:#64748b;
+      font-size:11px;
+    }
+
+    @media(max-width:800px){
+      .lumina-phase2-workaid-head{
+        flex-direction:column;
+      }
+
+      .lumina-phase2-parent-workaid{
+        max-width:none;
+      }
+    }
+  `;
+
+  document.head.appendChild(
+    style
+  );
+}
+
+
+async function luminaRenderPhase2ParentWorkAid(){
+  const code=
+    luminaPhase2ResolveCurrentCode();
+
+  /*
+   * Nur fuer die vier explizit gewuenschten Prozessschritte.
+   */
+  if(
+    !code ||
+    !LUMINA_PHASE2_PARENT_WORKAIDS[code]
+  ){
+    const old=
+      document.getElementById(
+        'lumina-phase2-parent-workaid'
+      );
+
+    if(old){
+      old.remove();
+    }
+
+    return;
+  }
+
+  const host=
+    luminaPhase2FindContentHost();
+
+  if(!host){
+    return;
+  }
+
+  luminaPhase2EnsureStyles();
+
+  const config=
+    LUMINA_PHASE2_PARENT_WORKAIDS[code];
+
+  let files=[];
+
+  try{
+    files=
+      await luminaPhase2ListFiles(
+        code
+      );
+  }catch(error){
+    console.warn(
+      'Phase-2-Dateiliste konnte nicht gelesen werden:',
+      error
+    );
+  }
+
+  let box=
+    document.getElementById(
+      'lumina-phase2-parent-workaid'
+    );
+
+  if(!box){
+    box=
+      document.createElement('section');
+
+    box.id=
+      'lumina-phase2-parent-workaid';
+
+    box.className=
+      'lumina-phase2-parent-workaid';
+
+    /*
+     * Direkt NACH dem Kachelcontainer.
+     */
+    host.insertAdjacentElement(
+      'afterend',
+      box
+    );
+  }
+
+  const currentFile=
+    files.length
+      ? files[0].name
+      : '';
+
+  box.innerHTML=`
+    <div class="lumina-phase2-workaid-head">
+      <div>
+        <div class="lumina-phase2-workaid-title">
+          Arbeitshilfe: ${luminaStructureEscape(config.title)}
+        </div>
+
+        <div class="lumina-phase2-workaid-file">
+          ${
+            currentFile
+              ? `Aktuell: ${luminaStructureEscape(currentFile)}`
+              : 'Noch keine Datei hinterlegt'
+          }
+        </div>
+      </div>
+
+      <div class="lumina-phase2-workaid-type">
+        ${luminaStructureEscape(config.typeLabel)}
+      </div>
+    </div>
+
+    <div class="lumina-phase2-workaid-actions">
+      <button
+        type="button"
+        class="lumina-phase2-workaid-download"
+        ${currentFile ? '' : 'disabled'}
+      >
+        Arbeitshilfe herunterladen
+      </button>
+
+      <button
+        type="button"
+        class="lumina-phase2-workaid-upload"
+      >
+        ${
+          currentFile
+            ? 'Datei ersetzen'
+            : 'Datei hochladen'
+        }
+      </button>
+    </div>
+
+    <div class="lumina-phase2-workaid-fields-title">
+      Spalten / Inhalte der Vorlage
+    </div>
+
+    <div class="lumina-phase2-workaid-fields">
+      ${
+        config.fields
+          .map(
+            field=>`
+              <span class="lumina-phase2-workaid-field">
+                ${luminaStructureEscape(field)}
+              </span>
+            `
+          )
+          .join('')
+      }
+    </div>
+  `;
+
+  const downloadButton=
+    box.querySelector(
+      '.lumina-phase2-workaid-download'
+    );
+
+  const uploadButton=
+    box.querySelector(
+      '.lumina-phase2-workaid-upload'
+    );
+
+  if(downloadButton){
+    downloadButton.addEventListener(
+      'click',
+      ()=>{
+        luminaPhase2Download(
+          code
+        );
+      }
+    );
+  }
+
+  if(uploadButton){
+    uploadButton.addEventListener(
+      'click',
+      ()=>{
+        luminaPhase2ChooseUpload(
+          code
+        );
+      }
+    );
+  }
+}
+
+
+/*
+ * Die Ebene wird dynamisch gerendert.
+ * Deshalb bei DOM-Aenderungen pruefen,
+ * ob eine der vier Phase-2-Seiten aktiv ist.
+ */
+let luminaPhase2RenderTimer=null;
+
+const luminaPhase2ParentObserver=
+  new MutationObserver(()=>{
+    clearTimeout(
+      luminaPhase2RenderTimer
+    );
+
+    luminaPhase2RenderTimer=
+      setTimeout(
+        luminaRenderPhase2ParentWorkAid,
+        250
+      );
+  });
+
+luminaPhase2ParentObserver.observe(
+  document.documentElement,
+  {
+    childList:true,
+    subtree:true
+  }
+);
+
+
+if(document.readyState==='loading'){
+  document.addEventListener(
+    'DOMContentLoaded',
+    ()=>{
+      setTimeout(
+        luminaRenderPhase2ParentWorkAid,
+        500
+      );
+    }
+  );
+}else{
+  setTimeout(
+    luminaRenderPhase2ParentWorkAid,
+    500
+  );
+}
+
+/* ============================================================
+   ENDE LUMINA PHASE 2 - ARBEITSHILFEN
+   ============================================================ */
+
 async function guidanceDownloadHelper(guide){
   const button=document.getElementById('guide-helper-download');
 
