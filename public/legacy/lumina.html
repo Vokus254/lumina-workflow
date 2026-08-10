@@ -9883,48 +9883,89 @@ const LUMINA_PHASE2_PARENT_WORKAIDS={
 
 function luminaPhase2ResolveCurrentCode(){
   /*
-   * Breadcrumb / Seitenkopf auslesen.
+   * WICHTIG:
+   * NICHT mehr document.body durchsuchen.
    *
-   * Beispiele:
-   * 2.0 Projektplanung & Kick-off allgemein
-   * 2.1 Festlegung Zeitplan Abschluss
-   * 2.2 Definition Rollen & Verantwortlichkeiten
-   * 2.4 Erstellung Massnahmen-/Aufgabenliste
+   * Dort k?nnen alte/unsichtbare Inhalte anderer Ebenen stehen
+   * und f?lschlich 2.0 / 2.1 usw. erkannt werden.
+   *
+   * Wir verwenden ausschlie?lich die sichtbare Breadcrumb-
+   * bzw. Prozess?berschrift.
    */
 
-  const pageText=String(
-    document.body.innerText||
-    document.body.textContent||
-    ''
-  );
-
-  const candidates=[
+  const allowed=[
     '2.0',
     '2.1',
     '2.2',
     '2.4'
   ];
 
-  for(const code of candidates){
-    const patterns=[
-      `${code}. `,
-      `${code} `,
-      `/ ${code}.`,
-      `/ ${code} `
-    ];
+  const elements=[
+    ...document.querySelectorAll(
+      'div,span,p,h1,h2,h3'
+    )
+  ].filter(element=>{
+    if(!element.offsetParent){
+      return false;
+    }
 
-    if(
-      patterns.some(
-        pattern=>pageText.includes(pattern)
-      )
-    ){
-      return code;
+    const text=
+      String(
+        element.innerText||
+        element.textContent||
+        ''
+      ).trim();
+
+    /*
+     * Die Breadcrumb-Zeile enth?lt bei LUMINA:
+     *
+     * Jahresabschlussprozess / 2. Projektplanung & Kick-off /
+     * 2.2. Definition Rollen & Verantwortlichkeiten
+     */
+    return (
+      text.includes('Jahresabschlussprozess') &&
+      text.includes('Projektplanung & Kick-off') &&
+      text.length<500
+    );
+  });
+
+  /*
+   * Kleinsten passenden sichtbaren Container bevorzugen.
+   */
+  elements.sort((a,b)=>{
+    const at=
+      String(a.innerText||a.textContent||'').length;
+
+    const bt=
+      String(b.innerText||b.textContent||'').length;
+
+    return at-bt;
+  });
+
+  for(const element of elements){
+    const value=
+      String(
+        element.innerText||
+        element.textContent||
+        ''
+      );
+
+    for(const code of allowed){
+      /*
+       * z.B.:
+       * / 2.2. Definition ...
+       */
+      if(
+        value.includes(`/ ${code}.`) ||
+        value.includes(`/ ${code} `)
+      ){
+        return code;
+      }
     }
   }
 
   return '';
 }
-
 
 function luminaPhase2FindContentHost(){
   /*
@@ -10831,7 +10872,7 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
 let luminaPhase2LastDetectedCode='';
 
 
-function luminaPhase2ImmediateCheck(){
+function luminaPhase2CheckPage(){
   const code=
     luminaPhase2ResolveCurrentCode();
 
@@ -10841,8 +10882,25 @@ function luminaPhase2ImmediateCheck(){
     );
 
   /*
-   * Prozessschritt gewechselt:
-   * sofort rendern.
+   * Au?erhalb unserer vier speziellen Seiten:
+   * absolut nichts tun.
+   *
+   * Eine eventuell noch vorhandene alte Zusatzkachel
+   * wird nur entfernt.
+   */
+  if(!code){
+    if(card){
+      card.remove();
+    }
+
+    luminaPhase2LastDetectedCode='';
+    luminaPhase2LastSignature='';
+
+    return;
+  }
+
+  /*
+   * Nur bei tats?chlichem Wechsel innerhalb Phase 2 rendern.
    */
   if(
     code!==luminaPhase2LastDetectedCode
@@ -10860,14 +10918,10 @@ function luminaPhase2ImmediateCheck(){
   }
 
   /*
-   * Aktive Phase-2-Seite, aber Kachel fehlt:
-   * sofort nachsetzen.
+   * Falls LUMINA sein Kachelraster selbst neu aufgebaut hat
+   * und dadurch unsere Zusatzkachel verschwunden ist.
    */
-  if(
-    code &&
-    LUMINA_PHASE2_PARENT_WORKAIDS[code] &&
-    !card
-  ){
+  if(!card){
     luminaRenderPhase2ParentWorkAid(
       true
     );
@@ -10876,32 +10930,26 @@ function luminaPhase2ImmediateCheck(){
 
 
 /*
- * 80 ms statt bisher 1.200 ms.
+ * Ruhige Pr?fung.
  *
- * Das ist fuer den Nutzer praktisch unmittelbar,
- * verursacht aber keine DOM-Schleife, weil nur dann
- * gerendert wird, wenn Code oder Kachelstatus sich aendern.
+ * Kein 80-ms-Dauerfeuer mehr.
  */
-setInterval(
-  luminaPhase2ImmediateCheck,
-  80
-);
+const luminaPhase2PageTimer=
+  setInterval(
+    luminaPhase2CheckPage,
+    750
+  );
 
-
-/*
- * Bereits unmittelbar beim Laden pruefen.
- */
-luminaPhase2ImmediateCheck();
 
 if(document.readyState==='loading'){
   document.addEventListener(
     'DOMContentLoaded',
     ()=>{
-      luminaPhase2ImmediateCheck();
+      luminaPhase2CheckPage();
     }
   );
 }else{
-  luminaPhase2ImmediateCheck();
+  luminaPhase2CheckPage();
 }
 
 /* ============================================================
