@@ -10520,10 +10520,6 @@ let luminaPhase2LastSignature='';
 
 
 async function luminaRenderPhase2ParentWorkAid(force=false){
-  if(luminaPhase2RenderRunning){
-    return;
-  }
-
   const code=
     luminaPhase2ResolveCurrentCode();
 
@@ -10557,17 +10553,11 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
   const config=
     LUMINA_PHASE2_PARENT_WORKAIDS[code];
 
-  let card=
-    document.getElementById(
-      'lumina-phase2-parent-workaid'
-    );
-
   /*
-   * ---------------------------------------------------------
-   * REFERENZKACHEL SUCHEN
-   * ---------------------------------------------------------
+   * ==========================================================
+   * REFERENZKACHEL
+   * ==========================================================
    */
-
   const referenceCard=[
     ...grid.children
   ].find(child=>{
@@ -10593,15 +10583,14 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     return;
   }
 
-  /*
-   * ---------------------------------------------------------
-   * KACHEL SOFORT ANZEIGEN
-   *
-   * WICHTIG:
-   * Hier findet NOCH KEINE Supabase-Abfrage statt.
-   * ---------------------------------------------------------
-   */
+  let card=
+    document.getElementById(
+      'lumina-phase2-parent-workaid'
+    );
 
+  /*
+   * Falsch platzierte alte Kachel entfernen.
+   */
   if(
     card &&
     card.parentElement!==grid
@@ -10610,6 +10599,11 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     card=null;
   }
 
+  /*
+   * ==========================================================
+   * KACHEL SOFORT ERZEUGEN
+   * ==========================================================
+   */
   if(!card){
     card=
       document.createElement(
@@ -10627,9 +10621,6 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
       'lumina-phase2-workaid-card'
     );
 
-    /*
-     * Sofort ganz links vor die bestehenden Kacheln.
-     */
     grid.insertBefore(
       card,
       grid.firstElementChild
@@ -10637,12 +10628,13 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
   }
 
   /*
-   * Sofortiger Platzhalter.
+   * ==========================================================
+   * KOMPLETTE OBERFLAECHE SOFORT ANZEIGEN
    *
-   * Dadurch erscheint die Kachel gleichzeitig mit
-   * den bestehenden Prozesskacheln.
+   * Keine Supabase-Abfrage abwarten.
+   * Titel, Buttons und Layout sind sofort vorhanden.
+   * ==========================================================
    */
-
   if(
     force ||
     card.dataset.luminaCode!==code
@@ -10660,143 +10652,11 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
           ${luminaStructureEscape(config.title)}
         </div>
 
-        <div class="lumina-p2-wa-file">
-          Arbeitshilfe wird geladen ...
-        </div>
-
-        <div class="lumina-p2-wa-actions">
-
-          <button
-            type="button"
-            class="lumina-p2-wa-download"
-            disabled
-          >
-            Herunterladen
-          </button>
-
-          <button
-            type="button"
-            class="lumina-p2-wa-upload"
-          >
-            Datei hochladen
-          </button>
-
-        </div>
-      </div>
-    `;
-  }
-
-  /*
-   * Upload funktioniert bereits sofort,
-   * auch waehrend Supabase noch gelesen wird.
-   */
-  const earlyUploadButton=
-    card.querySelector(
-      '.lumina-p2-wa-upload'
-    );
-
-  if(
-    earlyUploadButton &&
-    !earlyUploadButton.dataset.listenerInstalled
-  ){
-    earlyUploadButton.dataset.listenerInstalled='1';
-
-    earlyUploadButton.addEventListener(
-      'click',
-      event=>{
-        event.preventDefault();
-        event.stopPropagation();
-
-        luminaPhase2ChooseUpload(
-          code
-        );
-      }
-    );
-  }
-
-  /*
-   * ---------------------------------------------------------
-   * AB HIER ERST SUPABASE
-   * ---------------------------------------------------------
-   */
-
-  luminaPhase2RenderRunning=true;
-
-  try{
-    let files=[];
-
-    try{
-      files=
-        await luminaPhase2ListFiles(
-          code
-        );
-    }catch(error){
-      console.warn(
-        'Phase-2-Dateiliste konnte nicht gelesen werden:',
-        error
-      );
-
-      /*
-       * Die Kachel bleibt trotzdem sichtbar.
-       */
-      const fileLabel=
-        card.querySelector(
-          '.lumina-p2-wa-file'
-        );
-
-      if(fileLabel){
-        fileLabel.textContent=
-          'Dateistatus derzeit nicht abrufbar';
-      }
-
-      return;
-    }
-
-    /*
-     * Falls der Nutzer inzwischen auf einen anderen
-     * Prozessschritt gewechselt hat, nichts mehr aktualisieren.
-     */
-    if(
-      card.dataset.luminaCode!==code
-    ){
-      return;
-    }
-
-    const currentFile=
-      files.length
-        ? files[0].name
-        : '';
-
-    const signature=
-      `${code}|${currentFile}|${config.title}`;
-
-    /*
-     * Inhalt jetzt mit echtem Dateistatus aktualisieren.
-     */
-    card.innerHTML=`
-      <div class="lumina-p2-wa-inner">
-
-        <div class="lumina-p2-wa-badge">
-          Arbeitshilfe
-        </div>
-
-        <div class="lumina-p2-wa-title">
-          ${luminaStructureEscape(config.title)}
-        </div>
-
         <div
           class="lumina-p2-wa-file"
-          title="${
-            currentFile
-              ? luminaStructureEscape(currentFile)
-              : 'Noch keine Datei hinterlegt'
-          }"
+          title="Aktuelle Datei wird ermittelt"
         >
-          ${
-            currentFile
-              ? luminaStructureEscape(currentFile)
-              : 'Noch keine Datei hinterlegt'
-          }
+          Aktuelle Datei wird ermittelt ...
         </div>
 
         <div class="lumina-p2-wa-actions">
@@ -10804,7 +10664,6 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
           <button
             type="button"
             class="lumina-p2-wa-download"
-            ${currentFile ? '' : 'disabled'}
           >
             Herunterladen
           </button>
@@ -10813,17 +10672,20 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
             type="button"
             class="lumina-p2-wa-upload"
           >
-            ${
-              currentFile
-                ? 'Datei ersetzen'
-                : 'Datei hochladen'
-            }
+            Datei ersetzen
           </button>
 
         </div>
+
       </div>
     `;
 
+    /*
+     * Download funktioniert SOFORT.
+     *
+     * luminaPhase2Download() liest beim Klick ohnehin
+     * die aktuell vorhandene Datei aus Supabase.
+     */
     const downloadButton=
       card.querySelector(
         '.lumina-p2-wa-download'
@@ -10841,11 +10703,9 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
           event.preventDefault();
           event.stopPropagation();
 
-          if(currentFile){
-            luminaPhase2Download(
-              code
-            );
-          }
+          luminaPhase2Download(
+            code
+          );
         }
       );
     }
@@ -10863,12 +10723,94 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
         }
       );
     }
+  }
+
+  /*
+   * ==========================================================
+   * NUR DATEINAME IM HINTERGRUND AKTUALISIEREN
+   *
+   * Die Kachel wird NICHT mehr neu aufgebaut.
+   * Die Buttons werden NICHT ersetzt.
+   * Es gibt daher kein sichtbares Nachladen mehr.
+   * ==========================================================
+   */
+
+  const fileLabel=
+    card.querySelector(
+      '.lumina-p2-wa-file'
+    );
+
+  try{
+    const files=
+      await luminaPhase2ListFiles(
+        code
+      );
+
+    /*
+     * Nutzer koennte inzwischen die Seite gewechselt haben.
+     */
+    if(
+      card.dataset.luminaCode!==code
+    ){
+      return;
+    }
+
+    const currentFile=
+      files.length
+        ? files[0].name
+        : '';
+
+    if(fileLabel){
+      if(currentFile){
+        fileLabel.textContent=
+          currentFile;
+
+        fileLabel.title=
+          currentFile;
+      }else{
+        fileLabel.textContent=
+          'Noch keine Datei hinterlegt';
+
+        fileLabel.title=
+          'Noch keine Datei hinterlegt';
+      }
+    }
+
+    /*
+     * Nur Beschriftung des Uploadbuttons anpassen.
+     * Kein Neurendern der Kachel.
+     */
+    const uploadButton=
+      card.querySelector(
+        '.lumina-p2-wa-upload'
+      );
+
+    if(uploadButton){
+      uploadButton.textContent=
+        currentFile
+          ? 'Datei ersetzen'
+          : 'Datei hochladen';
+    }
 
     luminaPhase2LastSignature=
-      signature;
+      `${code}|${currentFile}|${config.title}`;
 
-  }finally{
-    luminaPhase2RenderRunning=false;
+  }catch(error){
+    console.warn(
+      'Phase-2-Dateiliste konnte nicht gelesen werden:',
+      error
+    );
+
+    if(
+      fileLabel &&
+      card.dataset.luminaCode===code
+    ){
+      fileLabel.textContent=
+        'Dateistatus nicht abrufbar';
+
+      fileLabel.title=
+        'Dateistatus nicht abrufbar';
+    }
   }
 }
 
