@@ -5244,9 +5244,6 @@ async function guidanceDownloadHelper(guide){
      * Beispiele:
      * 4.2/Datei.xlsx
      * templates/3.12/Datei.xlsx
-     *
-     * Ergebnis:
-     * 4.2 bzw. 3.12
      */
     if(guide?.arbeitshilfe_storage_path){
       const parts=String(guide.arbeitshilfe_storage_path)
@@ -5254,15 +5251,24 @@ async function guidanceDownloadHelper(guide){
         .filter(Boolean);
 
       for(let i=parts.length-1;i>=0;i--){
-        if(/^\d+\.\d+$/.test(parts[i])){
-          folder=parts[i];
+        const part=String(parts[i]).trim();
+        const numbers=part.split('.');
+
+        if(
+          numbers.length===2 &&
+          numbers[0]!=='' &&
+          numbers[1]!=='' &&
+          !Number.isNaN(Number(numbers[0])) &&
+          !Number.isNaN(Number(numbers[1]))
+        ){
+          folder=part;
           break;
         }
       }
     }
 
     /*
-     * 2. Kachelcode aus bekannten Feldern des Guide-Objekts.
+     * 2. Kachelcode aus bekannten Guide-Feldern.
      */
     if(!folder){
       const candidates=[
@@ -5279,9 +5285,19 @@ async function guidanceDownloadHelper(guide){
       for(const candidate of candidates){
         if(candidate===undefined || candidate===null) continue;
 
-        const value=String(candidate).trim();
+        const value=String(candidate)
+          .trim()
+          .replace(/\.$/,'');
 
-        if(/^\d+\.\d+$/.test(value)){
+        const numbers=value.split('.');
+
+        if(
+          numbers.length===2 &&
+          numbers[0]!=='' &&
+          numbers[1]!=='' &&
+          !Number.isNaN(Number(numbers[0])) &&
+          !Number.isNaN(Number(numbers[1]))
+        ){
           folder=value;
           break;
         }
@@ -5289,18 +5305,18 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 3. Fallback aus dem ge?ffneten Aufgabenmodal.
+     * 3. Kachelcode direkt aus dem sichtbaren Aufgabenmodal.
      *
-     * Beispiel der sichtbaren Kopfzeile:
-     *
+     * Beispiel:
      * 3.12.1.3 ? Nr. 90 ? 3.12. Vorbereitung R?ckstellungen ? f?llig 21.01.2027
      *
-     * Wir teilen den Text an "?".
-     * Dadurch k?nnen Datumswerte wie 10.08 oder 21.01.2027
-     * nicht versehentlich als Kachelcode verwendet werden.
+     * Wir zerlegen den Text an "?".
      */
     if(!folder){
-      const modal=document.getElementById('task-modal-side');
+      const modal=
+        document.getElementById('task-modal-backdrop')||
+        document.querySelector('.task-modal-backdrop')||
+        document.querySelector('.task-modal');
 
       if(modal){
         const modalText=String(
@@ -5314,26 +5330,108 @@ async function guidanceDownloadHelper(guide){
         for(const rawSegment of segments){
           const segment=String(rawSegment||'').trim();
 
-          /*
-           * Gesucht wird ausschlie?lich ein Segment, das so beginnt:
-           *
-           * 3.12. Vorbereitung ...
-           * 4.2. Durchf?hrung ...
-           * 7.0. ...
-           *
-           * Ein Unterpunkt wie 3.12.1.3 passt bewusst NICHT.
-           */
-          const match=segment.match(/^(\d+\.\d+)\.\s/);
+          if(!segment) continue;
 
-          if(match){
-            folder=match[1];
+          /*
+           * Erstes Wort eines Segments.
+           *
+           * Beispiele:
+           * "3.12.1.3"  -> ignorieren
+           * "Nr."       -> ignorieren
+           * "3.12."     -> 3.12
+           * "f?llig"    -> ignorieren
+           */
+          let firstToken=segment.split(/\s+/)[0]||'';
+
+          firstToken=firstToken.trim();
+
+          if(firstToken.endsWith('.')){
+            firstToken=firstToken.slice(0,-1);
+          }
+
+          const numbers=firstToken.split('.');
+
+          if(
+            numbers.length===2 &&
+            numbers[0]!=='' &&
+            numbers[1]!=='' &&
+            !Number.isNaN(Number(numbers[0])) &&
+            !Number.isNaN(Number(numbers[1]))
+          ){
+            folder=`${Number(numbers[0])}.${Number(numbers[1])}`;
             break;
           }
         }
       }
     }
 
+    /*
+     * 4. Zus?tzlicher Sicherheits-Fallback:
+     * Falls das Modal anders verschachtelt ist, den sichtbaren Titelbereich
+     * des ge?ffneten Dialogs durchsuchen.
+     */
     if(!folder){
+      const backdrop=document.querySelector(
+        '#task-modal-backdrop, .task-modal-backdrop'
+      );
+
+      if(backdrop){
+        const elements=backdrop.querySelectorAll(
+          'div, span, p, h1, h2, h3, h4'
+        );
+
+        for(const element of elements){
+          const raw=String(element.textContent||'').trim();
+
+          if(!raw || raw.length>250) continue;
+
+          const tokens=raw.split(/\s+/);
+
+          for(let token of tokens){
+            token=String(token)
+              .trim()
+              .replace(/[,:;]$/,'')
+              .replace(/\.$/,'');
+
+            const numbers=token.split('.');
+
+            if(
+              numbers.length===2 &&
+              numbers[0]!=='' &&
+              numbers[1]!=='' &&
+              !Number.isNaN(Number(numbers[0])) &&
+              !Number.isNaN(Number(numbers[1]))
+            ){
+              /*
+               * Prozessphasen in LUMINA liegen im realistischen Bereich 1.x?8.x.
+               * Dadurch wird z.B. 10.08 nicht als Prozessschritt genommen.
+               */
+              const phase=Number(numbers[0]);
+              const step=Number(numbers[1]);
+
+              if(
+                phase>=1 &&
+                phase<=8 &&
+                step>=0 &&
+                step<=99
+              ){
+                folder=`${phase}.${step}`;
+                break;
+              }
+            }
+          }
+
+          if(folder) break;
+        }
+      }
+    }
+
+    if(!folder){
+      console.log(
+        'LUMINA Debug Guide:',
+        guide
+      );
+
       throw new Error(
         'Kein Arbeitshilfen-Ordner f?r diese Kachel ermittelbar.'
       );
@@ -5345,7 +5443,7 @@ async function guidanceDownloadHelper(guide){
     );
 
     /*
-     * 4. Dateien im entsprechenden Supabase-Ordner lesen.
+     * 5. Inhalt des passenden Supabase-Ordners lesen.
      */
     const {data:items,error:listError}=await luminaDb.storage
       .from(bucket)
@@ -5363,7 +5461,7 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 5. Nur echte Dateien verwenden.
+     * 6. Nur echte Dateien ber?cksichtigen.
      */
     const files=(items||[]).filter(item=>{
       if(!item) return false;
@@ -5386,7 +5484,7 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 6. Tats?chlich vorhandenen Dateinamen verwenden.
+     * 7. Tats?chlich vorhandene Datei verwenden.
      */
     const currentFile=files[0];
     const fileName=currentFile.name;
@@ -5398,7 +5496,7 @@ async function guidanceDownloadHelper(guide){
     );
 
     /*
-     * 7. Datei frisch laden.
+     * 8. Datei frisch aus Supabase laden.
      */
     const {data,error}=await luminaDb.storage
       .from(bucket)
@@ -5419,7 +5517,7 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 8. Originaldatei herunterladen.
+     * 9. Originaldatei herunterladen.
      */
     guidanceDownloadBlob(data,fileName);
 
