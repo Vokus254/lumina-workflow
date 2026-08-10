@@ -7398,7 +7398,7 @@ function luminaWorkAidSetUploadState(button,busy,text){
   button.textContent=
     busy
       ? (text||'Wird hochgeladen ...')
-      : 'Datei hochladen / ersetzen';
+      : 'Datei ersetzen';
 }
 
 
@@ -7500,7 +7500,7 @@ async function luminaUploadOrReplaceWorkAid(file,button){
   try{
     if(!file){
       throw new Error(
-        'Keine Datei ausgew?hlt.'
+        'Keine Datei ausgewaehlt.'
       );
     }
 
@@ -7516,11 +7516,11 @@ async function luminaUploadOrReplaceWorkAid(file,button){
     luminaWorkAidSetUploadState(
       button,
       true,
-      'Ordner pr?fen ...'
+      'Ordner pruefen ...'
     );
 
     luminaWorkAidShowProgress(
-      `Arbeitshilfe ${folder} wird gepr?ft ...`,
+      `Arbeitshilfe ${folder} wird geprueft ...`,
       10
     );
 
@@ -7530,18 +7530,27 @@ async function luminaUploadOrReplaceWorkAid(file,button){
         folder
       );
 
-    if(existingFiles.length){
-      const names=
-        existingFiles
-          .map(item=>item.name)
-          .join('\n');
+    /*
+     * Normalfall:
+     * Genau eine vorhandene Datei.
+     *
+     * Wir ersetzen nur deren Inhalt.
+     * Der Storage-Pfad bleibt unveraendert.
+     */
+    if(existingFiles.length===1){
+      const existingFile=
+        existingFiles[0];
+
+      const existingPath=
+        `${folder}/${existingFile.name}`;
 
       const confirmed=
         window.confirm(
           `Arbeitshilfe ${folder}\n\n`+
-          `Aktuell vorhanden:\n${names}\n\n`+
+          `Aktuell vorhanden:\n${existingFile.name}\n\n`+
           `Neue Datei:\n${file.name}\n\n`+
-          `Die vorhandene(n) Datei(en) werden ersetzt.\n\n`+
+          `Der Inhalt der vorhandenen Arbeitshilfe wird ersetzt.\n`+
+          `Der interne LUMINA-Dateipfad bleibt unveraendert.\n\n`+
           `Fortfahren?`
         );
 
@@ -7552,81 +7561,161 @@ async function luminaUploadOrReplaceWorkAid(file,button){
 
         return;
       }
-    }
 
-    /*
-     * Alte Datei(en) entfernen.
-     */
-    if(existingFiles.length){
       luminaWorkAidSetUploadState(
         button,
         true,
-        'Alte Datei entfernen ...'
+        'Datei ersetzen ...'
       );
 
       luminaWorkAidShowProgress(
-        `Vorhandene Arbeitshilfe ${folder} wird entfernt ...`,
-        35
+        `${file.name} wird hochgeladen ...`,
+        55
       );
 
-      const paths=
-        existingFiles.map(
-          item=>`${folder}/${item.name}`
-        );
-
-      const {error:removeError}=
+      const {error:updateError}=
         await luminaDb.storage
           .from(bucket)
-          .remove(paths);
+          .update(
+            existingPath,
+            file,
+            {
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
 
-      if(removeError){
-        throw removeError;
+      if(updateError){
+        console.error(
+          'Supabase Update fehlgeschlagen:',
+          updateError
+        );
+
+        throw updateError;
       }
+
+      /*
+       * Sofort pruefen, ob die Datei im Bucket aktualisiert wurde.
+       */
+      luminaWorkAidShowProgress(
+        'Upload wird geprueft ...',
+        80
+      );
+
+      const {data:info,error:infoError}=
+        await luminaDb.storage
+          .from(bucket)
+          .info(
+            existingPath
+          );
+
+      if(infoError){
+        throw infoError;
+      }
+
+      console.log(
+        'LUMINA Upload erfolgreich:',
+        {
+          folder,
+          storagePath:existingPath,
+          selectedFile:file.name,
+          storedFile:existingFile.name,
+          info
+        }
+      );
+
+      luminaWorkAidShowProgress(
+        'Arbeitshilfe wurde erfolgreich ersetzt.',
+        100
+      );
+
+      showTopNote(
+        `Arbeitshilfe ${folder} wurde erfolgreich ersetzt.`
+      );
+
+      return;
     }
 
     /*
-     * Neue Datei hochladen.
+     * Falls noch keine Datei existiert:
+     * Neue Datei normal anlegen.
      */
-    luminaWorkAidSetUploadState(
-      button,
-      true,
-      'Neue Datei hochladen ...'
-    );
+    if(existingFiles.length===0){
+      const storagePath=
+        `${folder}/${file.name}`;
 
-    luminaWorkAidShowProgress(
-      `${file.name} wird hochgeladen ...`,
-      65
-    );
-
-    const storagePath=
-      `${folder}/${file.name}`;
-
-    const {error:uploadError}=
-      await luminaDb.storage
-        .from(bucket)
-        .upload(
-          storagePath,
-          file,
-          {
-            upsert:true,
-            cacheControl:'0',
-            contentType:
-              file.type||
-              'application/octet-stream'
-          }
+      const confirmed=
+        window.confirm(
+          `Arbeitshilfe ${folder}\n\n`+
+          `Noch keine Datei vorhanden.\n\n`+
+          `Neue Datei:\n${file.name}\n\n`+
+          `Datei jetzt hochladen?`
         );
 
-    if(uploadError){
-      throw uploadError;
+      if(!confirmed){
+        showTopNote(
+          'Upload abgebrochen.'
+        );
+
+        return;
+      }
+
+      luminaWorkAidSetUploadState(
+        button,
+        true,
+        'Datei hochladen ...'
+      );
+
+      luminaWorkAidShowProgress(
+        `${file.name} wird hochgeladen ...`,
+        55
+      );
+
+      const {error:uploadError}=
+        await luminaDb.storage
+          .from(bucket)
+          .upload(
+            storagePath,
+            file,
+            {
+              upsert:false,
+              cacheControl:'0',
+              contentType:
+                file.type||
+                'application/octet-stream'
+            }
+          );
+
+      if(uploadError){
+        console.error(
+          'Supabase Upload fehlgeschlagen:',
+          uploadError
+        );
+
+        throw uploadError;
+      }
+
+      luminaWorkAidShowProgress(
+        'Arbeitshilfe wurde erfolgreich hochgeladen.',
+        100
+      );
+
+      showTopNote(
+        `Arbeitshilfe ${folder} wurde erfolgreich hochgeladen.`
+      );
+
+      return;
     }
 
-    luminaWorkAidShowProgress(
-      `${file.name} wurde gespeichert.`,
-      100
-    );
-
-    showTopNote(
-      `Arbeitshilfe ${folder}: "${file.name}" wurde erfolgreich hochgeladen.`
+    /*
+     * Sicherheitsfall:
+     * Mehrere Dateien im Kachelordner.
+     */
+    throw new Error(
+      `Im Ordner ${folder} liegen ${existingFiles.length} Dateien. `+
+      `Bitte zuerst auf genau eine aktuelle Arbeitshilfe reduzieren.`
     );
 
   }catch(error){
@@ -7650,7 +7739,6 @@ async function luminaUploadOrReplaceWorkAid(file,button){
     luminaWorkAidHideProgress();
   }
 }
-
 
 function luminaOpenWorkAidFilePicker(button){
   let input=
@@ -7811,7 +7899,7 @@ function luminaInstallWorkAidUploadButton(){
     'lumina-workaid-upload-button';
 
   uploadButton.textContent=
-    'Datei hochladen / ersetzen';
+    'Datei ersetzen';
 
   uploadButton.title=
     'Neue Arbeitshilfe hochladen und die bisherige Datei ersetzen';
