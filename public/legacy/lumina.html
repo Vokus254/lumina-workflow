@@ -9928,108 +9928,172 @@ function luminaPhase2ResolveCurrentCode(){
 
 function luminaPhase2FindContentHost(){
   /*
-   * Der Arbeitshilfen-Bereich soll UNTER den bestehenden
-   * kleinen Kacheln erscheinen.
+   * Nicht mehr allgemein nach irgendeinem Card-Container suchen.
+   *
+   * Wir suchen ganz gezielt eine der BESTEHENDEN Phase-2-Kacheln
+   * anhand ihres sichtbaren Textes und nehmen dann exakt deren
+   * unmittelbaren Kachel-Container.
    */
 
-  const pageCode=
+  const code=
     luminaPhase2ResolveCurrentCode();
 
-  if(!pageCode){
+  const anchorTexts={
+    '2.0':[
+      'Stammdaten erfassen',
+      'Ordnerstruktur nach Bilanzposten anlegen',
+      'Gesamtverantwortung und Koordination'
+    ],
+
+    '2.1':[
+      'Zeitplan der Meilensteine',
+      'Gesamtverantwortung und Koordination'
+    ],
+
+    '2.2':[
+      'Verantwortliche je Bilanzposten benennen',
+      'Gesamtverantwortung und Koordination'
+    ],
+
+    '2.4':[
+      'Standardliste aus Vorjahr ?bernehmen',
+      'Gesamtverantwortung und Koordination'
+    ]
+  };
+
+  const wanted=
+    anchorTexts[code]||
+    [];
+
+  if(!wanted.length){
     return null;
   }
 
-  /*
-   * Wir suchen die sichtbaren kleinen Kacheln.
-   */
-  const cards=[
+  const all=[
     ...document.querySelectorAll(
-      '.task-card, .step-card, .subtask-card, .activity-card, [class*="card"]'
+      'div,article,section'
     )
-  ].filter(element=>{
-    if(!element.offsetParent){
-      return false;
-    }
+  ];
 
-    const rect=
-      element.getBoundingClientRect();
-
-    return (
-      rect.width>140 &&
-      rect.height>120 &&
-      rect.width<500 &&
-      rect.height<500
-    );
-  });
+  let referenceCard=null;
 
   /*
-   * Gemeinsamen Container der sichtbaren Kacheln finden.
+   * Erst eine sichtbare Kachel anhand ihres Titels finden.
    */
-  if(cards.length){
-    const first=cards[0];
+  for(const label of wanted){
+    const candidates=
+      all.filter(element=>{
+        if(!element.offsetParent){
+          return false;
+        }
 
-    let parent=first.parentElement;
+        const ownText=
+          String(
+            element.innerText||
+            element.textContent||
+            ''
+          ).trim();
 
-    while(
-      parent &&
-      parent!==document.body
-    ){
-      const matchingChildren=[
-        ...parent.children
-      ].filter(child=>{
-        if(!child.offsetParent){
+        if(!ownText.includes(label)){
           return false;
         }
 
         const rect=
-          child.getBoundingClientRect();
+          element.getBoundingClientRect();
 
+        /*
+         * Typische LUMINA-Kachel:
+         * ca. 180-300 px breit,
+         * ca. 180-320 px hoch.
+         */
         return (
-          rect.width>140 &&
-          rect.height>120
+          rect.width>=160 &&
+          rect.width<=360 &&
+          rect.height>=140 &&
+          rect.height<=360
         );
       });
 
-      if(matchingChildren.length>=2){
-        return parent;
-      }
+    if(candidates.length){
+      /*
+       * Kleinste passende Box = tats?chliche Kachel.
+       */
+      candidates.sort((a,b)=>{
+        const ra=a.getBoundingClientRect();
+        const rb=b.getBoundingClientRect();
 
-      parent=parent.parentElement;
+        return (
+          ra.width*ra.height -
+          rb.width*rb.height
+        );
+      });
+
+      referenceCard=
+        candidates[0];
+
+      break;
     }
   }
 
+  if(!referenceCard){
+    console.warn(
+      'LUMINA Phase 2: Referenzkachel wurde nicht gefunden.'
+    );
+
+    return null;
+  }
+
   /*
-   * Fallback:
-   * Breadcrumb / Prozessbeschreibung als Ausgangspunkt.
+   * Der direkte Parent der normalen Kachel ist unser Raster.
    */
-  const textElements=[
-    ...document.querySelectorAll(
-      'div, section, main'
-    )
-  ];
+  const grid=
+    referenceCard.parentElement;
 
-  const breadcrumbContainer=
-    textElements.find(element=>{
-      const content=
-        String(
-          element.textContent||
-          ''
-        );
+  if(!grid){
+    return null;
+  }
 
-      return (
-        content.includes(
-          'Jahresabschlussprozess'
-        ) &&
-        content.includes(
-          pageCode
-        ) &&
-        content.length<1200
-      );
-    });
+  /*
+   * Sicherheitspr?fung:
+   * Im Container m?ssen mindestens zwei normale Kacheln liegen.
+   */
+  const normalChildren=[
+    ...grid.children
+  ].filter(child=>{
+    if(
+      child.id===
+      'lumina-phase2-parent-workaid'
+    ){
+      return false;
+    }
 
-  return breadcrumbContainer||null;
+    const rect=
+      child.getBoundingClientRect();
+
+    return (
+      rect.width>=160 &&
+      rect.width<=360 &&
+      rect.height>=140 &&
+      rect.height<=360
+    );
+  });
+
+  if(normalChildren.length<2){
+    console.warn(
+      'LUMINA Phase 2: gefundener Container sieht nicht wie das Kachelraster aus.'
+    );
+
+    return null;
+  }
+
+  /*
+   * Referenzkarte merken.
+   */
+  grid.dataset.luminaPhase2ReferenceClass=
+    referenceCard.className||'';
+
+  return grid;
 }
-
 
 async function luminaPhase2ListFiles(code){
   const bucket='lumina-templates';
@@ -10329,15 +10393,16 @@ async function luminaPhase2Upload(code,file){
 
 
 function luminaPhase2EnsureStyles(){
-  if(
+  let style=
     document.getElementById(
       'lumina-phase2-parent-workaid-style'
-    )
-  ){
-    return;
+    );
+
+  if(style){
+    style.remove();
   }
 
-  const style=
+  style=
     document.createElement('style');
 
   style.id=
@@ -10345,23 +10410,25 @@ function luminaPhase2EnsureStyles(){
 
   style.textContent=`
     /*
-     * Die Arbeitshilfe wird als normale Kachel in das
-     * bestehende Kachelraster eingesetzt.
+     * Arbeitshilfe = normale Kachel.
+     * KEIN eigener grosser Block mehr.
      */
 
     #lumina-phase2-parent-workaid{
-      position:relative;
-      box-sizing:border-box;
-      overflow:hidden;
+      box-sizing:border-box !important;
+      margin:0 !important;
+      padding:0 !important;
+      position:relative !important;
+      min-width:0 !important;
+      max-width:none !important;
     }
 
     #lumina-phase2-parent-workaid .lumina-p2-wa-inner{
+      box-sizing:border-box;
       width:100%;
       height:100%;
-      min-height:0;
       display:flex;
       flex-direction:column;
-      box-sizing:border-box;
       padding:16px;
     }
 
@@ -10371,38 +10438,35 @@ function luminaPhase2EnsureStyles(){
       border-radius:999px;
       background:#e7f5ee;
       color:#29936d;
-      font-size:11px;
+      font-size:10px;
       line-height:1;
       font-weight:800;
-      letter-spacing:.02em;
       text-transform:uppercase;
       white-space:nowrap;
     }
 
     #lumina-phase2-parent-workaid .lumina-p2-wa-title{
-      margin-top:auto;
-      margin-bottom:auto;
-      font-size:15px;
-      line-height:1.28;
+      margin:auto 0;
+      font-size:14px;
+      line-height:1.25;
       font-weight:700;
       color:#111827;
     }
 
     #lumina-phase2-parent-workaid .lumina-p2-wa-file{
-      margin-top:6px;
-      margin-bottom:10px;
-      color:#8b95a7;
-      font-size:10px;
-      line-height:1.25;
+      margin:0 0 8px;
+      color:#94a3b8;
+      font-size:9px;
+      line-height:1.2;
+      white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      white-space:nowrap;
     }
 
     #lumina-phase2-parent-workaid .lumina-p2-wa-actions{
       display:flex;
       flex-direction:column;
-      gap:6px;
+      gap:5px;
       margin-top:auto;
     }
 
@@ -10410,12 +10474,13 @@ function luminaPhase2EnsureStyles(){
     #lumina-phase2-parent-workaid .lumina-p2-wa-upload{
       appearance:none;
       width:100%;
-      min-height:29px;
-      border-radius:8px;
-      padding:6px 8px;
-      font-size:10px;
-      line-height:1.1;
+      min-height:28px;
+      box-sizing:border-box;
+      border-radius:7px;
+      padding:5px 7px;
+      font-size:9px;
       font-weight:700;
+      line-height:1.1;
       cursor:pointer;
     }
 
@@ -10425,19 +10490,15 @@ function luminaPhase2EnsureStyles(){
       color:#fff;
     }
 
-    #lumina-phase2-parent-workaid .lumina-p2-wa-download:disabled{
-      opacity:.45;
-      cursor:default;
-    }
-
     #lumina-phase2-parent-workaid .lumina-p2-wa-upload{
       border:1px solid #35a77c;
       background:#fff;
       color:#258565;
     }
 
-    #lumina-phase2-parent-workaid .lumina-p2-wa-upload:hover{
-      background:#f0faf6;
+    #lumina-phase2-parent-workaid .lumina-p2-wa-download:disabled{
+      opacity:.45;
+      cursor:default;
     }
   `;
 
@@ -10449,13 +10510,9 @@ function luminaPhase2EnsureStyles(){
 
 let luminaPhase2RenderRunning=false;
 let luminaPhase2LastSignature='';
-let luminaPhase2LastCode='';
 
 
 async function luminaRenderPhase2ParentWorkAid(force=false){
-  /*
-   * Verhindert parallele / rekursive Renderdurchlaeufe.
-   */
   if(luminaPhase2RenderRunning){
     return;
   }
@@ -10464,7 +10521,7 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     luminaPhase2ResolveCurrentCode();
 
   /*
-   * Nur 2.0 / 2.1 / 2.2 / 2.4.
+   * Nur f?r 2.0 / 2.1 / 2.2 / 2.4.
    */
   if(
     !code ||
@@ -10480,7 +10537,6 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     }
 
     luminaPhase2LastSignature='';
-    luminaPhase2LastCode='';
 
     return;
   }
@@ -10488,10 +10544,10 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
   luminaPhase2RenderRunning=true;
 
   try{
-    const host=
+    const grid=
       luminaPhase2FindContentHost();
 
-    if(!host){
+    if(!grid){
       return;
     }
 
@@ -10519,37 +10575,35 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
         ? files[0].name
         : '';
 
-    /*
-     * Signatur:
-     * Nur wenn sich Code oder Datei geaendert haben,
-     * wird Inhalt neu aufgebaut.
-     */
     const signature=
       `${code}|${currentFile}|${config.title}`;
 
-    let existing=
+    let card=
       document.getElementById(
         'lumina-phase2-parent-workaid'
       );
 
     /*
-     * Normale Referenzkachel suchen.
-     * Die eigene Arbeitshilfen-Kachel wird explizit ausgeschlossen.
+     * Falls sie aktuell irgendwo FALSCH sitzt:
+     * entfernen und sauber in das Raster setzen.
      */
-    const normalCards=[
-      ...host.children
-    ].filter(child=>{
+    if(
+      card &&
+      card.parentElement!==grid
+    ){
+      card.remove();
+      card=null;
+    }
+
+    /*
+     * Normale Referenzkachel im selben Grid.
+     */
+    const referenceCard=[
+      ...grid.children
+    ].find(child=>{
       if(
         child.id===
         'lumina-phase2-parent-workaid'
-      ){
-        return false;
-      }
-
-      if(
-        child.classList?.contains(
-          'lumina-phase2-workaid-card'
-        )
       ){
         return false;
       }
@@ -10558,69 +10612,62 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
         child.getBoundingClientRect();
 
       return (
-        rect.width>140 &&
-        rect.height>120 &&
-        rect.width<500 &&
-        rect.height<500
+        rect.width>=160 &&
+        rect.width<=360 &&
+        rect.height>=140 &&
+        rect.height<=360
       );
     });
 
-    const referenceCard=
-      normalCards[0]||
-      null;
+    if(!referenceCard){
+      return;
+    }
 
-    /*
-     * Nur einmal in das Grid einsetzen.
-     */
-    if(
-      !existing ||
-      existing.parentElement!==host
-    ){
-      if(existing){
-        existing.remove();
-      }
+    if(!card){
+      /*
+       * Exakte Klassen einer existierenden Kachel ?bernehmen.
+       */
+      card=
+        document.createElement(
+          referenceCard.tagName||
+          'div'
+        );
 
-      existing=
-        document.createElement('div');
-
-      existing.id=
+      card.id=
         'lumina-phase2-parent-workaid';
 
-      if(referenceCard){
-        existing.className=
-          referenceCard.className;
-      }
+      card.className=
+        referenceCard.className;
 
-      existing.classList.add(
+      card.classList.add(
         'lumina-phase2-workaid-card'
       );
 
-      host.prepend(
-        existing
+      /*
+       * WICHTIG:
+       * Exakt als erstes Element im selben Raster.
+       */
+      grid.insertBefore(
+        card,
+        grid.firstElementChild
       );
 
-      /*
-       * Neue Kachel muss einmal befuellt werden.
-       */
       force=true;
     }
 
     /*
-     * KEINE dauernden Pixelbreiten / Pixelhoehen mehr setzen.
-     *
-     * Die Kachel uebernimmt ihre Groesse ausschliesslich
-     * aus den Klassen des bestehenden Kachelrasters.
+     * Keine width / height / absolute Position setzen.
+     * Das bestehende Grid bestimmt automatisch die Gr??e.
      */
 
     if(
       !force &&
-      signature===luminaPhase2LastSignature &&
-      code===luminaPhase2LastCode
+      signature===luminaPhase2LastSignature
     ){
       return;
     }
 
-    existing.innerHTML=`
+    card.innerHTML=`
       <div class="lumina-p2-wa-inner">
 
         <div class="lumina-p2-wa-badge">
@@ -10668,17 +10715,16 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
           </button>
 
         </div>
-
       </div>
     `;
 
     const downloadButton=
-      existing.querySelector(
+      card.querySelector(
         '.lumina-p2-wa-download'
       );
 
     const uploadButton=
-      existing.querySelector(
+      card.querySelector(
         '.lumina-p2-wa-upload'
       );
 
@@ -10715,86 +10761,67 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     luminaPhase2LastSignature=
       signature;
 
-    luminaPhase2LastCode=
-      code;
-
   }finally{
     luminaPhase2RenderRunning=false;
   }
 }
 
-
 /*
  * ============================================================
- * STABILER OBSERVER
+ * RUHIGE NAVIGATIONS-PRUEFUNG
  * ============================================================
  *
- * Der alte Observer hat auf seine eigenen DOM-Aenderungen
- * reagiert und dadurch permanent neu gerendert.
+ * KEIN MutationObserver mehr.
  *
- * Jetzt:
- * - lange Entprellung
- * - eigene Arbeitshilfen-Kachel wird ignoriert
- * - nur bei wirklicher Seitenaenderung rendern
+ * Alle 1,2 Sekunden wird nur gepr?ft:
+ * - welche Phase-2-Seite ist aktiv?
+ * - sitzt die Arbeitshilfe im richtigen Grid?
+ *
+ * Wenn alles korrekt ist, wird KEIN DOM ver?ndert.
  */
 
-let luminaPhase2RenderTimer=null;
+let luminaPhase2LastDetectedCode='';
 
-const luminaPhase2ParentObserver=
-  new MutationObserver(mutations=>{
+setInterval(
+  ()=>{
+    const code=
+      luminaPhase2ResolveCurrentCode();
 
-    /*
-     * Pruefen, ob die Mutation nur innerhalb unserer
-     * eigenen Arbeitshilfen-Kachel stattgefunden hat.
-     */
-    const relevant=
-      mutations.some(mutation=>{
+    const card=
+      document.getElementById(
+        'lumina-phase2-parent-workaid'
+      );
 
-        const target=
-          mutation.target;
+    if(
+      code!==luminaPhase2LastDetectedCode
+    ){
+      luminaPhase2LastDetectedCode=
+        code;
 
-        if(
-          target instanceof Element &&
-          (
-            target.id===
-            'lumina-phase2-parent-workaid' ||
-            target.closest?.(
-              '#lumina-phase2-parent-workaid'
-            )
-          )
-        ){
-          return false;
-        }
+      luminaPhase2LastSignature='';
 
-        return true;
-      });
+      luminaRenderPhase2ParentWorkAid(
+        true
+      );
 
-    if(!relevant){
       return;
     }
 
-    clearTimeout(
-      luminaPhase2RenderTimer
-    );
-
-    luminaPhase2RenderTimer=
-      setTimeout(
-        ()=>{
-          luminaRenderPhase2ParentWorkAid(
-            false
-          );
-        },
-        700
+    /*
+     * Falls LUMINA beim Navigieren den Grid-Container
+     * komplett neu gebaut hat, fehlt unsere Kachel.
+     */
+    if(
+      code &&
+      LUMINA_PHASE2_PARENT_WORKAIDS[code] &&
+      !card
+    ){
+      luminaRenderPhase2ParentWorkAid(
+        true
       );
-  });
-
-
-luminaPhase2ParentObserver.observe(
-  document.documentElement,
-  {
-    childList:true,
-    subtree:true
-  }
+    }
+  },
+  1200
 );
 
 
