@@ -5235,31 +5235,90 @@ async function guidanceDownloadHelper(guide){
   }
 
   try{
-    const bucket=guide.arbeitshilfe_storage_bucket||'lumina-templates';
+    const bucket=guide?.arbeitshilfe_storage_bucket||'lumina-templates';
 
     let folder='';
 
-    if(guide.arbeitshilfe_storage_path){
-      const parts=String(guide.arbeitshilfe_storage_path).split('/');
-      if(parts.length>1){
-        parts.pop();
-        folder=parts.join('/');
+    // 1. Kachelordner aus vorhandenem Storage-Pfad ermitteln.
+    // Unterst?tzt z.B.:
+    // 4.2/Datei.xlsx
+    // templates/3.12/Datei.xlsx
+    if(guide?.arbeitshilfe_storage_path){
+      const pathParts=String(guide.arbeitshilfe_storage_path)
+        .split('/')
+        .filter(Boolean);
+
+      for(let i=pathParts.length-1;i>=0;i--){
+        if(/^\d+\.\d+$/.test(pathParts[i])){
+          folder=pathParts[i];
+          break;
+        }
+      }
+    }
+
+    // 2. Kachelcode aus m?glichen Guide-Feldern ermitteln.
+    if(!folder){
+      const candidates=[
+        guide?.code,
+        guide?.process_step_code,
+        guide?.step_code,
+        guide?.processStepCode,
+        guide?.legacy_source_key,
+        guide?.number,
+        guide?.taskNumber,
+        guide?.task_number
+      ];
+
+      for(const candidate of candidates){
+        if(!candidate) continue;
+
+        const match=String(candidate).match(
+          /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9]|$)/
+        );
+
+        if(match){
+          folder=match[1];
+          break;
+        }
+      }
+    }
+
+    // 3. Fallback: Kachelcode aus dem aktuell ge?ffneten Modal lesen.
+    if(!folder){
+      const modal=document.getElementById('task-modal-side');
+
+      if(modal){
+        const modalText=String(
+          modal.innerText||
+          modal.textContent||
+          ''
+        );
+
+        const matches=[
+          ...modalText.matchAll(
+            /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9]|$)/g
+          )
+        ];
+
+        if(matches.length){
+          // Bevorzugt den letzten gefundenen Prozessschritt.
+          folder=matches[matches.length-1][1];
+        }
       }
     }
 
     if(!folder){
-      folder=String(
-        guide.code||
-        guide.process_step_code||
-        guide.legacy_source_key||
-        ''
-      ).trim();
+      throw new Error(
+        'Kein Arbeitshilfen-Ordner f?r diese Kachel ermittelbar.'
+      );
     }
 
-    if(!folder){
-      throw new Error('Kein Arbeitshilfen-Ordner f?r diese Kachel ermittelbar.');
-    }
+    console.log(
+      'LUMINA Arbeitshilfe: verwende Ordner',
+      folder
+    );
 
+    // Aktuellen Inhalt dieses Supabase-Ordners lesen.
     const {data:items,error:listError}=await luminaDb.storage
       .from(bucket)
       .list(folder,{
@@ -5275,30 +5334,39 @@ async function guidanceDownloadHelper(guide){
       throw listError;
     }
 
+    // Nur echte Dateien ber?cksichtigen.
     const files=(items||[]).filter(item=>{
       if(!item) return false;
-      if(!item.id) return false;
       if(!item.name) return false;
       if(item.name==='.emptyFolderPlaceholder') return false;
+      if(!item.id&&!item.metadata) return false;
       return true;
     });
 
     if(files.length===0){
       throw new Error(
-        `Im Vorlagenordner "${folder}" wurde keine Arbeitshilfe gefunden.`
+        `Im Supabase-Ordner "${folder}" wurde keine Arbeitshilfe gefunden.`
       );
     }
 
     if(files.length>1){
       throw new Error(
-        `Im Vorlagenordner "${folder}" befinden sich ${files.length} Dateien. Bitte genau eine aktuelle Arbeitshilfe im Ordner hinterlegen.`
+        `Im Supabase-Ordner "${folder}" befinden sich ${files.length} Dateien. Bitte genau eine aktuelle Arbeitshilfe hinterlegen.`
       );
     }
 
     const currentFile=files[0];
+
     const storagePath=`${folder}/${currentFile.name}`;
     const fileName=currentFile.name;
 
+    console.log(
+      'LUMINA Arbeitshilfe: lade',
+      bucket,
+      storagePath
+    );
+
+    // Datei immer frisch laden.
     const {data,error}=await luminaDb.storage
       .from(bucket)
       .download(
@@ -5312,14 +5380,22 @@ async function guidanceDownloadHelper(guide){
     }
 
     if(!data){
-      throw new Error('Supabase hat keine Dateidaten zur?ckgegeben.');
+      throw new Error(
+        'Supabase hat keine Dateidaten zur?ckgegeben.'
+      );
     }
 
     guidanceDownloadBlob(data,fileName);
-    showTopNote(`Arbeitshilfe "${fileName}" heruntergeladen.`);
+
+    showTopNote(
+      `Arbeitshilfe "${fileName}" heruntergeladen.`
+    );
 
   }catch(error){
-    console.error('Arbeitshilfe konnte nicht heruntergeladen werden:',error);
+    console.error(
+      'Arbeitshilfe konnte nicht heruntergeladen werden:',
+      error
+    );
 
     showTopNote(
       error?.message||
