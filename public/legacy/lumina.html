@@ -6885,49 +6885,77 @@ function luminaOpenGesamtWorkbookImport(){
    ------------------------------------------------------------ */
 
 function luminaFindWorkbookToolbarHost(){
+  /*
+   * Stabiler Host direkt unter der oberen Cockpit-Aktionszeile.
+   * Dadurch springen die Workbook-Buttons beim Laden nicht mehr.
+   */
+
+  const existingHost=
+    document.getElementById(
+      'lumina-workbook-host'
+    );
+
+  if(existingHost){
+    return existingHost;
+  }
+
   const buttons=[
     ...document.querySelectorAll(
       'button'
     )
   ];
 
-  const resetButton=
-    buttons.find(
-      button=>
+  const anchorButton=
+    buttons.find(button=>{
+      const label=
         String(
           button.textContent||
           ''
-        )
-          .trim()
-          .includes(
-            'Lokalen Stand'
-          )
-    );
+        ).trim();
 
-  if(resetButton?.parentElement){
-    return resetButton.parentElement;
+      return (
+        label.includes('JSON Export') ||
+        label.includes('JSON Import') ||
+        label.includes('Projektordner speichern') ||
+        label.includes('Lokalen Stand')
+      );
+    });
+
+  if(!anchorButton){
+    return null;
   }
 
-  const notificationButton=
-    buttons.find(
-      button=>
-        String(
-          button.textContent||
-          ''
-        )
-          .trim()
-          .includes(
-            'Alle benachrichtigen'
-          )
-    );
+  const actionRow=
+    anchorButton.parentElement;
 
-  if(notificationButton?.parentElement){
-    return notificationButton.parentElement;
+  if(!actionRow){
+    return null;
   }
 
-  return null;
+  const host=
+    document.createElement('div');
+
+  host.id=
+    'lumina-workbook-host';
+
+  host.style.display='flex';
+  host.style.alignItems='center';
+  host.style.gap='8px';
+  host.style.flexWrap='wrap';
+  host.style.width='100%';
+  host.style.marginTop='10px';
+  host.style.marginBottom='10px';
+
+  /*
+   * Host direkt NACH der oberen Aktionszeile einsetzen.
+   */
+  actionRow.insertAdjacentElement(
+    'afterend',
+    host
+  );
+
+  return host;
 }
-
 
 function luminaInstallWorkbookButtons(){
   if(
@@ -6995,13 +7023,13 @@ function luminaInstallWorkbookButtons(){
 
   style.textContent=`
     #lumina-workbook-toolbar{
-      display:inline-flex;
+      display:flex;
       flex-direction:column;
       gap:5px;
-      margin-left:8px;
-      vertical-align:middle;
+      margin:0;
       position:static;
-      min-width:420px;
+      min-width:0;
+      width:auto;
     }
 
     .lumina-workbook-button-row{
@@ -7063,11 +7091,12 @@ function luminaInstallWorkbookButtons(){
     }
 
     @media(max-width:1000px){
+      #lumina-workbook-host{
+        width:100%;
+      }
+
       #lumina-workbook-toolbar{
         width:100%;
-        min-width:0;
-        margin-left:0;
-        margin-top:8px;
       }
     }
   `;
