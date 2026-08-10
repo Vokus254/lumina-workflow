@@ -10447,12 +10447,24 @@ function luminaPhase2EnsureStyles(){
 }
 
 
-async function luminaRenderPhase2ParentWorkAid(){
+let luminaPhase2RenderRunning=false;
+let luminaPhase2LastSignature='';
+let luminaPhase2LastCode='';
+
+
+async function luminaRenderPhase2ParentWorkAid(force=false){
+  /*
+   * Verhindert parallele / rekursive Renderdurchlaeufe.
+   */
+  if(luminaPhase2RenderRunning){
+    return;
+  }
+
   const code=
     luminaPhase2ResolveCurrentCode();
 
   /*
-   * Nur fuer 2.0 / 2.1 / 2.2 / 2.4.
+   * Nur 2.0 / 2.1 / 2.2 / 2.4.
    */
   if(
     !code ||
@@ -10467,251 +10479,315 @@ async function luminaRenderPhase2ParentWorkAid(){
       old.remove();
     }
 
+    luminaPhase2LastSignature='';
+    luminaPhase2LastCode='';
+
     return;
   }
 
-  const host=
-    luminaPhase2FindContentHost();
-
-  if(!host){
-    return;
-  }
-
-  luminaPhase2EnsureStyles();
-
-  const config=
-    LUMINA_PHASE2_PARENT_WORKAIDS[code];
-
-  let files=[];
+  luminaPhase2RenderRunning=true;
 
   try{
-    files=
-      await luminaPhase2ListFiles(
-        code
+    const host=
+      luminaPhase2FindContentHost();
+
+    if(!host){
+      return;
+    }
+
+    luminaPhase2EnsureStyles();
+
+    const config=
+      LUMINA_PHASE2_PARENT_WORKAIDS[code];
+
+    let files=[];
+
+    try{
+      files=
+        await luminaPhase2ListFiles(
+          code
+        );
+    }catch(error){
+      console.warn(
+        'Phase-2-Dateiliste konnte nicht gelesen werden:',
+        error
       );
-  }catch(error){
-    console.warn(
-      'Phase-2-Dateiliste konnte nicht gelesen werden:',
-      error
-    );
-  }
+    }
 
-  /*
-   * Falls der alte grosse Bereich noch vorhanden ist:
-   * entfernen.
-   */
-  let existing=
-    document.getElementById(
-      'lumina-phase2-parent-workaid'
-    );
+    const currentFile=
+      files.length
+        ? files[0].name
+        : '';
 
-  /*
-   * Ermitteln, welche CSS-Klassen eine normale vorhandene
-   * Kachel verwendet. Dadurch uebernimmt unsere Arbeitshilfe
-   * automatisch Groesse, Grid-Verhalten, Rahmen usw.
-   */
-  const normalCards=[
-    ...host.children
-  ].filter(child=>{
+    /*
+     * Signatur:
+     * Nur wenn sich Code oder Datei geaendert haben,
+     * wird Inhalt neu aufgebaut.
+     */
+    const signature=
+      `${code}|${currentFile}|${config.title}`;
+
+    let existing=
+      document.getElementById(
+        'lumina-phase2-parent-workaid'
+      );
+
+    /*
+     * Normale Referenzkachel suchen.
+     * Die eigene Arbeitshilfen-Kachel wird explizit ausgeschlossen.
+     */
+    const normalCards=[
+      ...host.children
+    ].filter(child=>{
+      if(
+        child.id===
+        'lumina-phase2-parent-workaid'
+      ){
+        return false;
+      }
+
+      if(
+        child.classList?.contains(
+          'lumina-phase2-workaid-card'
+        )
+      ){
+        return false;
+      }
+
+      const rect=
+        child.getBoundingClientRect();
+
+      return (
+        rect.width>140 &&
+        rect.height>120 &&
+        rect.width<500 &&
+        rect.height<500
+      );
+    });
+
+    const referenceCard=
+      normalCards[0]||
+      null;
+
+    /*
+     * Nur einmal in das Grid einsetzen.
+     */
     if(
-      child.id===
-      'lumina-phase2-parent-workaid'
+      !existing ||
+      existing.parentElement!==host
     ){
-      return false;
-    }
+      if(existing){
+        existing.remove();
+      }
 
-    if(!child.offsetParent){
-      return false;
-    }
+      existing=
+        document.createElement('div');
 
-    const rect=
-      child.getBoundingClientRect();
+      existing.id=
+        'lumina-phase2-parent-workaid';
 
-    return (
-      rect.width>140 &&
-      rect.height>120
-    );
-  });
+      if(referenceCard){
+        existing.className=
+          referenceCard.className;
+      }
 
-  const referenceCard=
-    normalCards[0]||
-    null;
+      existing.classList.add(
+        'lumina-phase2-workaid-card'
+      );
 
-  /*
-   * Falls die Arbeitshilfe noch nicht IM Grid sitzt,
-   * neu erzeugen.
-   */
-  if(
-    !existing ||
-    existing.parentElement!==host
-  ){
-    if(existing){
-      existing.remove();
-    }
+      host.prepend(
+        existing
+      );
 
-    existing=
-      document.createElement('div');
-
-    existing.id=
-      'lumina-phase2-parent-workaid';
-
-    if(referenceCard){
-      existing.className=
-        referenceCard.className;
+      /*
+       * Neue Kachel muss einmal befuellt werden.
+       */
+      force=true;
     }
 
     /*
-     * Zusatzklasse nicht vergessen.
-     */
-    existing.classList.add(
-      'lumina-phase2-workaid-card'
-    );
-
-    /*
-     * GANZ VORNE in das vorhandene Raster.
+     * KEINE dauernden Pixelbreiten / Pixelhoehen mehr setzen.
      *
-     * Bestehende Kacheln werden nur nach rechts geschoben,
-     * aber inhaltlich nicht veraendert.
+     * Die Kachel uebernimmt ihre Groesse ausschliesslich
+     * aus den Klassen des bestehenden Kachelrasters.
      */
-    host.prepend(
-      existing
-    );
-  }
 
-  /*
-   * Exakte Dimensionen der normalen Kachel uebernehmen,
-   * sofern diese explizit messbar sind.
-   */
-  if(referenceCard){
-    const rect=
-      referenceCard.getBoundingClientRect();
-
-    if(rect.width>0){
-      existing.style.width=
-        `${rect.width}px`;
+    if(
+      !force &&
+      signature===luminaPhase2LastSignature &&
+      code===luminaPhase2LastCode
+    ){
+      return;
     }
 
-    if(rect.height>0){
-      existing.style.height=
-        `${rect.height}px`;
-    }
-  }
+    existing.innerHTML=`
+      <div class="lumina-p2-wa-inner">
 
-  const currentFile=
-    files.length
-      ? files[0].name
-      : '';
+        <div class="lumina-p2-wa-badge">
+          Arbeitshilfe
+        </div>
 
-  existing.innerHTML=`
-    <div class="lumina-p2-wa-inner">
+        <div class="lumina-p2-wa-title">
+          ${luminaStructureEscape(config.title)}
+        </div>
 
-      <div class="lumina-p2-wa-badge">
-        Arbeitshilfe
-      </div>
-
-      <div class="lumina-p2-wa-title">
-        ${luminaStructureEscape(config.title)}
-      </div>
-
-      <div
-        class="lumina-p2-wa-file"
-        title="${
-          currentFile
-            ? luminaStructureEscape(currentFile)
-            : 'Noch keine Datei hinterlegt'
-        }"
-      >
-        ${
-          currentFile
-            ? luminaStructureEscape(currentFile)
-            : 'Noch keine Datei hinterlegt'
-        }
-      </div>
-
-      <div class="lumina-p2-wa-actions">
-
-        <button
-          type="button"
-          class="lumina-p2-wa-download"
-          ${currentFile ? '' : 'disabled'}
-        >
-          Herunterladen
-        </button>
-
-        <button
-          type="button"
-          class="lumina-p2-wa-upload"
+        <div
+          class="lumina-p2-wa-file"
+          title="${
+            currentFile
+              ? luminaStructureEscape(currentFile)
+              : 'Noch keine Datei hinterlegt'
+          }"
         >
           ${
             currentFile
-              ? 'Datei ersetzen'
-              : 'Datei hochladen'
+              ? luminaStructureEscape(currentFile)
+              : 'Noch keine Datei hinterlegt'
           }
-        </button>
+        </div>
+
+        <div class="lumina-p2-wa-actions">
+
+          <button
+            type="button"
+            class="lumina-p2-wa-download"
+            ${currentFile ? '' : 'disabled'}
+          >
+            Herunterladen
+          </button>
+
+          <button
+            type="button"
+            class="lumina-p2-wa-upload"
+          >
+            ${
+              currentFile
+                ? 'Datei ersetzen'
+                : 'Datei hochladen'
+            }
+          </button>
+
+        </div>
 
       </div>
+    `;
 
-    </div>
-  `;
+    const downloadButton=
+      existing.querySelector(
+        '.lumina-p2-wa-download'
+      );
 
-  const downloadButton=
-    existing.querySelector(
-      '.lumina-p2-wa-download'
-    );
+    const uploadButton=
+      existing.querySelector(
+        '.lumina-p2-wa-upload'
+      );
 
-  const uploadButton=
-    existing.querySelector(
-      '.lumina-p2-wa-upload'
-    );
+    if(downloadButton){
+      downloadButton.addEventListener(
+        'click',
+        event=>{
+          event.preventDefault();
+          event.stopPropagation();
 
-  if(downloadButton){
-    downloadButton.addEventListener(
-      'click',
-      event=>{
-        event.stopPropagation();
+          if(currentFile){
+            luminaPhase2Download(
+              code
+            );
+          }
+        }
+      );
+    }
 
-        if(currentFile){
-          luminaPhase2Download(
+    if(uploadButton){
+      uploadButton.addEventListener(
+        'click',
+        event=>{
+          event.preventDefault();
+          event.stopPropagation();
+
+          luminaPhase2ChooseUpload(
             code
           );
         }
-      }
-    );
-  }
+      );
+    }
 
-  if(uploadButton){
-    uploadButton.addEventListener(
-      'click',
-      event=>{
-        event.stopPropagation();
+    luminaPhase2LastSignature=
+      signature;
 
-        luminaPhase2ChooseUpload(
-          code
-        );
-      }
-    );
+    luminaPhase2LastCode=
+      code;
+
+  }finally{
+    luminaPhase2RenderRunning=false;
   }
 }
 
+
 /*
- * Die Ebene wird dynamisch gerendert.
- * Deshalb bei DOM-Aenderungen pruefen,
- * ob eine der vier Phase-2-Seiten aktiv ist.
+ * ============================================================
+ * STABILER OBSERVER
+ * ============================================================
+ *
+ * Der alte Observer hat auf seine eigenen DOM-Aenderungen
+ * reagiert und dadurch permanent neu gerendert.
+ *
+ * Jetzt:
+ * - lange Entprellung
+ * - eigene Arbeitshilfen-Kachel wird ignoriert
+ * - nur bei wirklicher Seitenaenderung rendern
  */
+
 let luminaPhase2RenderTimer=null;
 
 const luminaPhase2ParentObserver=
-  new MutationObserver(()=>{
+  new MutationObserver(mutations=>{
+
+    /*
+     * Pruefen, ob die Mutation nur innerhalb unserer
+     * eigenen Arbeitshilfen-Kachel stattgefunden hat.
+     */
+    const relevant=
+      mutations.some(mutation=>{
+
+        const target=
+          mutation.target;
+
+        if(
+          target instanceof Element &&
+          (
+            target.id===
+            'lumina-phase2-parent-workaid' ||
+            target.closest?.(
+              '#lumina-phase2-parent-workaid'
+            )
+          )
+        ){
+          return false;
+        }
+
+        return true;
+      });
+
+    if(!relevant){
+      return;
+    }
+
     clearTimeout(
       luminaPhase2RenderTimer
     );
 
     luminaPhase2RenderTimer=
       setTimeout(
-        luminaRenderPhase2ParentWorkAid,
-        250
+        ()=>{
+          luminaRenderPhase2ParentWorkAid(
+            false
+          );
+        },
+        700
       );
   });
+
 
 luminaPhase2ParentObserver.observe(
   document.documentElement,
@@ -10727,15 +10803,19 @@ if(document.readyState==='loading'){
     'DOMContentLoaded',
     ()=>{
       setTimeout(
-        luminaRenderPhase2ParentWorkAid,
-        500
+        ()=>{
+          luminaRenderPhase2ParentWorkAid(true);
+        },
+        700
       );
     }
   );
 }else{
   setTimeout(
-    luminaRenderPhase2ParentWorkAid,
-    500
+    ()=>{
+      luminaRenderPhase2ParentWorkAid(true);
+    },
+    700
   );
 }
 
