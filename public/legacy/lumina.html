@@ -10527,9 +10527,6 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
   const code=
     luminaPhase2ResolveCurrentCode();
 
-  /*
-   * Nur f?r 2.0 / 2.1 / 2.2 / 2.4.
-   */
   if(
     !code ||
     !LUMINA_PHASE2_PARENT_WORKAIDS[code]
@@ -10548,21 +10545,184 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     return;
   }
 
+  const grid=
+    luminaPhase2FindContentHost();
+
+  if(!grid){
+    return;
+  }
+
+  luminaPhase2EnsureStyles();
+
+  const config=
+    LUMINA_PHASE2_PARENT_WORKAIDS[code];
+
+  let card=
+    document.getElementById(
+      'lumina-phase2-parent-workaid'
+    );
+
+  /*
+   * ---------------------------------------------------------
+   * REFERENZKACHEL SUCHEN
+   * ---------------------------------------------------------
+   */
+
+  const referenceCard=[
+    ...grid.children
+  ].find(child=>{
+    if(
+      child.id===
+      'lumina-phase2-parent-workaid'
+    ){
+      return false;
+    }
+
+    const rect=
+      child.getBoundingClientRect();
+
+    return (
+      rect.width>=160 &&
+      rect.width<=360 &&
+      rect.height>=140 &&
+      rect.height<=360
+    );
+  });
+
+  if(!referenceCard){
+    return;
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * KACHEL SOFORT ANZEIGEN
+   *
+   * WICHTIG:
+   * Hier findet NOCH KEINE Supabase-Abfrage statt.
+   * ---------------------------------------------------------
+   */
+
+  if(
+    card &&
+    card.parentElement!==grid
+  ){
+    card.remove();
+    card=null;
+  }
+
+  if(!card){
+    card=
+      document.createElement(
+        referenceCard.tagName||
+        'div'
+      );
+
+    card.id=
+      'lumina-phase2-parent-workaid';
+
+    card.className=
+      referenceCard.className;
+
+    card.classList.add(
+      'lumina-phase2-workaid-card'
+    );
+
+    /*
+     * Sofort ganz links vor die bestehenden Kacheln.
+     */
+    grid.insertBefore(
+      card,
+      grid.firstElementChild
+    );
+  }
+
+  /*
+   * Sofortiger Platzhalter.
+   *
+   * Dadurch erscheint die Kachel gleichzeitig mit
+   * den bestehenden Prozesskacheln.
+   */
+
+  if(
+    force ||
+    card.dataset.luminaCode!==code
+  ){
+    card.dataset.luminaCode=code;
+
+    card.innerHTML=`
+      <div class="lumina-p2-wa-inner">
+
+        <div class="lumina-p2-wa-badge">
+          Arbeitshilfe
+        </div>
+
+        <div class="lumina-p2-wa-title">
+          ${luminaStructureEscape(config.title)}
+        </div>
+
+        <div class="lumina-p2-wa-file">
+          Arbeitshilfe wird geladen ...
+        </div>
+
+        <div class="lumina-p2-wa-actions">
+
+          <button
+            type="button"
+            class="lumina-p2-wa-download"
+            disabled
+          >
+            Herunterladen
+          </button>
+
+          <button
+            type="button"
+            class="lumina-p2-wa-upload"
+          >
+            Datei hochladen
+          </button>
+
+        </div>
+      </div>
+    `;
+  }
+
+  /*
+   * Upload funktioniert bereits sofort,
+   * auch waehrend Supabase noch gelesen wird.
+   */
+  const earlyUploadButton=
+    card.querySelector(
+      '.lumina-p2-wa-upload'
+    );
+
+  if(
+    earlyUploadButton &&
+    !earlyUploadButton.dataset.listenerInstalled
+  ){
+    earlyUploadButton.dataset.listenerInstalled='1';
+
+    earlyUploadButton.addEventListener(
+      'click',
+      event=>{
+        event.preventDefault();
+        event.stopPropagation();
+
+        luminaPhase2ChooseUpload(
+          code
+        );
+      }
+    );
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * AB HIER ERST SUPABASE
+   * ---------------------------------------------------------
+   */
+
   luminaPhase2RenderRunning=true;
 
   try{
-    const grid=
-      luminaPhase2FindContentHost();
-
-    if(!grid){
-      return;
-    }
-
-    luminaPhase2EnsureStyles();
-
-    const config=
-      LUMINA_PHASE2_PARENT_WORKAIDS[code];
-
     let files=[];
 
     try{
@@ -10575,6 +10735,31 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
         'Phase-2-Dateiliste konnte nicht gelesen werden:',
         error
       );
+
+      /*
+       * Die Kachel bleibt trotzdem sichtbar.
+       */
+      const fileLabel=
+        card.querySelector(
+          '.lumina-p2-wa-file'
+        );
+
+      if(fileLabel){
+        fileLabel.textContent=
+          'Dateistatus derzeit nicht abrufbar';
+      }
+
+      return;
+    }
+
+    /*
+     * Falls der Nutzer inzwischen auf einen anderen
+     * Prozessschritt gewechselt hat, nichts mehr aktualisieren.
+     */
+    if(
+      card.dataset.luminaCode!==code
+    ){
+      return;
     }
 
     const currentFile=
@@ -10585,95 +10770,9 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
     const signature=
       `${code}|${currentFile}|${config.title}`;
 
-    let card=
-      document.getElementById(
-        'lumina-phase2-parent-workaid'
-      );
-
     /*
-     * Falls sie aktuell irgendwo FALSCH sitzt:
-     * entfernen und sauber in das Raster setzen.
+     * Inhalt jetzt mit echtem Dateistatus aktualisieren.
      */
-    if(
-      card &&
-      card.parentElement!==grid
-    ){
-      card.remove();
-      card=null;
-    }
-
-    /*
-     * Normale Referenzkachel im selben Grid.
-     */
-    const referenceCard=[
-      ...grid.children
-    ].find(child=>{
-      if(
-        child.id===
-        'lumina-phase2-parent-workaid'
-      ){
-        return false;
-      }
-
-      const rect=
-        child.getBoundingClientRect();
-
-      return (
-        rect.width>=160 &&
-        rect.width<=360 &&
-        rect.height>=140 &&
-        rect.height<=360
-      );
-    });
-
-    if(!referenceCard){
-      return;
-    }
-
-    if(!card){
-      /*
-       * Exakte Klassen einer existierenden Kachel ?bernehmen.
-       */
-      card=
-        document.createElement(
-          referenceCard.tagName||
-          'div'
-        );
-
-      card.id=
-        'lumina-phase2-parent-workaid';
-
-      card.className=
-        referenceCard.className;
-
-      card.classList.add(
-        'lumina-phase2-workaid-card'
-      );
-
-      /*
-       * WICHTIG:
-       * Exakt als erstes Element im selben Raster.
-       */
-      grid.insertBefore(
-        card,
-        grid.firstElementChild
-      );
-
-      force=true;
-    }
-
-    /*
-     * Keine width / height / absolute Position setzen.
-     * Das bestehende Grid bestimmt automatisch die Gr??e.
-     */
-
-    if(
-      !force &&
-      signature===luminaPhase2LastSignature
-    ){
-      return;
-    }
-
     card.innerHTML=`
       <div class="lumina-p2-wa-inner">
 
@@ -10789,68 +10888,78 @@ async function luminaRenderPhase2ParentWorkAid(force=false){
 
 let luminaPhase2LastDetectedCode='';
 
+
+function luminaPhase2ImmediateCheck(){
+  const code=
+    luminaPhase2ResolveCurrentCode();
+
+  const card=
+    document.getElementById(
+      'lumina-phase2-parent-workaid'
+    );
+
+  /*
+   * Prozessschritt gewechselt:
+   * sofort rendern.
+   */
+  if(
+    code!==luminaPhase2LastDetectedCode
+  ){
+    luminaPhase2LastDetectedCode=
+      code;
+
+    luminaPhase2LastSignature='';
+
+    luminaRenderPhase2ParentWorkAid(
+      true
+    );
+
+    return;
+  }
+
+  /*
+   * Aktive Phase-2-Seite, aber Kachel fehlt:
+   * sofort nachsetzen.
+   */
+  if(
+    code &&
+    LUMINA_PHASE2_PARENT_WORKAIDS[code] &&
+    !card
+  ){
+    luminaRenderPhase2ParentWorkAid(
+      true
+    );
+  }
+}
+
+
+/*
+ * 80 ms statt bisher 1.200 ms.
+ *
+ * Das ist fuer den Nutzer praktisch unmittelbar,
+ * verursacht aber keine DOM-Schleife, weil nur dann
+ * gerendert wird, wenn Code oder Kachelstatus sich aendern.
+ */
 setInterval(
-  ()=>{
-    const code=
-      luminaPhase2ResolveCurrentCode();
-
-    const card=
-      document.getElementById(
-        'lumina-phase2-parent-workaid'
-      );
-
-    if(
-      code!==luminaPhase2LastDetectedCode
-    ){
-      luminaPhase2LastDetectedCode=
-        code;
-
-      luminaPhase2LastSignature='';
-
-      luminaRenderPhase2ParentWorkAid(
-        true
-      );
-
-      return;
-    }
-
-    /*
-     * Falls LUMINA beim Navigieren den Grid-Container
-     * komplett neu gebaut hat, fehlt unsere Kachel.
-     */
-    if(
-      code &&
-      LUMINA_PHASE2_PARENT_WORKAIDS[code] &&
-      !card
-    ){
-      luminaRenderPhase2ParentWorkAid(
-        true
-      );
-    }
-  },
-  1200
+  luminaPhase2ImmediateCheck,
+  80
 );
 
+
+/*
+ * Bereits unmittelbar beim Laden pruefen.
+ */
+luminaPhase2ImmediateCheck();
 
 if(document.readyState==='loading'){
   document.addEventListener(
     'DOMContentLoaded',
     ()=>{
-      setTimeout(
-        ()=>{
-          luminaRenderPhase2ParentWorkAid(true);
-        },
-        700
-      );
+      luminaPhase2ImmediateCheck();
     }
   );
 }else{
-  setTimeout(
-    ()=>{
-      luminaRenderPhase2ParentWorkAid(true);
-    },
-    700
-  );
+  luminaPhase2ImmediateCheck();
 }
 
 /* ============================================================
