@@ -9928,171 +9928,178 @@ function luminaPhase2ResolveCurrentCode(){
 
 function luminaPhase2FindContentHost(){
   /*
-   * Nicht mehr allgemein nach irgendeinem Card-Container suchen.
+   * Robuste strukturelle Suche:
    *
-   * Wir suchen ganz gezielt eine der BESTEHENDEN Phase-2-Kacheln
-   * anhand ihres sichtbaren Textes und nehmen dann exakt deren
-   * unmittelbaren Kachel-Container.
+   * Wir suchen NICHT mehr nach Kacheltexten.
+   * Stattdessen suchen wir ein sichtbares Container-Element,
+   * das mindestens zwei ann?hernd gleich gro?e Kacheln enth?lt.
    */
 
   const code=
     luminaPhase2ResolveCurrentCode();
 
-  const anchorTexts={
-    '2.0':[
-      'Stammdaten erfassen',
-      'Ordnerstruktur nach Bilanzposten anlegen',
-      'Gesamtverantwortung und Koordination'
-    ],
-
-    '2.1':[
-      'Zeitplan der Meilensteine',
-      'Gesamtverantwortung und Koordination'
-    ],
-
-    '2.2':[
-      'Verantwortliche je Bilanzposten benennen',
-      'Gesamtverantwortung und Koordination'
-    ],
-
-    '2.4':[
-      'Standardliste aus Vorjahr ?bernehmen',
-      'Gesamtverantwortung und Koordination'
-    ]
-  };
-
-  const wanted=
-    anchorTexts[code]||
-    [];
-
-  if(!wanted.length){
+  if(
+    !code ||
+    !LUMINA_PHASE2_PARENT_WORKAIDS[code]
+  ){
     return null;
   }
 
-  const all=[
+  const candidates=[
     ...document.querySelectorAll(
-      'div,article,section'
+      'div,section,main'
     )
-  ];
-
-  let referenceCard=null;
-
-  /*
-   * Erst eine sichtbare Kachel anhand ihres Titels finden.
-   */
-  for(const label of wanted){
-    const candidates=
-      all.filter(element=>{
-        if(!element.offsetParent){
-          return false;
-        }
-
-        const ownText=
-          String(
-            element.innerText||
-            element.textContent||
-            ''
-          ).trim();
-
-        if(!ownText.includes(label)){
-          return false;
-        }
-
-        const rect=
-          element.getBoundingClientRect();
-
-        /*
-         * Typische LUMINA-Kachel:
-         * ca. 180-300 px breit,
-         * ca. 180-320 px hoch.
-         */
-        return (
-          rect.width>=160 &&
-          rect.width<=360 &&
-          rect.height>=140 &&
-          rect.height<=360
-        );
-      });
-
-    if(candidates.length){
-      /*
-       * Kleinste passende Box = tats?chliche Kachel.
-       */
-      candidates.sort((a,b)=>{
-        const ra=a.getBoundingClientRect();
-        const rb=b.getBoundingClientRect();
-
-        return (
-          ra.width*ra.height -
-          rb.width*rb.height
-        );
-      });
-
-      referenceCard=
-        candidates[0];
-
-      break;
-    }
-  }
-
-  if(!referenceCard){
-    console.warn(
-      'LUMINA Phase 2: Referenzkachel wurde nicht gefunden.'
-    );
-
-    return null;
-  }
-
-  /*
-   * Der direkte Parent der normalen Kachel ist unser Raster.
-   */
-  const grid=
-    referenceCard.parentElement;
-
-  if(!grid){
-    return null;
-  }
-
-  /*
-   * Sicherheitspr?fung:
-   * Im Container m?ssen mindestens zwei normale Kacheln liegen.
-   */
-  const normalChildren=[
-    ...grid.children
-  ].filter(child=>{
-    if(
-      child.id===
-      'lumina-phase2-parent-workaid'
-    ){
+  ].filter(container=>{
+    if(!container.offsetParent){
       return false;
     }
 
-    const rect=
-      child.getBoundingClientRect();
+    const children=[
+      ...container.children
+    ].filter(child=>{
+      if(!child.offsetParent){
+        return false;
+      }
 
-    return (
-      rect.width>=160 &&
-      rect.width<=360 &&
-      rect.height>=140 &&
-      rect.height<=360
-    );
+      if(
+        child.id===
+        'lumina-phase2-parent-workaid'
+      ){
+        return false;
+      }
+
+      const rect=
+        child.getBoundingClientRect();
+
+      return (
+        rect.width>=160 &&
+        rect.width<=360 &&
+        rect.height>=140 &&
+        rect.height<=360
+      );
+    });
+
+    if(children.length<2){
+      return false;
+    }
+
+    /*
+     * Die vorhandenen Prozesskacheln haben fast gleiche Gr??e.
+     */
+    const rects=
+      children.map(
+        child=>child.getBoundingClientRect()
+      );
+
+    const first=
+      rects[0];
+
+    const similar=
+      rects.filter(rect=>{
+        return (
+          Math.abs(rect.width-first.width)<=40 &&
+          Math.abs(rect.height-first.height)<=60
+        );
+      });
+
+    return similar.length>=2;
   });
 
-  if(normalChildren.length<2){
+  if(!candidates.length){
     console.warn(
-      'LUMINA Phase 2: gefundener Container sieht nicht wie das Kachelraster aus.'
+      'LUMINA Phase 2: Kachelraster wurde nicht gefunden.'
     );
 
     return null;
   }
 
   /*
-   * Referenzkarte merken.
+   * Wir bevorzugen:
+   * - relativ kleinen Container
+   * - dessen obere Position unterhalb des Seitenkopfs liegt
+   * - mindestens zwei direkte Kachel-Kinder
    */
-  grid.dataset.luminaPhase2ReferenceClass=
-    referenceCard.className||'';
+  candidates.sort((a,b)=>{
+    const ar=a.getBoundingClientRect();
+    const br=b.getBoundingClientRect();
 
-  return grid;
+    const aChildren=[...a.children].length;
+    const bChildren=[...b.children].length;
+
+    /*
+     * Weniger Kinder = eher das eigentliche Kachelgrid.
+     */
+    if(aChildren!==bChildren){
+      return aChildren-bChildren;
+    }
+
+    /*
+     * Danach kleinere Fl?che bevorzugen.
+     */
+    return (
+      ar.width*ar.height -
+      br.width*br.height
+    );
+  });
+
+  for(const grid of candidates){
+    const rect=
+      grid.getBoundingClientRect();
+
+    /*
+     * Das Kachelraster liegt im sichtbaren Inhaltsbereich
+     * und nicht im Header.
+     */
+    if(
+      rect.top<250 ||
+      rect.width<400
+    ){
+      continue;
+    }
+
+    const normalCards=[
+      ...grid.children
+    ].filter(child=>{
+      if(!child.offsetParent){
+        return false;
+      }
+
+      if(
+        child.id===
+        'lumina-phase2-parent-workaid'
+      ){
+        return false;
+      }
+
+      const cardRect=
+        child.getBoundingClientRect();
+
+      return (
+        cardRect.width>=160 &&
+        cardRect.width<=360 &&
+        cardRect.height>=140 &&
+        cardRect.height<=360
+      );
+    });
+
+    if(normalCards.length>=2){
+      console.log(
+        'LUMINA Phase 2: Kachelraster gefunden.',
+        {
+          code,
+          cards:normalCards.length
+        }
+      );
+
+      return grid;
+    }
+  }
+
+  console.warn(
+    'LUMINA Phase 2: Kein geeignetes Kachelraster gefunden.'
+  );
+
+  return null;
 }
 
 async function luminaPhase2ListFiles(code){
