@@ -5236,35 +5236,33 @@ async function guidanceDownloadHelper(guide){
 
   try{
     const bucket=guide?.arbeitshilfe_storage_bucket||'lumina-templates';
-
     let folder='';
 
     /*
-     * 1. Vorhandenen Storage-Pfad auswerten.
+     * 1. Kachelordner aus vorhandenem Storage-Pfad ermitteln.
      *
      * Beispiele:
      * 4.2/Datei.xlsx
      * templates/3.12/Datei.xlsx
      *
      * Ergebnis:
-     * 4.2
-     * 3.12
+     * 4.2 bzw. 3.12
      */
     if(guide?.arbeitshilfe_storage_path){
-      const pathParts=String(guide.arbeitshilfe_storage_path)
+      const parts=String(guide.arbeitshilfe_storage_path)
         .split('/')
         .filter(Boolean);
 
-      for(let i=pathParts.length-1;i>=0;i--){
-        if(/^\d+\.\d+$/.test(pathParts[i])){
-          folder=pathParts[i];
+      for(let i=parts.length-1;i>=0;i--){
+        if(/^\d+\.\d+$/.test(parts[i])){
+          folder=parts[i];
           break;
         }
       }
     }
 
     /*
-     * 2. Kachelcode aus bekannten Guide-Feldern lesen.
+     * 2. Kachelcode aus bekannten Feldern des Guide-Objekts.
      */
     if(!folder){
       const candidates=[
@@ -5279,40 +5277,27 @@ async function guidanceDownloadHelper(guide){
       ];
 
       for(const candidate of candidates){
-        if(!candidate) continue;
+        if(candidate===undefined || candidate===null) continue;
 
         const value=String(candidate).trim();
 
-        // Exakte Kachelkennung wie 3.12 oder 4.2
         if(/^\d+\.\d+$/.test(value)){
           folder=value;
-          break;
-        }
-
-        // Kachelkennung innerhalb eines Textfeldes.
-        const match=value.match(
-          /(?:^|[^0-9])(\d+\.\d+)(?:[^0-9.]|$)/
-        );
-
-        if(match){
-          folder=match[1];
           break;
         }
       }
     }
 
     /*
-     * 3. Fallback aus dem ge?ffneten Modal.
+     * 3. Fallback aus dem ge?ffneten Aufgabenmodal.
      *
-     * Wichtig:
-     * Wir suchen NICHT mehr irgendeine Zahl wie 10.08.
+     * Beispiel der sichtbaren Kopfzeile:
      *
-     * Stattdessen suchen wir gezielt die sichtbare
-     * Prozessschritt-Struktur:
+     * 3.12.1.3 ? Nr. 90 ? 3.12. Vorbereitung R?ckstellungen ? f?llig 21.01.2027
      *
-     * "? 3.12. Vorbereitung R?ckstellungen"
-     *
-     * Dadurch werden Datumsangaben ignoriert.
+     * Wir teilen den Text an "?".
+     * Dadurch k?nnen Datumswerte wie 10.08 oder 21.01.2027
+     * nicht versehentlich als Kachelcode verwendet werden.
      */
     if(!folder){
       const modal=document.getElementById('task-modal-side');
@@ -5324,18 +5309,26 @@ async function guidanceDownloadHelper(guide){
           ''
         );
 
-        let match=modalText.match(
-          /?\s*(\d+\.\d+)\.\s+[A-Za-z???????]/
-        );
+        const segments=modalText.split('?');
 
-        if(!match){
-          match=modalText.match(
-            /(?:^|\s)(\d+\.\d+)\.\s+[A-Za-z???????][A-Za-z???????\- ]+/m
-          );
-        }
+        for(const rawSegment of segments){
+          const segment=String(rawSegment||'').trim();
 
-        if(match){
-          folder=match[1];
+          /*
+           * Gesucht wird ausschlie?lich ein Segment, das so beginnt:
+           *
+           * 3.12. Vorbereitung ...
+           * 4.2. Durchf?hrung ...
+           * 7.0. ...
+           *
+           * Ein Unterpunkt wie 3.12.1.3 passt bewusst NICHT.
+           */
+          const match=segment.match(/^(\d+\.\d+)\.\s/);
+
+          if(match){
+            folder=match[1];
+            break;
+          }
         }
       }
     }
@@ -5347,12 +5340,12 @@ async function guidanceDownloadHelper(guide){
     }
 
     console.log(
-      'LUMINA Arbeitshilfe: verwende Prozessschritt-Ordner',
+      'LUMINA Arbeitshilfe: Kachelordner =',
       folder
     );
 
     /*
-     * 4. Aktuellen Inhalt des Supabase-Kachelordners lesen.
+     * 4. Dateien im entsprechenden Supabase-Ordner lesen.
      */
     const {data:items,error:listError}=await luminaDb.storage
       .from(bucket)
@@ -5370,7 +5363,7 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 5. Nur echte Dateien ber?cksichtigen.
+     * 5. Nur echte Dateien verwenden.
      */
     const files=(items||[]).filter(item=>{
       if(!item) return false;
@@ -5393,22 +5386,19 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 6. Die tats?chlich vorhandene Datei verwenden.
-     * Der Dateiname ist damit nicht mehr fest verdrahtet.
+     * 6. Tats?chlich vorhandenen Dateinamen verwenden.
      */
     const currentFile=files[0];
-
-    const storagePath=`${folder}/${currentFile.name}`;
     const fileName=currentFile.name;
+    const storagePath=`${folder}/${fileName}`;
 
     console.log(
-      'LUMINA Arbeitshilfe: lade',
-      bucket,
+      'LUMINA Arbeitshilfe: Download =',
       storagePath
     );
 
     /*
-     * 7. Datei frisch aus Supabase laden.
+     * 7. Datei frisch laden.
      */
     const {data,error}=await luminaDb.storage
       .from(bucket)
@@ -5429,7 +5419,7 @@ async function guidanceDownloadHelper(guide){
     }
 
     /*
-     * 8. Originaldatei mit ihrem tats?chlichen Namen herunterladen.
+     * 8. Originaldatei herunterladen.
      */
     guidanceDownloadBlob(data,fileName);
 
