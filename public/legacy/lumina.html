@@ -9054,24 +9054,97 @@ async function luminaStructureDownload(typeKey,fileName){
 }
 
 
+function luminaStructureSafeFileName(fileName){
+  const original=String(fileName||'').trim();
+
+  if(!original){
+    return 'struktur.xlsx';
+  }
+
+  /*
+   * Deutsche Sonderzeichen bewusst lesbar umwandeln.
+   */
+  let safe=original
+    .replace(/\u00e4/g,'ae')
+    .replace(/\u00c4/g,'Ae')
+    .replace(/\u00f6/g,'oe')
+    .replace(/\u00d6/g,'Oe')
+    .replace(/\u00fc/g,'ue')
+    .replace(/\u00dc/g,'Ue')
+    .replace(/\u00df/g,'ss');
+
+  /*
+   * Weitere Akzente entfernen.
+   */
+  try{
+    safe=safe
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'');
+  }catch(error){}
+
+  /*
+   * Leerzeichen -> Unterstrich.
+   *
+   * Nur robuste ASCII-Zeichen fuer den Storage-Key
+   * stehen lassen.
+   */
+  safe=safe
+    .replace(/\s+/g,'_')
+    .replace(/[^A-Za-z0-9._,'!&$@=;()+?\-]/g,'_')
+    .replace(/_+/g,'_')
+    .replace(/^_+|_+$/g,'');
+
+  /*
+   * Dateiendung muss erhalten bleiben.
+   */
+  if(!safe){
+    safe='struktur.xlsx';
+  }
+
+  return safe;
+}
+
+
 async function luminaStructureUpload(typeKey,file,replaceFileName=''){
   try{
     if(!file){
       return;
     }
 
-    let targetName=file.name;
-
     /*
-     * Beim Ersetzen wird bewusst der neue Originaldateiname
-     * verwendet. Damit sind Formatwechsel moeglich.
+     * Dateiname fuer Supabase automatisch bereinigen.
+     *
+     * Beispiel:
+     *
+     * Test 1 - best\u00e4tigtes Mapping.xlsx
+     *
+     * wird:
+     *
+     * Test_1_-_bestaetigtes_Mapping.xlsx
      */
+    const targetName=
+      luminaStructureSafeFileName(
+        file.name
+      );
+
     const targetPath=
       luminaStructurePath(
         typeKey,
         targetName
       );
 
+    console.log(
+      'LUMINA Struktur-Upload:',
+      {
+        originalFileName:file.name,
+        storageFileName:targetName,
+        targetPath
+      }
+    );
+
+    /*
+     * Neue Datei zuerst speichern.
+     */
     const {error:uploadError}=
       await luminaDb.storage
         .from(LUMINA_STRUCTURE_BUCKET)
@@ -9091,6 +9164,9 @@ async function luminaStructureUpload(typeKey,file,replaceFileName=''){
       throw uploadError;
     }
 
+    /*
+     * Upload danach kontrollieren.
+     */
     const {data:info,error:infoError}=
       await luminaDb.storage
         .from(LUMINA_STRUCTURE_BUCKET)
@@ -9102,8 +9178,15 @@ async function luminaStructureUpload(typeKey,file,replaceFileName=''){
       throw infoError;
     }
 
+    if(!info){
+      throw new Error(
+        'Die neue Struktur konnte nach dem Upload nicht verifiziert werden.'
+      );
+    }
+
     /*
-     * Alten Dateinamen erst nach erfolgreichem Upload entfernen.
+     * Beim Ersetzen:
+     * alte Datei erst NACH erfolgreichem Upload entfernen.
      */
     if(
       replaceFileName &&
@@ -9129,17 +9212,25 @@ async function luminaStructureUpload(typeKey,file,replaceFileName=''){
     }
 
     console.log(
-      'LUMINA Struktur gespeichert:',
+      'LUMINA Struktur erfolgreich gespeichert:',
       {
         typeKey,
+        originalFileName:file.name,
+        storageFileName:targetName,
         targetPath,
         info
       }
     );
 
-    showTopNote(
-      `"${targetName}" wurde gespeichert.`
-    );
+    if(targetName!==file.name){
+      showTopNote(
+        `"${file.name}" wurde als "${targetName}" gespeichert.`
+      );
+    }else{
+      showTopNote(
+        `"${targetName}" wurde gespeichert.`
+      );
+    }
 
     await luminaRenderStructureLibrary();
 
@@ -9156,7 +9247,6 @@ async function luminaStructureUpload(typeKey,file,replaceFileName=''){
     );
   }
 }
-
 
 function luminaStructureChooseFile(
   typeKey,
