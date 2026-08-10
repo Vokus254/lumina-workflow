@@ -9650,45 +9650,112 @@ function luminaOpenStructureLibrary(){
 
 
 function luminaFindStructureButtonHost(){
-  const buttons=[
-    ...document.querySelectorAll(
-      'button'
-    )
-  ];
+  /*
+   * Stabiler Host:
+   * bevorzugt den bereits vorhandenen Bereich der
+   * Gesamt-Workbook-Buttons.
+   *
+   * Dadurch springt "Strukturen & Mapping" nicht mehr
+   * zwischen verschiedenen Zeilen der Kopfzeile.
+   */
 
-  const projectButton=
-    buttons.find(
-      button=>
-        String(
-          button.textContent||
-          ''
-        ).trim()
-        .includes(
-          'Projektordner speichern'
-        )
+  const workbookHost=
+    document.getElementById(
+      'lumina-workbook-host'
     );
 
-  if(projectButton?.parentElement){
-    return projectButton.parentElement;
+  if(workbookHost){
+    let structureHost=
+      document.getElementById(
+        'lumina-structure-button-host'
+      );
+
+    if(!structureHost){
+      structureHost=
+        document.createElement('div');
+
+      structureHost.id=
+        'lumina-structure-button-host';
+
+      structureHost.style.display='flex';
+      structureHost.style.alignItems='center';
+      structureHost.style.gap='8px';
+      structureHost.style.marginLeft='8px';
+
+      workbookHost.appendChild(
+        structureHost
+      );
+    }
+
+    return structureHost;
   }
 
-  const jsonButton=
-    buttons.find(
-      button=>
-        String(
-          button.textContent||
-          ''
-        ).trim()
-        .includes(
-          'JSON Export'
-        )
-    );
+  /*
+   * Falls der Workbook-Host beim ersten Durchlauf
+   * noch nicht existiert, noch NICHT irgendwo anders
+   * einsetzen.
+   *
+   * Stattdessen wartet die Installationsfunktion
+   * auf den naechsten Durchlauf.
+   */
+  return null;
+}
 
-  return jsonButton?.parentElement||null;
+
+function luminaEnsureStructureButtonPositionStyles(){
+  if(
+    document.getElementById(
+      'lumina-structure-button-position-style'
+    )
+  ){
+    return;
+  }
+
+  const style=
+    document.createElement('style');
+
+  style.id=
+    'lumina-structure-button-position-style';
+
+  style.textContent=`
+    #lumina-workbook-host{
+      display:flex !important;
+      align-items:center !important;
+      gap:8px !important;
+      flex-wrap:wrap !important;
+    }
+
+    #lumina-structure-button-host{
+      display:flex !important;
+      align-items:center !important;
+      gap:8px !important;
+      margin:0 0 0 8px !important;
+      position:static !important;
+      flex:0 0 auto !important;
+    }
+
+    #lumina-structure-library-button{
+      position:static !important;
+      margin:0 !important;
+      flex:0 0 auto !important;
+    }
+
+    @media(max-width:1000px){
+      #lumina-structure-button-host{
+        margin-left:0 !important;
+      }
+    }
+  `;
+
+  document.head.appendChild(
+    style
+  );
 }
 
 
 function luminaInstallStructureLibraryButton(){
+  luminaEnsureStructureButtonPositionStyles();
+
   if(
     document.getElementById(
       'lumina-structure-library-button'
