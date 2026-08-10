@@ -7189,7 +7189,7 @@ function luminaResolveWorkAidFolderFromButton(button){
    */
   const tokens=
     modalText
-      .replace(/?/g,' ')
+      .split('\u00b7').join(' ')
       .replace(/\n/g,' ')
       .split(/\s+/)
       .map(token=>String(token||'').trim())
@@ -7203,8 +7203,8 @@ function luminaResolveWorkAidFolderFromButton(button){
      * Punkte innerhalb des Wertes bleiben erhalten.
      */
     token=token
-      .replace(/^[,;:()[\]{}]+/,'')
-      .replace(/[,;:()[\]{}]+$/,'');
+      .replace(/^[,;:(){}]+/,'')
+      .replace(/[,;:(){}]+$/,'');
 
     /*
      * "3.3." -> "3.3"
@@ -7299,7 +7299,7 @@ function luminaResolveWorkAidFolderFromButton(button){
 
       const headerTokens=
         headerText
-          .replace(/?/g,' ')
+          .split('\u00b7').join(' ')
           .replace(/\n/g,' ')
           .split(/\s+/)
           .filter(Boolean);
@@ -7307,7 +7307,7 @@ function luminaResolveWorkAidFolderFromButton(button){
       for(let token of headerTokens){
         token=String(token)
           .trim()
-          .replace(/[,;:()[\]{}]+$/,'');
+          .replace(/[,;:(){}]+$/,'');
 
         while(token.endsWith('.')){
           token=token.slice(0,-1);
