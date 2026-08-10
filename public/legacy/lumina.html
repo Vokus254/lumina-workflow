@@ -10344,104 +10344,100 @@ function luminaPhase2EnsureStyles(){
     'lumina-phase2-parent-workaid-style';
 
   style.textContent=`
-    .lumina-phase2-parent-workaid{
-      margin-top:28px;
-      margin-bottom:28px;
-      border:1px solid #e5e7eb;
-      border-radius:14px;
-      background:#fff;
-      padding:20px 22px;
-      max-width:900px;
+    /*
+     * Die Arbeitshilfe wird als normale Kachel in das
+     * bestehende Kachelraster eingesetzt.
+     */
+
+    #lumina-phase2-parent-workaid{
+      position:relative;
+      box-sizing:border-box;
+      overflow:hidden;
     }
 
-    .lumina-phase2-workaid-head{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-inner{
+      width:100%;
+      height:100%;
+      min-height:0;
       display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:20px;
-      margin-bottom:14px;
+      flex-direction:column;
+      box-sizing:border-box;
+      padding:16px;
     }
 
-    .lumina-phase2-workaid-title{
-      margin:0 0 4px;
-      font-size:16px;
-      font-weight:800;
-      color:#111827;
-    }
-
-    .lumina-phase2-workaid-type{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-badge{
+      align-self:flex-start;
+      padding:4px 9px;
+      border-radius:999px;
+      background:#e7f5ee;
+      color:#29936d;
       font-size:11px;
-      color:#94a3b8;
+      line-height:1;
+      font-weight:800;
+      letter-spacing:.02em;
+      text-transform:uppercase;
       white-space:nowrap;
     }
 
-    .lumina-phase2-workaid-file{
-      margin-top:4px;
-      color:#64748b;
-      font-size:12px;
+    #lumina-phase2-parent-workaid .lumina-p2-wa-title{
+      margin-top:auto;
+      margin-bottom:auto;
+      font-size:15px;
+      line-height:1.28;
+      font-weight:700;
+      color:#111827;
     }
 
-    .lumina-phase2-workaid-actions{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-file{
+      margin-top:6px;
+      margin-bottom:10px;
+      color:#8b95a7;
+      font-size:10px;
+      line-height:1.25;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    #lumina-phase2-parent-workaid .lumina-p2-wa-actions{
       display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      margin:15px 0 16px;
+      flex-direction:column;
+      gap:6px;
+      margin-top:auto;
     }
 
-    .lumina-phase2-workaid-download,
-    .lumina-phase2-workaid-upload{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-download,
+    #lumina-phase2-parent-workaid .lumina-p2-wa-upload{
       appearance:none;
-      border-radius:9px;
-      padding:9px 13px;
-      font-size:12px;
+      width:100%;
+      min-height:29px;
+      border-radius:8px;
+      padding:6px 8px;
+      font-size:10px;
+      line-height:1.1;
       font-weight:700;
       cursor:pointer;
     }
 
-    .lumina-phase2-workaid-download{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-download{
       border:0;
       background:#35a77c;
       color:#fff;
     }
 
-    .lumina-phase2-workaid-upload{
+    #lumina-phase2-parent-workaid .lumina-p2-wa-download:disabled{
+      opacity:.45;
+      cursor:default;
+    }
+
+    #lumina-phase2-parent-workaid .lumina-p2-wa-upload{
       border:1px solid #35a77c;
       background:#fff;
       color:#258565;
     }
 
-    .lumina-phase2-workaid-fields-title{
-      margin-top:5px;
-      margin-bottom:8px;
-      font-size:10px;
-      color:#94a3b8;
-      font-weight:800;
-      text-transform:uppercase;
-      letter-spacing:.04em;
-    }
-
-    .lumina-phase2-workaid-fields{
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px;
-    }
-
-    .lumina-phase2-workaid-field{
-      padding:5px 9px;
-      border-radius:999px;
-      background:#f1f5f9;
-      color:#64748b;
-      font-size:11px;
-    }
-
-    @media(max-width:800px){
-      .lumina-phase2-workaid-head{
-        flex-direction:column;
-      }
-
-      .lumina-phase2-parent-workaid{
-        max-width:none;
-      }
+    #lumina-phase2-parent-workaid .lumina-p2-wa-upload:hover{
+      background:#f0faf6;
     }
   `;
 
@@ -10456,7 +10452,7 @@ async function luminaRenderPhase2ParentWorkAid(){
     luminaPhase2ResolveCurrentCode();
 
   /*
-   * Nur fuer die vier explizit gewuenschten Prozessschritte.
+   * Nur fuer 2.0 / 2.1 / 2.2 / 2.4.
    */
   if(
     !code ||
@@ -10500,28 +10496,105 @@ async function luminaRenderPhase2ParentWorkAid(){
     );
   }
 
-  let box=
+  /*
+   * Falls der alte grosse Bereich noch vorhanden ist:
+   * entfernen.
+   */
+  let existing=
     document.getElementById(
       'lumina-phase2-parent-workaid'
     );
 
-  if(!box){
-    box=
-      document.createElement('section');
+  /*
+   * Ermitteln, welche CSS-Klassen eine normale vorhandene
+   * Kachel verwendet. Dadurch uebernimmt unsere Arbeitshilfe
+   * automatisch Groesse, Grid-Verhalten, Rahmen usw.
+   */
+  const normalCards=[
+    ...host.children
+  ].filter(child=>{
+    if(
+      child.id===
+      'lumina-phase2-parent-workaid'
+    ){
+      return false;
+    }
 
-    box.id=
+    if(!child.offsetParent){
+      return false;
+    }
+
+    const rect=
+      child.getBoundingClientRect();
+
+    return (
+      rect.width>140 &&
+      rect.height>120
+    );
+  });
+
+  const referenceCard=
+    normalCards[0]||
+    null;
+
+  /*
+   * Falls die Arbeitshilfe noch nicht IM Grid sitzt,
+   * neu erzeugen.
+   */
+  if(
+    !existing ||
+    existing.parentElement!==host
+  ){
+    if(existing){
+      existing.remove();
+    }
+
+    existing=
+      document.createElement('div');
+
+    existing.id=
       'lumina-phase2-parent-workaid';
 
-    box.className=
-      'lumina-phase2-parent-workaid';
+    if(referenceCard){
+      existing.className=
+        referenceCard.className;
+    }
 
     /*
-     * Direkt NACH dem Kachelcontainer.
+     * Zusatzklasse nicht vergessen.
      */
-    host.insertAdjacentElement(
-      'afterend',
-      box
+    existing.classList.add(
+      'lumina-phase2-workaid-card'
     );
+
+    /*
+     * GANZ VORNE in das vorhandene Raster.
+     *
+     * Bestehende Kacheln werden nur nach rechts geschoben,
+     * aber inhaltlich nicht veraendert.
+     */
+    host.prepend(
+      existing
+    );
+  }
+
+  /*
+   * Exakte Dimensionen der normalen Kachel uebernehmen,
+   * sofern diese explizit messbar sind.
+   */
+  if(referenceCard){
+    const rect=
+      referenceCard.getBoundingClientRect();
+
+    if(rect.width>0){
+      existing.style.width=
+        `${rect.width}px`;
+    }
+
+    if(rect.height>0){
+      existing.style.height=
+        `${rect.height}px`;
+    }
   }
 
   const currentFile=
@@ -10529,84 +10602,79 @@ async function luminaRenderPhase2ParentWorkAid(){
       ? files[0].name
       : '';
 
-  box.innerHTML=`
-    <div class="lumina-phase2-workaid-head">
-      <div>
-        <div class="lumina-phase2-workaid-title">
-          Arbeitshilfe: ${luminaStructureEscape(config.title)}
-        </div>
+  existing.innerHTML=`
+    <div class="lumina-p2-wa-inner">
 
-        <div class="lumina-phase2-workaid-file">
-          ${
-            currentFile
-              ? `Aktuell: ${luminaStructureEscape(currentFile)}`
-              : 'Noch keine Datei hinterlegt'
-          }
-        </div>
+      <div class="lumina-p2-wa-badge">
+        Arbeitshilfe
       </div>
 
-      <div class="lumina-phase2-workaid-type">
-        ${luminaStructureEscape(config.typeLabel)}
+      <div class="lumina-p2-wa-title">
+        ${luminaStructureEscape(config.title)}
       </div>
-    </div>
 
-    <div class="lumina-phase2-workaid-actions">
-      <button
-        type="button"
-        class="lumina-phase2-workaid-download"
-        ${currentFile ? '' : 'disabled'}
-      >
-        Arbeitshilfe herunterladen
-      </button>
-
-      <button
-        type="button"
-        class="lumina-phase2-workaid-upload"
+      <div
+        class="lumina-p2-wa-file"
+        title="${
+          currentFile
+            ? luminaStructureEscape(currentFile)
+            : 'Noch keine Datei hinterlegt'
+        }"
       >
         ${
           currentFile
-            ? 'Datei ersetzen'
-            : 'Datei hochladen'
+            ? luminaStructureEscape(currentFile)
+            : 'Noch keine Datei hinterlegt'
         }
-      </button>
-    </div>
+      </div>
 
-    <div class="lumina-phase2-workaid-fields-title">
-      Spalten / Inhalte der Vorlage
-    </div>
+      <div class="lumina-p2-wa-actions">
 
-    <div class="lumina-phase2-workaid-fields">
-      ${
-        config.fields
-          .map(
-            field=>`
-              <span class="lumina-phase2-workaid-field">
-                ${luminaStructureEscape(field)}
-              </span>
-            `
-          )
-          .join('')
-      }
+        <button
+          type="button"
+          class="lumina-p2-wa-download"
+          ${currentFile ? '' : 'disabled'}
+        >
+          Herunterladen
+        </button>
+
+        <button
+          type="button"
+          class="lumina-p2-wa-upload"
+        >
+          ${
+            currentFile
+              ? 'Datei ersetzen'
+              : 'Datei hochladen'
+          }
+        </button>
+
+      </div>
+
     </div>
   `;
 
   const downloadButton=
-    box.querySelector(
-      '.lumina-phase2-workaid-download'
+    existing.querySelector(
+      '.lumina-p2-wa-download'
     );
 
   const uploadButton=
-    box.querySelector(
-      '.lumina-phase2-workaid-upload'
+    existing.querySelector(
+      '.lumina-p2-wa-upload'
     );
 
   if(downloadButton){
     downloadButton.addEventListener(
       'click',
-      ()=>{
-        luminaPhase2Download(
-          code
-        );
+      event=>{
+        event.stopPropagation();
+
+        if(currentFile){
+          luminaPhase2Download(
+            code
+          );
+        }
       }
     );
   }
@@ -10614,7 +10682,9 @@ async function luminaRenderPhase2ParentWorkAid(){
   if(uploadButton){
     uploadButton.addEventListener(
       'click',
-      ()=>{
+      event=>{
+        event.stopPropagation();
+
         luminaPhase2ChooseUpload(
           code
         );
@@ -10622,7 +10692,6 @@ async function luminaRenderPhase2ParentWorkAid(){
     );
   }
 }
-
 
 /*
  * Die Ebene wird dynamisch gerendert.
