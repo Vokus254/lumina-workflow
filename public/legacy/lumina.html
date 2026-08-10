@@ -8620,6 +8620,1045 @@ if(document.readyState==='loading'){
    ENDE LUMINA ARBEITSHILFE UPLOAD / ERSETZEN
    ============================================================ */
 
+
+/* ============================================================
+   LUMINA STRUKTUREN & MAPPING BIBLIOTHEK
+   ============================================================ */
+
+const LUMINA_STRUCTURE_BUCKET='lumina-templates';
+const LUMINA_STRUCTURE_ROOT='_structures';
+
+const LUMINA_STRUCTURE_TYPES=[
+  {
+    key:'report-structures',
+    title:'Berichtsstrukturen',
+    description:'HGB, IFRS, Konzern- und individuelle Ausweisschemata',
+    examples:'z. B. HGB Einzelabschluss, IFRS, HGB Konzern'
+  },
+  {
+    key:'account-frameworks',
+    title:'Kontenrahmen / SuSa',
+    description:'Standard- und individuelle Kontenrahmen sowie Muster-SuSa',
+    examples:'z. B. SKR03, SKR04, individueller Kontenplan'
+  },
+  {
+    key:'mappings',
+    title:'Mappingstrukturen',
+    description:'Zuordnung Konten bzw. Kontengruppen zu Berichtspositionen',
+    examples:'z. B. SKR04 \u2192 HGB, SKR03 \u2192 HGB, Kunde \u2192 IFRS'
+  },
+  {
+    key:'packages',
+    title:'Mapping-Pakete',
+    description:'Komplette Kombination aus Kontenrahmen, Berichtsstruktur und Mapping',
+    examples:'z. B. SKR04 + HGB + Standardmapping'
+  }
+];
+
+
+function luminaStructurePath(typeKey,fileName){
+  return `${LUMINA_STRUCTURE_ROOT}/${typeKey}/${fileName}`;
+}
+
+
+function luminaStructureFolder(typeKey){
+  return `${LUMINA_STRUCTURE_ROOT}/${typeKey}`;
+}
+
+
+async function luminaStructureList(typeKey){
+  const folder=luminaStructureFolder(typeKey);
+
+  const {data,error}=await luminaDb.storage
+    .from(LUMINA_STRUCTURE_BUCKET)
+    .list(folder,{
+      limit:200,
+      offset:0,
+      sortBy:{
+        column:'name',
+        order:'asc'
+      }
+    });
+
+  if(error){
+    throw error;
+  }
+
+  return (data||[])
+    .filter(item=>{
+      if(!item?.name) return false;
+      if(item.name==='.emptyFolderPlaceholder') return false;
+      if(!item.id&&!item.metadata) return false;
+      return true;
+    })
+    .sort(
+      (a,b)=>
+        String(a.name)
+          .localeCompare(
+            String(b.name),
+            'de',
+            {sensitivity:'base'}
+          )
+    );
+}
+
+
+function luminaStructureFormatSize(bytes){
+  const value=Number(bytes||0);
+
+  if(!value) return '';
+
+  if(value<1024){
+    return `${value} B`;
+  }
+
+  if(value<1024*1024){
+    return `${(value/1024).toFixed(1)} KB`;
+  }
+
+  return `${(value/1024/1024).toFixed(1)} MB`;
+}
+
+
+function luminaStructureEscape(value){
+  return String(value??'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+
+function luminaStructureDisplayName(fileName){
+  return String(fileName||'')
+    .replace(/\.[^.]+$/,'')
+    .replace(/_/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+
+function luminaStructureEnsureStyles(){
+  if(
+    document.getElementById(
+      'lumina-structure-library-style'
+    )
+  ){
+    return;
+  }
+
+  const style=document.createElement('style');
+
+  style.id='lumina-structure-library-style';
+
+  style.textContent=`
+    .lumina-structure-library-button{
+      appearance:none;
+      border:1px solid #d9dee7;
+      border-radius:10px;
+      padding:10px 15px;
+      background:#fff;
+      color:#354052;
+      font-size:13px;
+      font-weight:700;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .lumina-structure-library-button:hover{
+      background:#f8fafc;
+    }
+
+    #lumina-structure-modal-backdrop{
+      position:fixed;
+      inset:0;
+      z-index:12000;
+      background:rgba(35,42,52,.56);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+
+    #lumina-structure-modal{
+      width:min(1180px,96vw);
+      height:min(820px,92vh);
+      background:#fff;
+      border-radius:18px;
+      box-shadow:0 24px 70px rgba(15,23,42,.28);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .lumina-structure-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:20px;
+      padding:24px 28px 18px;
+      border-bottom:1px solid #e5e7eb;
+    }
+
+    .lumina-structure-head h2{
+      margin:0 0 5px;
+      font-size:22px;
+      color:#111827;
+    }
+
+    .lumina-structure-head p{
+      margin:0;
+      color:#6b7280;
+      font-size:13px;
+    }
+
+    .lumina-structure-close{
+      appearance:none;
+      width:38px;
+      height:38px;
+      border:1px solid #d9dee7;
+      border-radius:10px;
+      background:#fff;
+      font-size:20px;
+      cursor:pointer;
+    }
+
+    .lumina-structure-body{
+      overflow:auto;
+      padding:22px 28px 32px;
+    }
+
+    .lumina-structure-section{
+      margin-bottom:28px;
+    }
+
+    .lumina-structure-section-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:18px;
+      margin-bottom:10px;
+    }
+
+    .lumina-structure-section h3{
+      margin:0 0 4px;
+      font-size:16px;
+      color:#111827;
+    }
+
+    .lumina-structure-description{
+      color:#6b7280;
+      font-size:12px;
+      line-height:1.45;
+    }
+
+    .lumina-structure-upload{
+      appearance:none;
+      border:0;
+      border-radius:9px;
+      padding:9px 13px;
+      background:#35a77c;
+      color:#fff;
+      font-size:12px;
+      font-weight:700;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .lumina-structure-table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      overflow:hidden;
+    }
+
+    .lumina-structure-table th{
+      padding:10px 12px;
+      text-align:left;
+      background:#f8fafc;
+      font-size:11px;
+      color:#64748b;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+      border-bottom:1px solid #e5e7eb;
+    }
+
+    .lumina-structure-table td{
+      padding:11px 12px;
+      border-bottom:1px solid #eef2f7;
+      font-size:13px;
+      vertical-align:middle;
+    }
+
+    .lumina-structure-table tr:last-child td{
+      border-bottom:0;
+    }
+
+    .lumina-structure-name{
+      font-weight:700;
+      color:#111827;
+    }
+
+    .lumina-structure-file{
+      margin-top:2px;
+      color:#64748b;
+      font-size:11px;
+    }
+
+    .lumina-structure-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+
+    .lumina-structure-action{
+      appearance:none;
+      border:1px solid #d9dee7;
+      border-radius:8px;
+      padding:7px 10px;
+      background:#fff;
+      color:#374151;
+      font-size:11px;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    .lumina-structure-action.primary{
+      border-color:#35a77c;
+      color:#258565;
+    }
+
+    .lumina-structure-action.danger{
+      border-color:#efb4ad;
+      color:#b42318;
+    }
+
+    .lumina-structure-empty{
+      padding:16px;
+      color:#94a3b8;
+      font-size:12px;
+      border:1px dashed #d9dee7;
+      border-radius:10px;
+    }
+
+    .lumina-structure-loading{
+      color:#64748b;
+      font-size:12px;
+      padding:10px 0;
+    }
+
+    .lumina-structure-footer-note{
+      margin-top:6px;
+      padding:14px 16px;
+      background:#f8fafc;
+      border-radius:10px;
+      color:#64748b;
+      font-size:12px;
+      line-height:1.5;
+    }
+
+    @media(max-width:800px){
+      #lumina-structure-modal-backdrop{
+        padding:8px;
+      }
+
+      #lumina-structure-modal{
+        width:100%;
+        height:96vh;
+      }
+
+      .lumina-structure-head,
+      .lumina-structure-body{
+        padding-left:16px;
+        padding-right:16px;
+      }
+
+      .lumina-structure-section-head{
+        flex-direction:column;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+
+async function luminaStructureDownload(typeKey,fileName){
+  try{
+    const storagePath=
+      luminaStructurePath(
+        typeKey,
+        fileName
+      );
+
+    const {data,error}=
+      await luminaDb.storage
+        .from(LUMINA_STRUCTURE_BUCKET)
+        .download(
+          storagePath,
+          {
+            cacheNonce:Date.now().toString()
+          },
+          {
+            cache:'no-store'
+          }
+        );
+
+    if(error){
+      throw error;
+    }
+
+    if(!data){
+      throw new Error(
+        'Keine Dateidaten erhalten.'
+      );
+    }
+
+    const url=URL.createObjectURL(data);
+
+    const link=document.createElement('a');
+
+    link.href=url;
+    link.download=fileName;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(
+      ()=>URL.revokeObjectURL(url),
+      2000
+    );
+
+    showTopNote(
+      `"${fileName}" wurde heruntergeladen.`
+    );
+
+  }catch(error){
+    console.error(
+      'Struktur-Download fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Datei konnte nicht heruntergeladen werden.',
+      true
+    );
+  }
+}
+
+
+async function luminaStructureUpload(typeKey,file,replaceFileName=''){
+  try{
+    if(!file){
+      return;
+    }
+
+    let targetName=file.name;
+
+    /*
+     * Beim Ersetzen wird bewusst der neue Originaldateiname
+     * verwendet. Damit sind Formatwechsel moeglich.
+     */
+    const targetPath=
+      luminaStructurePath(
+        typeKey,
+        targetName
+      );
+
+    const {error:uploadError}=
+      await luminaDb.storage
+        .from(LUMINA_STRUCTURE_BUCKET)
+        .upload(
+          targetPath,
+          file,
+          {
+            upsert:true,
+            cacheControl:'0',
+            contentType:
+              file.type||
+              'application/octet-stream'
+          }
+        );
+
+    if(uploadError){
+      throw uploadError;
+    }
+
+    const {data:info,error:infoError}=
+      await luminaDb.storage
+        .from(LUMINA_STRUCTURE_BUCKET)
+        .info(
+          targetPath
+        );
+
+    if(infoError){
+      throw infoError;
+    }
+
+    /*
+     * Alten Dateinamen erst nach erfolgreichem Upload entfernen.
+     */
+    if(
+      replaceFileName &&
+      replaceFileName!==targetName
+    ){
+      const oldPath=
+        luminaStructurePath(
+          typeKey,
+          replaceFileName
+        );
+
+      const {error:removeError}=
+        await luminaDb.storage
+          .from(LUMINA_STRUCTURE_BUCKET)
+          .remove([oldPath]);
+
+      if(removeError){
+        console.warn(
+          'Neue Struktur wurde gespeichert, alte Datei konnte nicht entfernt werden:',
+          removeError
+        );
+      }
+    }
+
+    console.log(
+      'LUMINA Struktur gespeichert:',
+      {
+        typeKey,
+        targetPath,
+        info
+      }
+    );
+
+    showTopNote(
+      `"${targetName}" wurde gespeichert.`
+    );
+
+    await luminaRenderStructureLibrary();
+
+  }catch(error){
+    console.error(
+      'Struktur-Upload fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Datei konnte nicht hochgeladen werden.',
+      true
+    );
+  }
+}
+
+
+function luminaStructureChooseFile(
+  typeKey,
+  replaceFileName=''
+){
+  const input=
+    document.createElement('input');
+
+  input.type='file';
+
+  input.accept=
+    '.xlsx,.xls,.xlsm,.csv,.json,.docx,.txt';
+
+  input.style.display='none';
+
+  input.onchange=async()=>{
+    const file=input.files?.[0];
+
+    input.remove();
+
+    if(!file){
+      return;
+    }
+
+    const action=
+      replaceFileName
+        ? `ersetzen`
+        : `hochladen`;
+
+    const confirmed=
+      window.confirm(
+        `${file.name}\n\n`+
+        `Datei als LUMINA-Struktur ${action}?`
+      );
+
+    if(!confirmed){
+      return;
+    }
+
+    await luminaStructureUpload(
+      typeKey,
+      file,
+      replaceFileName
+    );
+  };
+
+  document.body.appendChild(input);
+
+  input.click();
+}
+
+
+async function luminaStructureDelete(
+  typeKey,
+  fileName
+){
+  try{
+    const confirmed=
+      window.confirm(
+        `"${fileName}" wirklich aus der Struktur-Bibliothek loeschen?`
+      );
+
+    if(!confirmed){
+      return;
+    }
+
+    const path=
+      luminaStructurePath(
+        typeKey,
+        fileName
+      );
+
+    const {error}=
+      await luminaDb.storage
+        .from(LUMINA_STRUCTURE_BUCKET)
+        .remove([path]);
+
+    if(error){
+      throw error;
+    }
+
+    showTopNote(
+      `"${fileName}" wurde geloescht.`
+    );
+
+    await luminaRenderStructureLibrary();
+
+  }catch(error){
+    console.error(
+      'Struktur-Loeschen fehlgeschlagen:',
+      error
+    );
+
+    showTopNote(
+      error?.message||
+      'Datei konnte nicht geloescht werden.',
+      true
+    );
+  }
+}
+
+
+function luminaStructureCreateModal(){
+  luminaStructureEnsureStyles();
+
+  let backdrop=
+    document.getElementById(
+      'lumina-structure-modal-backdrop'
+    );
+
+  if(backdrop){
+    return backdrop;
+  }
+
+  backdrop=document.createElement('div');
+
+  backdrop.id=
+    'lumina-structure-modal-backdrop';
+
+  backdrop.innerHTML=`
+    <div id="lumina-structure-modal">
+      <div class="lumina-structure-head">
+        <div>
+          <h2>Strukturen &amp; Mapping</h2>
+          <p>
+            Wiederverwendbare Berichtsstrukturen,
+            Kontenrahmen, SuSa- und Mappingvorlagen
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="lumina-structure-close"
+          title="Schliessen"
+        >
+          \u00d7
+        </button>
+      </div>
+
+      <div
+        id="lumina-structure-body"
+        class="lumina-structure-body"
+      >
+      </div>
+    </div>
+  `;
+
+  backdrop.addEventListener(
+    'click',
+    event=>{
+      if(
+        event.target===backdrop
+      ){
+        backdrop.remove();
+      }
+    }
+  );
+
+  backdrop
+    .querySelector(
+      '.lumina-structure-close'
+    )
+    .addEventListener(
+      'click',
+      ()=>{
+        backdrop.remove();
+      }
+    );
+
+  document.body.appendChild(
+    backdrop
+  );
+
+  return backdrop;
+}
+
+
+async function luminaRenderStructureLibrary(){
+  const backdrop=
+    luminaStructureCreateModal();
+
+  const body=
+    backdrop.querySelector(
+      '#lumina-structure-body'
+    );
+
+  body.innerHTML=
+    '<div class="lumina-structure-loading">Struktur-Bibliothek wird geladen ...</div>';
+
+  const sections=[];
+
+  for(const type of LUMINA_STRUCTURE_TYPES){
+    let files=[];
+
+    try{
+      files=
+        await luminaStructureList(
+          type.key
+        );
+    }catch(error){
+      console.error(
+        'Struktur-Liste fehlgeschlagen:',
+        type.key,
+        error
+      );
+    }
+
+    let rows='';
+
+    if(files.length){
+      rows=`
+        <table class="lumina-structure-table">
+          <thead>
+            <tr>
+              <th>Struktur / Vorlage</th>
+              <th>Groesse</th>
+              <th>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              files.map(file=>{
+                const size=
+                  file?.metadata?.size||
+                  file?.metadata?.contentLength||
+                  0;
+
+                return `
+                  <tr>
+                    <td>
+                      <div class="lumina-structure-name">
+                        ${luminaStructureEscape(
+                          luminaStructureDisplayName(
+                            file.name
+                          )
+                        )}
+                      </div>
+                      <div class="lumina-structure-file">
+                        ${luminaStructureEscape(file.name)}
+                      </div>
+                    </td>
+
+                    <td>
+                      ${luminaStructureEscape(
+                        luminaStructureFormatSize(size)
+                      )}
+                    </td>
+
+                    <td>
+                      <div class="lumina-structure-actions">
+                        <button
+                          type="button"
+                          class="lumina-structure-action primary"
+                          data-structure-download="${luminaStructureEscape(type.key)}"
+                          data-file-name="${luminaStructureEscape(file.name)}"
+                        >
+                          Export
+                        </button>
+
+                        <button
+                          type="button"
+                          class="lumina-structure-action"
+                          data-structure-replace="${luminaStructureEscape(type.key)}"
+                          data-file-name="${luminaStructureEscape(file.name)}"
+                        >
+                          Ersetzen
+                        </button>
+
+                        <button
+                          type="button"
+                          class="lumina-structure-action danger"
+                          data-structure-delete="${luminaStructureEscape(type.key)}"
+                          data-file-name="${luminaStructureEscape(file.name)}"
+                        >
+                          Loeschen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')
+            }
+          </tbody>
+        </table>
+      `;
+    }else{
+      rows=`
+        <div class="lumina-structure-empty">
+          Noch keine Dateien vorhanden.
+          ${luminaStructureEscape(type.examples)}
+        </div>
+      `;
+    }
+
+    sections.push(`
+      <section class="lumina-structure-section">
+        <div class="lumina-structure-section-head">
+          <div>
+            <h3>${luminaStructureEscape(type.title)}</h3>
+            <div class="lumina-structure-description">
+              ${luminaStructureEscape(type.description)}
+              <br>
+              ${luminaStructureEscape(type.examples)}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="lumina-structure-upload"
+            data-structure-upload="${luminaStructureEscape(type.key)}"
+          >
+            + Datei importieren
+          </button>
+        </div>
+
+        ${rows}
+      </section>
+    `);
+  }
+
+  body.innerHTML=
+    sections.join('')+
+    `
+      <div class="lumina-structure-footer-note">
+        <strong>Verwendung in 3.17:</strong>
+        Diese Bibliothek ist projektunabhaengig gedacht.
+        In einem naechsten Schritt kann 3.17 daraus gezielt
+        Berichtsstruktur, Kontenrahmen und Mapping auswaehlen
+        und auf die aktuelle SuSa anwenden.
+      </div>
+    `;
+
+  body
+    .querySelectorAll(
+      '[data-structure-upload]'
+    )
+    .forEach(button=>{
+      button.addEventListener(
+        'click',
+        ()=>{
+          luminaStructureChooseFile(
+            button.dataset.structureUpload
+          );
+        }
+      );
+    });
+
+  body
+    .querySelectorAll(
+      '[data-structure-download]'
+    )
+    .forEach(button=>{
+      button.addEventListener(
+        'click',
+        ()=>{
+          luminaStructureDownload(
+            button.dataset.structureDownload,
+            button.dataset.fileName
+          );
+        }
+      );
+    });
+
+  body
+    .querySelectorAll(
+      '[data-structure-replace]'
+    )
+    .forEach(button=>{
+      button.addEventListener(
+        'click',
+        ()=>{
+          luminaStructureChooseFile(
+            button.dataset.structureReplace,
+            button.dataset.fileName
+          );
+        }
+      );
+    });
+
+  body
+    .querySelectorAll(
+      '[data-structure-delete]'
+    )
+    .forEach(button=>{
+      button.addEventListener(
+        'click',
+        ()=>{
+          luminaStructureDelete(
+            button.dataset.structureDelete,
+            button.dataset.fileName
+          );
+        }
+      );
+    });
+}
+
+
+function luminaOpenStructureLibrary(){
+  luminaRenderStructureLibrary();
+}
+
+
+function luminaFindStructureButtonHost(){
+  const buttons=[
+    ...document.querySelectorAll(
+      'button'
+    )
+  ];
+
+  const projectButton=
+    buttons.find(
+      button=>
+        String(
+          button.textContent||
+          ''
+        ).trim()
+        .includes(
+          'Projektordner speichern'
+        )
+    );
+
+  if(projectButton?.parentElement){
+    return projectButton.parentElement;
+  }
+
+  const jsonButton=
+    buttons.find(
+      button=>
+        String(
+          button.textContent||
+          ''
+        ).trim()
+        .includes(
+          'JSON Export'
+        )
+    );
+
+  return jsonButton?.parentElement||null;
+}
+
+
+function luminaInstallStructureLibraryButton(){
+  if(
+    document.getElementById(
+      'lumina-structure-library-button'
+    )
+  ){
+    return;
+  }
+
+  const host=
+    luminaFindStructureButtonHost();
+
+  if(!host){
+    setTimeout(
+      luminaInstallStructureLibraryButton,
+      750
+    );
+    return;
+  }
+
+  luminaStructureEnsureStyles();
+
+  const button=
+    document.createElement('button');
+
+  button.type='button';
+
+  button.id=
+    'lumina-structure-library-button';
+
+  button.className=
+    'lumina-structure-library-button';
+
+  button.textContent=
+    'Strukturen & Mapping';
+
+  button.title=
+    'Berichtsstrukturen, Kontenrahmen und Mappingvorlagen verwalten';
+
+  button.addEventListener(
+    'click',
+    luminaOpenStructureLibrary
+  );
+
+  host.appendChild(button);
+}
+
+
+if(document.readyState==='loading'){
+  document.addEventListener(
+    'DOMContentLoaded',
+    luminaInstallStructureLibraryButton
+  );
+}else{
+  luminaInstallStructureLibraryButton();
+}
+
+/* ============================================================
+   ENDE LUMINA STRUKTUREN & MAPPING BIBLIOTHEK
+   ============================================================ */
+
 async function guidanceDownloadHelper(guide){
   const button=document.getElementById('guide-helper-download');
 
