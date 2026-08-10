@@ -6175,6 +6175,62 @@ async function luminaExportGesamtWorkbook(){
 
     /*
      * =========================================================
+     * HILFSFUNKTIONEN NUR FUER EXPORT
+     * =========================================================
+     */
+    function luminaEscapeRegex(value){
+      return String(value||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    }
+
+    function luminaCleanDisplayTitle(code,fileName){
+      let title=
+        String(fileName||'')
+          .replace(/\.[^.]+$/,'')
+          .replace(/_/g,' ')
+          .trim();
+
+      const codePattern=
+        new RegExp(
+          `^${luminaEscapeRegex(code)}[\\s_-]*`,
+          'i'
+        );
+
+      title=
+        title.replace(codePattern,'');
+
+      title=
+        title
+          .replace(/^(Excel|Word|Wort|Lumina)[\\s_-]+/i,'')
+          .replace(/\\bSerafin GmbH\\b/ig,'')
+          .replace(/\\b20\\d{2}\\b/g,'')
+          .replace(/\\s{2,}/g,' ')
+          .trim();
+
+      if(!title){
+        title=code;
+      }
+
+      return title;
+    }
+
+    function luminaCleanSheetLabel(sheetName,parentTitle){
+      let label=
+        String(sheetName||'')
+          .replace(/_/g,' ')
+          .trim();
+
+      if(
+        !label ||
+        /^(arbeitshilfe|checkliste|sheet1|tabelle1)$/i.test(label)
+      ){
+        return parentTitle;
+      }
+
+      return label;
+    }
+
+    /*
+     * =========================================================
      * INHALTSVERZEICHNIS
      * =========================================================
      */
@@ -6184,10 +6240,11 @@ async function luminaExportGesamtWorkbook(){
       );
 
     toc.getColumn(1).width=18;
-    toc.getColumn(2).width=55;
-    toc.getColumn(3).width=31;
-    toc.getColumn(4).width=22;
+    toc.getColumn(2).width=58;
+    toc.getColumn(3).width=24;
+    toc.getColumn(4).width=18;
 
+    toc.mergeCells('A1:D1');
     toc.getCell('A1').value=
       'LUMINA Abschluss-Workbook';
 
@@ -6199,18 +6256,34 @@ async function luminaExportGesamtWorkbook(){
       }
     };
 
-    toc.mergeCells('A1:D1');
+    toc.getCell('A1').alignment={
+      horizontal:'left',
+      vertical:'middle'
+    };
 
+    /*
+     * Zweite Zeile bewusst klein und flach
+     */
+    toc.mergeCells('A2:D2');
     toc.getCell('A2').value=
       'Phasen 1 bis 8 - vollstaendige Arbeitshilfen mit allen sichtbaren Excel-Reitern';
 
     toc.getCell('A2').font={
+      size:10,
       italic:true,
       color:{
         argb:'FF6B7280'
       }
     };
 
+    toc.getCell('A2').alignment={
+      horizontal:'left',
+      vertical:'middle',
+      wrapText:false
+    };
+
+    toc.getRow(1).height=28;
+    toc.getRow(2).height=16;
     toc.addRow([]);
 
     const header=
@@ -6241,7 +6314,6 @@ async function luminaExportGesamtWorkbook(){
     /*
      * =========================================================
      * TECHNISCHES MAPPING
-     * Eine Zeile pro exportiertem Workbook-Reiter
      * =========================================================
      */
     const meta=
@@ -6291,9 +6363,6 @@ async function luminaExportGesamtWorkbook(){
       const phase=
         code.split('.')[0];
 
-      /*
-       * Phasenueberschrift
-       */
       if(phase!==currentPhase){
         currentPhase=phase;
 
@@ -6322,9 +6391,6 @@ async function luminaExportGesamtWorkbook(){
         };
       }
 
-      /*
-       * Dateien im Kachelordner
-       */
       const files=
         await luminaWorkbookListFiles(
           bucket,
@@ -6342,10 +6408,6 @@ async function luminaExportGesamtWorkbook(){
         continue;
       }
 
-      /*
-       * Falls mehrere Dateien liegen:
-       * erste unterstuetzte Datei alphabetisch.
-       */
       const chosen=
         luminaWorkbookChooseFile(
           files
@@ -6371,43 +6433,11 @@ async function luminaExportGesamtWorkbook(){
           .pop()
           .toLowerCase();
 
-      const title=
-        fileName
-          .replace(/\.[^.]+$/,'')
-          .replace(/_/g,' ')
-          .trim();
-
-      const fileStatus=
-        files.length>1
-          ? `1 von ${files.length} Dateien`
-          : 'Enthalten';
-
-      /*
-       * Hauptzeile der Arbeitshilfe
-       */
-      const parentRow=
-        toc.addRow([
+      const displayTitle=
+        luminaCleanDisplayTitle(
           code,
-          title,
-          fileStatus,
-          ''
-        ]);
-
-      parentRow.getCell(1).font={
-        bold:true
-      };
-
-      parentRow.getCell(2).font={
-        bold:true
-      };
-
-      parentRow.fill={
-        type:'pattern',
-        pattern:'solid',
-        fgColor:{
-          argb:'FFF8FAFC'
-        }
-      };
+          fileName
+        );
 
       const blob=
         await luminaWorkbookDownloadStorageFile(
@@ -6418,7 +6448,6 @@ async function luminaExportGesamtWorkbook(){
       /*
        * =======================================================
        * EXCEL
-       * ALLE SICHTBAREN REITER UEBERNEHMEN
        * =======================================================
        */
       if(
@@ -6435,12 +6464,6 @@ async function luminaExportGesamtWorkbook(){
           await blob.arrayBuffer()
         );
 
-        /*
-         * Nur sichtbare Reiter.
-         *
-         * state kann bei normalen Blaettern undefined oder
-         * "visible" sein.
-         */
         const visibleSheets=
           sourceWorkbook.worksheets.filter(
             worksheet=>
@@ -6454,10 +6477,36 @@ async function luminaExportGesamtWorkbook(){
           );
         }
 
-        /*
-         * Parent-Link auf ersten Reiter
-         */
         let firstTargetSheetName='';
+
+        const parentStatus=
+          visibleSheets.length===1
+            ? 'Enthalten'
+            : `${visibleSheets.length} Reiter`;
+
+        const parentRow=
+          toc.addRow([
+            code,
+            displayTitle,
+            parentStatus,
+            ''
+          ]);
+
+        parentRow.getCell(1).font={
+          bold:true
+        };
+
+        parentRow.getCell(2).font={
+          bold:true
+        };
+
+        parentRow.fill={
+          type:'pattern',
+          pattern:'solid',
+          fgColor:{
+            argb:'FFF8FAFC'
+          }
+        };
 
         for(
           let sheetIndex=0;
@@ -6467,12 +6516,6 @@ async function luminaExportGesamtWorkbook(){
           const sourceSheet=
             visibleSheets[sheetIndex];
 
-          /*
-           * Zielname:
-           * 4.3 Uebersicht
-           * 4.3 Bilanzkonten
-           * 4.3 GuV-Konten
-           */
           const targetSheetName=
             luminaSafeSheetName(
               code,
@@ -6497,45 +6540,6 @@ async function luminaExportGesamtWorkbook(){
               targetSheet
             );
 
-          /*
-           * Unterzeile im Inhaltsverzeichnis
-           */
-          const childRow=
-            toc.addRow([
-              '',
-              `   ${sourceSheet.name}`,
-              `Reiter ${sheetIndex+1} von ${visibleSheets.length}`,
-              ''
-            ]);
-
-          const childLink=
-            childRow.getCell(4);
-
-          childLink.value={
-            formula:
-              luminaExcelInternalLinkFormula(
-                targetSheetName,
-                'A1',
-                '\u00D6ffnen'
-              )
-          };
-
-          childLink.font={
-            color:{
-              argb:'FF0563C1'
-            },
-            underline:true
-          };
-
-          childRow.getCell(2).font={
-            color:{
-              argb:'FF475569'
-            }
-          };
-
-          /*
-           * Technisches Mapping
-           */
           meta.addRow([
             code,
             targetSheetName,
@@ -6546,11 +6550,52 @@ async function luminaExportGesamtWorkbook(){
             backlinkCell,
             sheetIndex+1
           ]);
+
+          /*
+           * Nur bei MEHREREN Reitern Unterzeilen anlegen
+           */
+          if(visibleSheets.length>1){
+            const childLabel=
+              luminaCleanSheetLabel(
+                sourceSheet.name,
+                displayTitle
+              );
+
+            const childRow=
+              toc.addRow([
+                '',
+                `   ${childLabel}`,
+                `Reiter ${sheetIndex+1} von ${visibleSheets.length}`,
+                ''
+              ]);
+
+            childRow.getCell(2).font={
+              color:{
+                argb:'FF475569'
+              }
+            };
+
+            const childLink=
+              childRow.getCell(4);
+
+            childLink.value={
+              formula:
+                luminaExcelInternalLinkFormula(
+                  targetSheetName,
+                  'A1',
+                  '\u00D6ffnen'
+                )
+            };
+
+            childLink.font={
+              color:{
+                argb:'FF0563C1'
+              },
+              underline:true
+            };
+          }
         }
 
-        /*
-         * Parent-Zeile ebenfalls klickbar.
-         */
         if(firstTargetSheetName){
           const parentLink=
             parentRow.getCell(4);
@@ -6579,14 +6624,37 @@ async function luminaExportGesamtWorkbook(){
       /*
        * =======================================================
        * WORD
-       * Ein DOCX = ein Excel-Reiter
        * =======================================================
        */
       if(extension==='docx'){
+        const parentRow=
+          toc.addRow([
+            code,
+            displayTitle,
+            'Enthalten',
+            ''
+          ]);
+
+        parentRow.getCell(1).font={
+          bold:true
+        };
+
+        parentRow.getCell(2).font={
+          bold:true
+        };
+
+        parentRow.fill={
+          type:'pattern',
+          pattern:'solid',
+          fgColor:{
+            argb:'FFF8FAFC'
+          }
+        };
+
         const sheetName=
           luminaSafeSheetName(
             code,
-            title,
+            displayTitle,
             usedNames
           );
 
@@ -6596,7 +6664,7 @@ async function luminaExportGesamtWorkbook(){
             output,
             sheetName,
             code,
-            title
+            displayTitle
           );
 
         const backlinkCell=
@@ -6637,11 +6705,18 @@ async function luminaExportGesamtWorkbook(){
 
         continue;
       }
+
+      toc.addRow([
+        code,
+        displayTitle,
+        'Nicht verarbeitet',
+        ''
+      ]);
     }
 
     /*
      * =========================================================
-     * TOC FORMATIERUNG
+     * FORMATIERUNG
      * =========================================================
      */
     toc.views=[
@@ -6670,6 +6745,15 @@ async function luminaExportGesamtWorkbook(){
         );
       }
     );
+
+    /*
+     * A2 darf NICHT umbrechen
+     */
+    toc.getCell('A2').alignment={
+      horizontal:'left',
+      vertical:'middle',
+      wrapText:false
+    };
 
     meta.getRow(1).font={
       bold:true
@@ -6717,7 +6801,7 @@ async function luminaExportGesamtWorkbook(){
     );
 
     showTopNote(
-      'Gesamt-Workbook mit allen sichtbaren Reitern wurde erstellt.'
+      'Gesamt-Workbook mit optimiertem Inhaltsverzeichnis wurde erstellt.'
     );
 
   }catch(error){
