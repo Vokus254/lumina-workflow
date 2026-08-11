@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { ProjectSwitcher } from "./project-switcher";
+import type { ProjectHubContext } from "./project-hub";
 
-export function LegacyDashboard({ query }: { query: string }) {
+export function LegacyDashboard({ query,hubContext,activeProjectId }: { query:string; hubContext:ProjectHubContext; activeProjectId:string }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
   const [error, setError] = useState("");
@@ -23,11 +25,7 @@ export function LegacyDashboard({ query }: { query: string }) {
     }
 
     frameRef.current?.contentWindow?.postMessage(
-      {
-        type: "lumina-session",
-        accessToken: session.access_token,
-        refreshToken: session.refresh_token,
-      },
+      { type:"lumina-session",accessToken:session.access_token,refreshToken:session.refresh_token },
       window.location.origin,
     );
   }, []);
@@ -35,15 +33,11 @@ export function LegacyDashboard({ query }: { query: string }) {
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "lumina-refresh-session") {
-        await sendSession();
-        return;
-      }
+      if (event.data?.type === "lumina-refresh-session") { await sendSession(); return; }
       if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
       await supabase.auth.signOut();
-      router.replace("/login");
-      router.refresh();
+      router.replace("/login"); router.refresh();
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
@@ -52,28 +46,16 @@ export function LegacyDashboard({ query }: { query: string }) {
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace("/login");
-    router.refresh();
+    router.replace("/login"); router.refresh();
   }, [router]);
 
-  const frameSource = query
-    ? `/legacy/lumina.html?${query}`
-    : "/legacy/lumina.html";
+  const frameSource = query ? `/legacy/lumina.html?${query}` : "/legacy/lumina.html";
 
-  return (
-    <main className="legacyDashboard">
-      {error && <div className="legacyError" role="alert">{error}</div>}
-      <button className="dashboardQuickstart" type="button" onClick={() => router.push("/quickstart")}>KAI Quickstart</button>
-      <button className="dashboardSignOut" type="button" onClick={handleSignOut}>
-        Abmelden
-      </button>
-      <iframe
-        ref={frameRef}
-        className="legacyFrame"
-        src={frameSource}
-        title="LUMINA Abschluss-Cockpit"
-        onLoad={sendSession}
-      />
-    </main>
-  );
+  return <main className="legacyDashboard">
+    {error && <div className="legacyError" role="alert">{error}</div>}
+    <ProjectSwitcher context={hubContext} activeProjectId={activeProjectId}/>
+    <button className="dashboardQuickstart" type="button" onClick={() => router.push("/quickstart")}>KAI Quickstart</button>
+    <button className="dashboardSignOut" type="button" onClick={handleSignOut}>Abmelden</button>
+    <iframe ref={frameRef} className="legacyFrame" src={frameSource} title="LUMINA Abschluss-Cockpit" onLoad={sendSession}/>
+  </main>;
 }
