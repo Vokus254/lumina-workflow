@@ -34,7 +34,7 @@ function roleLabel(role?:string){
   return ({owner:"Owner",manager:"Manager",reviewer:"Reviewer",viewer:"Lesen",contributor:"Bearbeitung",member:"Mitglied"} as Record<string,string>)[role||""] || role || "Projektrolle";
 }
 
-export function ProjectHub({ context, userEmail = "" }: { context: ProjectHubContext; userEmail?: string }) {
+export function ProjectHub({ context, userEmail = "", isAdmin = false }: { context: ProjectHubContext; userEmail?: string; isAdmin?: boolean }) {
   const router=useRouter();
   const [signingOut,setSigningOut]=useState(false);
   const companies=context.companies||[];
@@ -46,6 +46,7 @@ export function ProjectHub({ context, userEmail = "" }: { context: ProjectHubCon
       <div className="authBrand"><span className="brandMark"/><div><strong>LUMINA</strong><span>Gesellschaften & Projekte</span></div></div>
       <div className="hubHeaderActions">
         {userEmail&&<span className="hubUserEmail">{userEmail}</span>}
+        {isAdmin&&<button className="hubAdminButton" onClick={()=>router.push("/admin")}>Administration</button>}
         <button className="hubQuickstart" onClick={()=>router.push("/quickstart?mode=company&fresh=1")}>+ KAI Quickstart</button>
         <button className="hubSignOut" disabled={signingOut} onClick={async()=>{setSigningOut(true);const supabase=createClient();await supabase.auth.signOut();router.replace("/login");router.refresh();}}>Abmelden</button>
       </div>

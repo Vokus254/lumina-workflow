@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LegacyDashboard } from "./legacy-dashboard";
 import { ProjectHub, type ProjectHubContext } from "./project-hub";
+import { requireLuminaAdmin } from "@/lib/lumina-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,10 @@ export default async function WorkflowPage({
   if (hubError) throw new Error(`Projektübersicht konnte nicht geladen werden: ${hubError.message}`);
   const hub=(hubData||{companies:[]}) as ProjectHubContext;
 
-  if (!requested.project) return <ProjectHub context={hub} userEmail={currentEmail}/>;
+  if (!requested.project) {
+    const adminAccess = await requireLuminaAdmin();
+    return <ProjectHub context={hub} userEmail={currentEmail} isAdmin={adminAccess.ok}/>;
+  }
 
   const accessibleProjectIds=new Set((hub.companies||[]).flatMap(c=>(c.projects||[]).map(p=>p.id)));
   if (!accessibleProjectIds.has(requested.project)) redirect("/workflow");
