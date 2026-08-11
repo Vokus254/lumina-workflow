@@ -22,28 +22,36 @@ export async function GET() {
   const admin = access.admin;
 
   try {
-    const [users, companiesRes, projectsRes, cmRes, pmRes] = await Promise.all([
+    const [users, companiesRes, projectsRes, cmRes, pmRes, rolesRes, roleAssignmentsRes] = await Promise.all([
       listAllUsers(admin),
       admin.from("companies").select("id,name,legal_form,registered_office,currency_code,status,created_at,updated_at").order("name"),
       admin.from("projects").select("id,company_id,name,fiscal_year_start,fiscal_year_end,reporting_date,status,created_at,updated_at").order("reporting_date", { ascending: false }),
       admin.from("company_members").select("company_id,user_id,company_role,active"),
       admin.from("project_members").select("project_id,user_id,security_role,active"),
+      admin.from("responsibility_roles").select("id,project_id,role_key,display_name"),
+      admin.from("role_user_assignments").select("role_id,user_id"),
     ]);
     if (companiesRes.error) throw companiesRes.error;
     if (projectsRes.error) throw projectsRes.error;
     if (cmRes.error) throw cmRes.error;
     if (pmRes.error) throw pmRes.error;
+    if (rolesRes.error) throw rolesRes.error;
+    if (roleAssignmentsRes.error) throw roleAssignmentsRes.error;
 
     const projects = projectsRes.data ?? [];
     const projectIds = projects.map((p: any) => p.id);
     let taskCounts: Record<string, number> = {};
     let documentCounts: Record<string, number> = {};
+    let roleTaskCounts: Record<string, number> = {};
     if (projectIds.length) {
       const [tasksRes, docsRes] = await Promise.all([
-        admin.from("tasks").select("project_id").in("project_id", projectIds),
+        admin.from("tasks").select("project_id,responsibility_role_id").in("project_id", projectIds),
         admin.from("documents").select("project_id").in("project_id", projectIds),
       ]);
-      if (!tasksRes.error) for (const row of tasksRes.data ?? []) taskCounts[row.project_id] = (taskCounts[row.project_id] || 0) + 1;
+      if (!tasksRes.error) for (const row of tasksRes.data ?? []) {
+        taskCounts[row.project_id] = (taskCounts[row.project_id] || 0) + 1;
+        if (row.responsibility_role_id) roleTaskCounts[row.responsibility_role_id] = (roleTaskCounts[row.responsibility_role_id] || 0) + 1;
+      }
       if (!docsRes.error) for (const row of docsRes.data ?? []) documentCounts[row.project_id] = (documentCounts[row.project_id] || 0) + 1;
     }
 
@@ -59,6 +67,19 @@ export async function GET() {
       blocked: Boolean(u.banned_until && new Date(u.banned_until).getTime() > Date.now()),
     }));
 
+    const rolesById = new Map((rolesRes.data ?? []).map((r: any) => [r.id, r]));
+    const effectiveRoleAssignments = (roleAssignmentsRes.data ?? []).map((a: any) => {
+      const role: any = rolesById.get(a.role_id);
+      return {
+        user_id: a.user_id,
+        role_id: a.role_id,
+        project_id: role?.project_id || null,
+        role_key: role?.role_key || "",
+        display_name: role?.display_name || role?.role_key || "",
+        assignedTaskCount: roleTaskCounts[a.role_id] || 0,
+      };
+    }).filter((a: any) => a.project_id);
+
     return NextResponse.json({
       currentAdmin: { id: access.userId, email: access.email },
       users: normalizedUsers,
@@ -66,6 +87,7 @@ export async function GET() {
       projects: projects.map((p: any) => ({ ...p, taskCount: taskCounts[p.id] || 0, documentCount: documentCounts[p.id] || 0 })),
       companyMembers: cmRes.data ?? [],
       projectMembers: pmRes.data ?? [],
+      roleAssignments: effectiveRoleAssignments,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Admin-Daten konnten nicht geladen werden." }, { status: 500 });
