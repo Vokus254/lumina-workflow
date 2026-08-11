@@ -41,10 +41,11 @@ type RoleDigest = {
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://lumina-workflow.vercel.app/workflow";
 
-function dataRoomLoginLink(task: TaskRow, email: string) {
+function dataRoomLoginLink(task: TaskRow, email: string, projectId: string) {
   const appUrl = new URL(APP_URL);
   const origin = appUrl.origin;
   const target = new URL("/workflow", origin);
+  target.searchParams.set("project", projectId);
   target.searchParams.set("task", task.source_number || task.id);
   target.searchParams.set("view", "dataroom");
   target.searchParams.set("email", email);
@@ -136,7 +137,7 @@ async function getAdminDigests() {
           title: task.title,
           requiredDocuments: task.required_documents_text || "–",
           dueDate: effectiveDueDate(task),
-          link: dataRoomLoginLink(task, role.email!),
+          link: dataRoomLoginLink(task, role.email!, projectId),
         }));
 
       return {

@@ -4469,6 +4469,17 @@ function formatDateTime(iso){try{return new Date(iso).toLocaleString("de-DE",{da
 function responsible(row){const r=getRole(row[4]);return {name:[r.vorname,r.nachname].filter(Boolean).join(" ")||row[4]||"Nicht zugeordnet",email:r.email||""};}
 function taskDataRoomLinks(st){return (st.submissions||[]).filter(x=>x&&x.type==='Link'&&x.url).map(x=>x.url.trim()).filter(Boolean);}
 function taskPrimaryDataRoomLink(st){return st.dataRoomUrl||taskDataRoomLinks(st)[0]||'';}
+function luminaWorkflowTaskUrl(taskNumber){
+  try{
+    const target=new URL(LUMINA_PUBLIC_APP_URL);
+    const current=new URLSearchParams(location.search);
+    const project=current.get('project');
+    if(project)target.searchParams.set('project',project);
+    target.searchParams.set('task',String(taskNumber||''));
+    target.searchParams.set('view','dataroom');
+    return target.toString();
+  }catch(error){return '';}
+}
 function recipientDataRoomLoginLink(row,st,email){
   const direct=taskPrimaryDataRoomLink(st);if(!direct||!email)return direct;
   try{
@@ -13942,7 +13953,7 @@ async function loadLuminaFromSupabase(){
       state.reviewStatus=LUMINA_REVIEW_FROM_REMOTE[remote.review_status]||state.reviewStatus;
       state.internalComment=remote.internal_comment||'';
       state.remoteUpdatedAt=remote.updated_at;
-      state.dataRoomUrl=`${LUMINA_PUBLIC_APP_URL}?task=${encodeURIComponent(row[0])}&view=dataroom`;
+      state.dataRoomUrl=luminaWorkflowTaskUrl(row[0]);
       if(remote.due_date_override)row[10]=remote.due_date_override;
     });
     const stateByRemoteTask=new Map();
@@ -14015,7 +14026,7 @@ async function renderMyDay(){
   const groups=[{title:'Überfällig',items:entries.filter(entry=>entry.due&&entry.due<today)},{title:'Heute fällig',items:entries.filter(entry=>entry.due===today)},{title:'In den nächsten 14 Tagen',items:entries.filter(entry=>entry.due>today&&entry.due<=soon)},{title:'Später anstehend',items:entries.filter(entry=>entry.due>soon)},{title:'Ohne festen Termin',items:entries.filter(entry=>!entry.due)}],visible=groups.filter(group=>group.items.length);
   digestOpen('Mein Tag',`Persönliche Aufgabenübersicht · ${formatDateDE(today)}`);document.getElementById('digest-modal-send').style.display='none';
   const content=document.getElementById('digest-modal-content');content.innerHTML='<div class="digest-empty">Übersicht wird geladen …</div>';let inbox=[];try{inbox=await getInboxMessages();}catch(error){console.warn(error);}const unread=inbox.filter(message=>!message.is_read),messageSection=unread.length?`<section class="digest-day-group"><div class="digest-group-title"><span>Neue Nachrichten</span><span class="digest-group-meta">${unread.length} ungelesen</span></div>${unread.map(inboxMessageHtml).join('')}</section>`:'';
-  content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${entries.length} offene Aufgaben</span><span class="digest-chip">Neue Nachrichten: ${unread.length}</span>${groups.slice(0,3).map(group=>`<span class="digest-chip">${luminaEsc(group.title)}: ${group.items.length}</span>`).join('')}</div>${messageSection}${visible.map(group=>`<section class="digest-day-group"><div class="digest-group-title"><span>${luminaEsc(group.title)}</span><span class="digest-group-meta">${group.items.length} Aufgabe${group.items.length===1?'':'n'}</span></div>${group.items.map(entry=>`<div class="digest-task"><strong>${luminaEsc(entry.row[0]||'–')}</strong><div><div class="digest-task-title">${luminaEsc(entry.title)}</div><div class="digest-task-sub">${luminaEsc(entry.row[5]||'')}</div></div><div>${luminaEsc(entry.due?formatDateDE(entry.due):'ohne Termin')}</div><a href="${luminaEsc(entry.roomUrl||'#')}" ${entry.roomUrl?'':'aria-disabled="true"'}>Datenraum öffnen</a></div>`).join('')}</section>`).join('')||'<div class="digest-empty">Aktuell stehen keine offenen Aufgaben an.</div>'}`;bindInboxLinks();
+  content.innerHTML=`<div class="digest-summary"><span class="digest-chip">${entries.length} offene Aufgaben</span><span class="digest-chip">Neue Nachrichten: ${unread.length}</span>${groups.slice(0,3).map(group=>`<span class="digest-chip">${luminaEsc(group.title)}: ${group.items.length}</span>`).join('')}</div>${messageSection}${visible.map(group=>`<section class="digest-day-group"><div class="digest-group-title"><span>${luminaEsc(group.title)}</span><span class="digest-group-meta">${group.items.length} Aufgabe${group.items.length===1?'':'n'}</span></div>${group.items.map(entry=>`<div class="digest-task"><strong>${luminaEsc(entry.row[0]||'–')}</strong><div><div class="digest-task-title">${luminaEsc(entry.title)}</div><div class="digest-task-sub">${luminaEsc(entry.row[5]||'')}</div></div><div>${luminaEsc(entry.due?formatDateDE(entry.due):'ohne Termin')}</div><a href="${luminaEsc(entry.roomUrl||'#')}" ${entry.roomUrl?'target="_top"':'aria-disabled="true"'}>Datenraum öffnen</a></div>`).join('')}</section>`).join('')||'<div class="digest-empty">Aktuell stehen keine offenen Aufgaben an.</div>'}`;bindInboxLinks();
 }
 let adminDigestPreview=null;
 async function renderAdminDigestPreview(){
