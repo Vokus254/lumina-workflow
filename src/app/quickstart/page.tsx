@@ -4,10 +4,11 @@ import { KaiQuickstart } from "./quickstart-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function QuickstartPage() {
+export default async function QuickstartPage({ searchParams }: { searchParams: Promise<{ company?: string; mode?: string }> }) {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
   if (error || !data?.claims) redirect("/login?next=/quickstart");
+  const params = await searchParams;
   const { data: context } = await supabase.rpc("quickstart_context");
-  return <KaiQuickstart initialContext={context ?? { companies: [] }} />;
+  return <KaiQuickstart initialContext={context ?? { companies: [] }} startCompanyId={params.company ?? ""} />;
 }

@@ -42,19 +42,19 @@ export function ProjectHub({ context }: { context: ProjectHubContext }) {
   return <main className="projectHubPage">
     <header className="projectHubHeader">
       <div className="authBrand"><span className="brandMark"/><div><strong>LUMINA</strong><span>Gesellschaften & Projekte</span></div></div>
-      <button className="hubQuickstart" onClick={()=>router.push("/quickstart")}>+ KAI Quickstart</button>
+      <button className="hubQuickstart" onClick={()=>router.push("/quickstart?mode=company")}>+ KAI Quickstart</button>
     </header>
     <section className="projectHubHero">
       <p className="eyebrow">Projektzentrale</p>
       <h1>Welchen Abschluss möchten Sie öffnen?</h1>
       <p>Jedes Projekt besitzt eigene 202 Maßnahmen, eigene Status, Dokumente und Berechtigungen. Projekte werden niemals zusammengezählt.</p>
     </section>
-    {companies.length===0 ? <section className="emptyHub"><h2>Noch keine Gesellschaft vorhanden.</h2><p>KAI legt mit Ihnen die erste Gesellschaft und das erste Abschlussprojekt an.</p><button className="primaryButton" onClick={()=>router.push("/quickstart")}>Mit KAI starten</button></section> : <>
+    {companies.length===0 ? <section className="emptyHub"><h2>Noch keine Gesellschaft vorhanden.</h2><p>KAI legt mit Ihnen die erste Gesellschaft und das erste Abschlussprojekt an.</p><button className="primaryButton" onClick={()=>router.push("/quickstart?mode=company")}>Mit KAI starten</button></section> : <>
       <nav className="companyTabs" aria-label="Gesellschaft auswählen">
         {companies.map(c=><button key={c.id} className={selected?.id===c.id?"active":""} onClick={()=>setCompanyId(c.id)}><strong>{c.name}</strong><span>{c.projects?.length||0} Projekte</span></button>)}
       </nav>
       {selected&&<section className="companyProjectSection">
-        <div className="companyProjectHead"><div><p className="miniLabel">{selected.company_role?`Ihre Gesellschaftsrolle: ${roleLabel(selected.company_role)}`:"Projektzugriff"}</p><h2>{selected.name}</h2><p>{[selected.legal_form,selected.registered_office].filter(Boolean).join(" · ")}</p></div>{selected.can_manage_company&&<button className="secondaryButton" onClick={()=>router.push("/quickstart")}>+ Projekt anlegen</button>}</div>
+        <div className="companyProjectHead"><div><p className="miniLabel">{selected.company_role?`Ihre Gesellschaftsrolle: ${roleLabel(selected.company_role)}`:"Projektzugriff"}</p><h2>{selected.name}</h2><p>{[selected.legal_form,selected.registered_office].filter(Boolean).join(" · ")}</p></div>{selected.can_manage_company&&<button className="secondaryButton" onClick={()=>router.push(`/quickstart?company=${encodeURIComponent(selected.id)}`)}>+ Projekt anlegen</button>}</div>
         <div className="projectCardGrid">
           {(selected.projects||[]).map(p=>{
             const pct=p.tasks_total?Math.round((p.tasks_completed/p.tasks_total)*100):0;
@@ -66,7 +66,7 @@ export function ProjectHub({ context }: { context: ProjectHubContext }) {
               <span className="openProject">Projekt öffnen →</span>
             </button>;
           })}
-          {selected.projects?.length===0&&<div className="emptyProjectCard"><strong>Keine freigeschalteten Projekte</strong><p>Sie sind Mitglied der Gesellschaft, aber aktuell keinem Projekt zugeordnet.</p>{selected.can_manage_company&&<button className="secondaryButton" onClick={()=>router.push("/quickstart")}>Projekt mit KAI anlegen</button>}</div>}
+          {selected.projects?.length===0&&<div className="emptyProjectCard"><strong>Keine freigeschalteten Projekte</strong><p>Sie sind Mitglied der Gesellschaft, aber aktuell keinem Projekt zugeordnet.</p>{selected.can_manage_company&&<button className="secondaryButton" onClick={()=>router.push(`/quickstart?company=${encodeURIComponent(selected.id)}`)}>Projekt mit KAI anlegen</button>}</div>}
         </div>
       </section>}
     </>}

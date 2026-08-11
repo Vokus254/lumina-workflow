@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,35 +18,50 @@ const TEAM = [
   { kind:"tax_advisor", role_key:"Steuerberater", label:"Steuerberater (optional)" },
 ];
 
-export function KaiQuickstart({ initialContext }: { initialContext: Context }) {
+export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initialContext: Context; startCompanyId?: string }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [context,setContext] = useState<Context>(initialContext);
-  const [step,setStep] = useState(context.session?.current_step ?? 0);
-  const [companyId,setCompanyId] = useState(context.session?.company_id ?? "");
-  const [projectId,setProjectId] = useState(context.session?.project_id ?? "");
+  // A normal Quickstart always starts fresh. An unfinished session is never resumed implicitly.
+  const [step,setStep] = useState(startCompanyId ? 1 : 0);
+  const [companyId,setCompanyId] = useState(startCompanyId);
+  const [projectId,setProjectId] = useState("");
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
+  const startCompany = initialContext.companies?.find(c=>c.id===startCompanyId);
   const [messages,setMessages] = useState<Msg[]>([
     {who:"kai",text:"Guten Tag. Ich bin KAI. Ich richte Ihren Jahresabschluss gemeinsam mit Ihnen ein. Wir arbeiten in fünf kurzen Abschnitten – Gesellschaft, Projekt, Team, Aufgaben & PBC und Start ins Cockpit."},
-    {who:"kai",text: context.companies?.length ? "Für welche Gesellschaft möchten Sie ein neues Projekt anlegen?" : "Sie haben noch keine Gesellschaft in LUMINA. Wie heißt die erste Gesellschaft?"}
+    {who:"kai",text: startCompanyId
+      ? `Wir legen ein neues Projekt für ${startCompany?.name || "die ausgewählte Gesellschaft"} an.`
+      : (context.companies?.length ? "Möchten Sie eine neue Gesellschaft anlegen? Die bestehenden Gesellschaften bleiben unverändert." : "Sie haben noch keine Gesellschaft in LUMINA. Wie heißt die erste Gesellschaft?")}
   ]);
   const [newCompany,setNewCompany] = useState({name:"",legal_form:"GmbH",registered_office:"",currency_code:"EUR"});
   const year = new Date().getFullYear();
   const [project,setProject] = useState({name:`Jahresabschluss 31.12.${year}`,fiscal_start:`${year}-01-01`,fiscal_end:`${year}-12-31`,reporting_date:`${year}-12-31`,auditor:""});
   const [team,setTeam] = useState(TEAM.map(x=>({...x,first_name:"",last_name:"",email:""})));
   const [summary,setSummary] = useState<Record<string,number>|null>(null);
+  const initializedCompany = useRef(false);
+
+  useEffect(() => {
+    if (!startCompanyId || initializedCompany.current) return;
+    initializedCompany.current = true;
+    void (async () => {
+      setBusy(true);
+      setError("");
+      const { error } = await supabase.rpc("quickstart_use_company", { p_company_id: startCompanyId });
+      if (error) setError(error.message);
+      setBusy(false);
+    })();
+  }, [startCompanyId, supabase]);
 
   function say(who:Msg["who"],text:string){ setMessages(m=>[...m,{who,text}]); }
   async function refresh(){ const {data}=await supabase.rpc("quickstart_context"); if(data) setContext(data as Context); }
   async function run<T=unknown>(fn:()=>PromiseLike<{data:T|null;error:any}>) { setBusy(true);setError(""); try{const {data,error}=await fn();if(error)throw error;return data;}catch(e:any){setError(e.message||String(e));return null;}finally{setBusy(false);} }
 
-  async function chooseCompany(id:string,name:string){
-    const result=await run(()=>supabase.rpc("quickstart_use_company",{p_company_id:id})); if(!result)return;
-    setCompanyId(id); setStep(1); say("user",name); say("kai",`Perfekt. ${name} ist ausgewählt. Jetzt legen wir das Abschlussprojekt an. Ich habe bereits einen üblichen Jahresabschlussnamen vorgeschlagen.`); await refresh();
-  }
   async function createCompany(){
     if(!newCompany.name.trim()) return setError("Bitte nennen Sie die Gesellschaft.");
+    const duplicate=context.companies?.find(c=>c.name.trim().toLocaleLowerCase("de-DE")===newCompany.name.trim().toLocaleLowerCase("de-DE"));
+    if(duplicate) return setError(`${duplicate.name} ist für Sie bereits vorhanden. Bitte legen Sie ein neues Projekt über die Projektzentrale an.`);
     const id=await run<string>(()=>supabase.rpc("quickstart_create_company",{p_name:newCompany.name,p_legal_form:newCompany.legal_form,p_registered_office:newCompany.registered_office,p_currency_code:newCompany.currency_code})); if(!id)return;
     setCompanyId(id);setStep(1);say("user",`${newCompany.name}, ${newCompany.legal_form}${newCompany.registered_office?`, Sitz ${newCompany.registered_office}`:""}`);say("kai",`✓ ${newCompany.name} ist als eigene Gesellschaft angelegt. Jetzt erstellen wir darunter das erste Projekt.`);await refresh();
   }
@@ -76,8 +91,7 @@ export function KaiQuickstart({ initialContext }: { initialContext: Context }) {
       </section>
       <aside className="kaiAction">
         {step===0&&<>
-          {!!context.companies?.length&&<div className="kaiCard"><h2>Gesellschaft auswählen</h2><div className="choiceList">{context.companies.map(c=><button disabled={busy} key={c.id} onClick={()=>chooseCompany(c.id,c.name)}><strong>{c.name}</strong><span>{c.projects?.length||0} Projekt(e)</span></button>)}</div><div className="divider">oder neue Gesellschaft</div></div>}
-          <div className="kaiCard"><label>Gesellschaft<input value={newCompany.name} onChange={e=>setNewCompany({...newCompany,name:e.target.value})} placeholder="z. B. Serafin GmbH"/></label><div className="formRow"><label>Rechtsform<input value={newCompany.legal_form} onChange={e=>setNewCompany({...newCompany,legal_form:e.target.value})}/></label><label>Währung<input value={newCompany.currency_code} onChange={e=>setNewCompany({...newCompany,currency_code:e.target.value})}/></label></div><label>Sitz<input value={newCompany.registered_office} onChange={e=>setNewCompany({...newCompany,registered_office:e.target.value})} placeholder="Duisburg"/></label><button className="primaryButton" disabled={busy} onClick={createCompany}>Mit KAI anlegen</button></div>
+          <div className="kaiCard"><p className="miniLabel">Neue Gesellschaft</p><h2>Gesellschaft anlegen</h2>{context.companies?.length>0&&<p className="cardHint">Ihre bestehenden Gesellschaften bleiben unverändert. Ein neues Projekt für eine bestehende Gesellschaft starten Sie in der Projektzentrale über „+ Projekt anlegen“.</p>}<label>Gesellschaft<input value={newCompany.name} onChange={e=>setNewCompany({...newCompany,name:e.target.value})} placeholder="z. B. Hercules GmbH"/></label><div className="formRow"><label>Rechtsform<input value={newCompany.legal_form} onChange={e=>setNewCompany({...newCompany,legal_form:e.target.value})}/></label><label>Währung<input value={newCompany.currency_code} onChange={e=>setNewCompany({...newCompany,currency_code:e.target.value})}/></label></div><label>Sitz<input value={newCompany.registered_office} onChange={e=>setNewCompany({...newCompany,registered_office:e.target.value})} placeholder="Duisburg"/></label><button className="primaryButton" disabled={busy} onClick={createCompany}>Gesellschaft mit KAI anlegen</button></div>
         </>}
         {step===1&&<div className="kaiCard"><p className="miniLabel">{selectedCompany?.name||"Gesellschaft"}</p><h2>Projekt</h2><label>Projektname<input value={project.name} onChange={e=>setProject({...project,name:e.target.value})}/></label><div className="formRow"><label>Von<input type="date" value={project.fiscal_start} onChange={e=>setProject({...project,fiscal_start:e.target.value})}/></label><label>Bis<input type="date" value={project.fiscal_end} onChange={e=>setProject({...project,fiscal_end:e.target.value,reporting_date:e.target.value,name:`Jahresabschluss ${e.target.value.split('-').reverse().join('.')}`})}/></label></div><label>Bilanzstichtag<input type="date" value={project.reporting_date} onChange={e=>setProject({...project,reporting_date:e.target.value})}/></label><label>Abschlussprüfer<input value={project.auditor} onChange={e=>setProject({...project,auditor:e.target.value})} placeholder="optional"/></label><button className="primaryButton" disabled={busy} onClick={createProject}>Projekt anlegen & LUMINA-Struktur erzeugen</button></div>}
         {step===2&&<div className="kaiCard teamCard"><h2>Kernteam</h2><p className="cardHint">KAI zeigt nur die wichtigsten Rollen. Weitere Rollen bleiben im vollständigen LUMINA erhalten.</p>{team.map((r,i)=><div className="teamRow" key={r.kind}><strong>{r.label}</strong><input placeholder="Vorname" value={r.first_name} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,first_name:e.target.value}:x))}/><input placeholder="Nachname" value={r.last_name} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,last_name:e.target.value}:x))}/><input placeholder="E-Mail" value={r.email} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,email:e.target.value}:x))}/></div>)}<button className="primaryButton" disabled={busy} onClick={saveTeam}>Team übernehmen</button></div>}
