@@ -58,6 +58,53 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
   async function refresh(){ const {data}=await supabase.rpc("quickstart_context"); if(data) setContext(data as Context); }
   async function run<T=unknown>(fn:()=>PromiseLike<{data:T|null;error:any}>) { setBusy(true);setError(""); try{const {data,error}=await fn();if(error)throw error;return data;}catch(e:any){setError(e.message||String(e));return null;}finally{setBusy(false);} }
 
+  async function signOut(){
+    setBusy(true);
+    setError("");
+    try {
+      await supabase.auth.signOut();
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith("sb-") || key.toLowerCase().includes("lumina")) localStorage.removeItem(key);
+        }
+      }
+      router.replace("/login?fresh=1");
+      router.refresh();
+    } catch (e:any) {
+      setError(e?.message || String(e));
+      setBusy(false);
+    }
+  }
+
+  async function clearAppCacheAndReload(){
+    setBusy(true);
+    setError("");
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+        for (const key of Object.keys(localStorage)) {
+          if (key.toLowerCase().includes("lumina")) localStorage.removeItem(key);
+        }
+        if ("caches" in window) {
+          const names = await caches.keys();
+          await Promise.all(names.map(name => caches.delete(name)));
+        }
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(registration => registration.unregister()));
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set("fresh", Date.now().toString());
+        window.location.replace(url.toString());
+        return;
+      }
+    } catch (e:any) {
+      setError(e?.message || String(e));
+    }
+    setBusy(false);
+  }
+
   async function createCompany(){
     if(!newCompany.name.trim()) return setError("Bitte nennen Sie die Gesellschaft.");
     const duplicate=context.companies?.find(c=>c.name.trim().toLocaleLowerCase("de-DE")===newCompany.name.trim().toLocaleLowerCase("de-DE"));
@@ -82,7 +129,7 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
 
   const selectedCompany=context.companies?.find(c=>c.id===companyId);
   return <main className="kaiPage">
-    <header className="kaiHeader"><div className="authBrand"><span className="brandMark"/><div><strong>LUMINA</strong><span>KAI Quickstart</span></div></div><div className="kaiProgress">{[0,1,2,3,4].map((n)=><span key={n} className={n<=Math.min(step,4)?"done":""}>{n+1}</span>)}</div></header>
+    <header className="kaiHeader"><div className="authBrand"><span className="brandMark"/><div><strong>LUMINA</strong><span>KAI Quickstart</span></div></div><div className="kaiHeaderTools"><div className="kaiProgress">{[0,1,2,3,4].map((n)=><span key={n} className={n<=Math.min(step,4)?"done":""}>{n+1}</span>)}</div><button type="button" className="kaiHeaderButton" disabled={busy} onClick={clearAppCacheAndReload}>↻ Refresh</button><button type="button" className="kaiHeaderButton danger" disabled={busy} onClick={signOut}>Abmelden</button></div></header>
     <div className="kaiLayout">
       <section className="kaiChat">
         <div className="kaiPromise"><strong>In 30 Minuten startklar.</strong><span>Kompletter Abschlussprozess mit Verantwortlichen, Terminen und echtem Fortschritt.</span></div>
