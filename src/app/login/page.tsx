@@ -73,7 +73,7 @@ export default function LoginPage() {
       }
 
       const requestedTarget = new URLSearchParams(window.location.search).get("next");
-      const target = requestedTarget?.startsWith("/workflow")
+      const target = requestedTarget && requestedTarget.startsWith("/") && !requestedTarget.startsWith("//")
         ? requestedTarget
         : "/workflow";
       router.replace(target);

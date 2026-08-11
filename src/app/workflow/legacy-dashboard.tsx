@@ -63,6 +63,7 @@ export function LegacyDashboard({ query }: { query: string }) {
   return (
     <main className="legacyDashboard">
       {error && <div className="legacyError" role="alert">{error}</div>}
+      <button className="dashboardQuickstart" type="button" onClick={() => router.push("/quickstart")}>KAI Quickstart</button>
       <button className="dashboardSignOut" type="button" onClick={handleSignOut}>
         Abmelden
       </button>

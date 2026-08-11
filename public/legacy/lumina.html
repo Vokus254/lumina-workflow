@@ -13905,12 +13905,16 @@ async function deleteStepComment(commentId,button,neuZeichnen){
 
 async function loadLuminaFromSupabase(){
   setLuminaSyncState('Daten werden geladen ...');
+  const selectedProjectId=new URLSearchParams(location.search).get('project');
+  let projectsQuery=luminaDb.from('projects').select('id,name,fiscal_year_start,fiscal_year_end,reporting_date,status,companies(name)').limit(10);
+  let tasksQuery=luminaDb.from('tasks').select('id,project_id,source_number,process_step_id,work_status,review_status,internal_comment,due_date_override,updated_at').order('source_number');
+  let rolesQuery=luminaDb.from('responsibility_roles').select('id,project_id,role_key,display_name,first_name,last_name,email').order('role_key');
+  let documentsQuery=luminaDb.from('documents').select('id,project_id,task_id,folder_id,display_name,document_status,created_at,document_versions(id,version_number,storage_bucket,storage_path,original_file_name,mime_type,file_size,upload_comment,created_at)').is('archived_at',null).order('created_at');
+  if(selectedProjectId){projectsQuery=projectsQuery.eq('id',selectedProjectId);tasksQuery=tasksQuery.eq('project_id',selectedProjectId);rolesQuery=rolesQuery.eq('project_id',selectedProjectId);documentsQuery=documentsQuery.eq('project_id',selectedProjectId);}
   const [{data:projects,error:projectError},{data:tasks,error:taskError},{data:roles,error:roleError},{data:sourceStates,error:sourceError},{data:documents,error:documentError}]=await Promise.all([
-    luminaDb.from('projects').select('id,name,reporting_date,status,companies(name)').limit(10),
-    luminaDb.from('tasks').select('id,source_number,process_step_id,work_status,review_status,internal_comment,due_date_override,updated_at').order('source_number'),
-    luminaDb.from('responsibility_roles').select('id,role_key,display_name,first_name,last_name,email').order('role_key'),
-    luminaDb.rpc('get_lumina_source_state'),
-    luminaDb.from('documents').select('id,task_id,folder_id,display_name,document_status,created_at,document_versions(id,version_number,storage_bucket,storage_path,original_file_name,mime_type,file_size,upload_comment,created_at)').is('archived_at',null).order('created_at')
+    projectsQuery,tasksQuery,rolesQuery,
+    luminaDb.rpc('get_lumina_source_state',{p_project_id:selectedProjectId||null}),
+    documentsQuery
   ]);
   if(projectError)throw projectError;if(taskError)throw taskError;if(roleError)throw roleError;if(sourceError)throw sourceError;if(documentError)throw documentError;
   if(!projects||!projects.length)throw new Error('Für dieses Konto ist kein LUMINA-Projekt freigeschaltet.');
@@ -13922,7 +13926,7 @@ async function loadLuminaFromSupabase(){
   const project=projects[0],companyName=project.companies?.name||project.name||'Serafin GmbH';
   const master=findFirstSubOfType('form');
   const masterSub=stations.flatMap(s=>s.measures||[]).flatMap(m=>m.subitems||[]).find(sub=>Array.isArray(sub.fields)&&sub.fields.some(field=>field.key==='firmierung'));
-  if(masterSub){masterSub.data=masterSub.data||{};masterSub.data.firmierung=companyName;if(project.reporting_date)masterSub.data.stichtag=project.reporting_date;}
+  if(masterSub){masterSub.data=masterSub.data||{};masterSub.data.firmierung=companyName;if(project.reporting_date)masterSub.data.stichtag=project.reporting_date;if(project.fiscal_year_start&&project.fiscal_year_end)masterSub.data.geschaeftsjahr=`${project.fiscal_year_start.split('-').reverse().join('.')} - ${project.fiscal_year_end.split('-').reverse().join('.')}`;}
   const rolesSub=findFirstSubOfType('roles');
   if(rolesSub){rolesSub.data=rolesSub.data||{};rolesSub.data.roles=(roles||[]).map(role=>({role:role.role_key,vorname:role.first_name||'',nachname:role.last_name||'',email:role.email||'',remoteRoleId:role.id}));}
   const pbc=luminaPbcRows();

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function WorkflowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ task?: string; view?: string }>;
+  searchParams: Promise<{ task?: string; view?: string; project?: string }>;
 }) {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
@@ -18,6 +18,7 @@ export default async function WorkflowPage({
   const legacyParams = new URLSearchParams();
   if (requested.task) legacyParams.set("task", requested.task);
   if (requested.view) legacyParams.set("view", requested.view);
+  if (requested.project) legacyParams.set("project", requested.project);
 
   return <LegacyDashboard query={legacyParams.toString()} />;
 }
