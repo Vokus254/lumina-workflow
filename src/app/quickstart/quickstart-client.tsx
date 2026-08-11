@@ -40,6 +40,8 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
   const [project,setProject] = useState({name:`Jahresabschluss 31.12.${year}`,fiscal_start:`${year}-01-01`,fiscal_end:`${year}-12-31`,reporting_date:`${year}-12-31`,auditor:""});
   const [team,setTeam] = useState(TEAM.map(x=>({...x,first_name:"",last_name:"",email:""})));
   const [summary,setSummary] = useState<Record<string,number>|null>(null);
+  const [handoff,setHandoff] = useState({firstName:"",lastName:"",email:""});
+  const [handoffDone,setHandoffDone] = useState<{email:string;created:boolean;temporaryPassword?:string|null}|null>(null);
   const initializedCompany = useRef(false);
 
   useEffect(() => {
@@ -122,6 +124,38 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
     setStep(3);say("user","Teamzuordnung übernehmen");say("kai","✓ Kernteam gespeichert. Registrierte LUMINA-Nutzer wurden – soweit ihre E-Mail schon bekannt ist – direkt mit dem Projekt bzw. ihrer Fachrolle verknüpft. Die übrigen Rollen können später ergänzt werden.");say("kai","Als Nächstes prüfe ich Aufgaben, Termine und PBC-Struktur. Die 202 Maßnahmen müssen Sie nicht einzeln anlegen – sie wurden aus dem LUMINA-Modell erzeugt.");
   }
   async function acceptPlan(){ setStep(4); say("user","Standard-Aufgaben und PBC übernehmen"); say("kai","✓ Aufgaben- und PBC-Grundstruktur übernommen. Alte Dokumente, Kommentare, Findings und Erledigt-Status wurden bewusst nicht kopiert. Nur Struktur und Arbeitshilfen sind wiederverwendet."); say("kai","Ich kann das Projekt jetzt abschließen und Ihnen die Startübersicht zeigen."); }
+
+  async function transferGuestProject(){
+    if(!projectId) return setError("Projekt fehlt. Bitte den Quickstart erneut öffnen.");
+    if(!handoff.email.trim()) return setError("Bitte geben Sie Ihre persönliche E-Mail-Adresse an.");
+    setBusy(true);setError("");
+    try {
+      const response=await fetch("/api/quickstart/handoff",{
+        method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({projectId,email:handoff.email,firstName:handoff.firstName,lastName:handoff.lastName})
+      });
+      const result=await response.json();
+      if(!response.ok) throw new Error(result.error||"Projektübergabe fehlgeschlagen.");
+      setHandoffDone({email:result.email,created:Boolean(result.created),temporaryPassword:result.temporaryPassword});
+      say("user",`Persönlichen Zugang ${result.email} übernehmen`);
+      say("kai",`✓ Das Projekt wurde ${result.email} als persönlichem Owner übergeben. Der gemeinsame Quickstart-Zugang hat keinen Zugriff mehr auf dieses Projekt.`);
+    } catch(e:any){ setError(e?.message||String(e)); } finally { setBusy(false); }
+  }
+
+  async function leaveAfterHandoff(){
+    await supabase.auth.signOut();
+    if (typeof window !== "undefined") {
+      sessionStorage.clear();
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("sb-") || key.toLowerCase().includes("lumina")) localStorage.removeItem(key);
+      }
+    }
+    const params=new URLSearchParams({handoff:"1",email:handoffDone?.email||handoff.email});
+    if(handoffDone?.created) params.set("created","1");
+    router.replace(`/login?${params.toString()}`);
+    router.refresh();
+  }
+
   async function finish(){
     const data=await run<Record<string,number>>(()=>supabase.rpc("quickstart_finish",{p_project_id:projectId})); if(!data)return;
     setSummary(data);setStep(5);say("user","Projekt starten");say("kai",`✓ Ihr LUMINA-Projekt ist startbereit: ${data.process_stations ?? 0} Prozessstationen, ${data.tasks ?? 0} Maßnahmen, ${data.document_requests ?? 0} konkrete Dokumentanforderungen und ${data.due_dates ?? 0} hinterlegte Kacheltermine.`);
@@ -144,7 +178,22 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
         {step===2&&<div className="kaiCard teamCard"><h2>Kernteam</h2><p className="cardHint">KAI zeigt nur die wichtigsten Rollen. Weitere Rollen bleiben im vollständigen LUMINA erhalten.</p>{team.map((r,i)=><div className="teamRow" key={r.kind}><strong>{r.label}</strong><input placeholder="Vorname" value={r.first_name} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,first_name:e.target.value}:x))}/><input placeholder="Nachname" value={r.last_name} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,last_name:e.target.value}:x))}/><input placeholder="E-Mail" value={r.email} onChange={e=>setTeam(team.map((x,j)=>j===i?{...x,email:e.target.value}:x))}/></div>)}<button className="primaryButton" disabled={busy} onClick={saveTeam}>Team übernehmen</button></div>}
         {step===3&&<div className="kaiCard"><h2>Aufgaben & Termine</h2><div className="checkStack"><p>✓ 78 Prozessstationen als Projektstruktur</p><p>✓ 202 Maßnahmen als neue Aufgabeninstanzen</p><p>✓ Termine relativ zum neuen Bilanzstichtag verschoben</p><p>✓ Verantwortungsrollen aus dem LUMINA-Modell</p></div><p className="cardHint">Sie prüfen später nur Ausnahmen. KAI verlangt keine manuelle Verteilung von 202 Zeilen im Quickstart.</p><button className="primaryButton" onClick={acceptPlan}>Standardplan übernehmen</button></div>}
         {step===4&&<div className="kaiCard"><h2>Datenraum & PBC</h2><div className="checkStack"><p>✓ eigener Projektdatenraum</p><p>✓ Aufgaben-/Ordner-Verknüpfungen</p><p>✓ erwartete Dokumentanforderungen</p><p>✓ Arbeitshilfen bleiben zentral verlinkt</p><p>✓ keine Vorjahresdokumente als aktuelle Nachweise kopiert</p></div><button className="primaryButton" disabled={busy} onClick={finish}>Projekt starten</button></div>}
-        {step===5&&<div className="kaiCard finishCard"><p className="miniLabel">KAI Quickstart abgeschlossen</p><h2>Ihr Abschluss ist startbereit.</h2>{summary&&<div className="summaryGrid"><div><strong>{summary.process_stations??0}</strong><span>Stationen</span></div><div><strong>{summary.tasks??0}</strong><span>Maßnahmen</span></div><div><strong>{summary.document_requests??0}</strong><span>PBC-Nachweise</span></div><div><strong>{summary.due_dates??0}</strong><span>Termine</span></div></div>}{context.quickstart_guest?<><p className="cardHint">Das Projekt wurde mit dem gemeinsamen Pilotzugang angelegt und dem LUMINA-Administrator zur weiteren Einrichtung bereitgestellt. Melden Sie sich für die laufende Bearbeitung später mit Ihrem persönlichen Zugang an.</p><button className="primaryButton" onClick={async()=>{await supabase.auth.signOut();router.replace("/login");router.refresh();}}>Zur Anmeldung</button><button className="secondaryButton full" onClick={()=>{setStep(0);setProjectId("");setCompanyId("");setSummary(null);refresh();}}>Weiteres Testprojekt anlegen</button></>:<><button className="primaryButton" onClick={()=>router.push(`/workflow?project=${encodeURIComponent(projectId)}`)}>Zum Abschluss-Cockpit</button><button className="secondaryButton full" onClick={()=>{setStep(0);setProjectId("");setCompanyId("");setSummary(null);refresh();}}>Weiteres Projekt anlegen</button></>}</div>}
+        {step===5&&<div className="kaiCard finishCard"><p className="miniLabel">KAI Quickstart abgeschlossen</p><h2>Ihr Abschluss ist startbereit.</h2>{summary&&<div className="summaryGrid"><div><strong>{summary.process_stations??0}</strong><span>Stationen</span></div><div><strong>{summary.tasks??0}</strong><span>Maßnahmen</span></div><div><strong>{summary.document_requests??0}</strong><span>PBC-Nachweise</span></div><div><strong>{summary.due_dates??0}</strong><span>Termine</span></div></div>}{context.quickstart_guest?<>
+          {!handoffDone ? <div className="handoffBox">
+            <p className="miniLabel">Persönlichen Zugang festlegen</p>
+            <h3>Wer übernimmt Gesellschaft und Projekt?</h3>
+            <p className="cardHint">Der gemeinsame Quickstart-Zugang ist nur für die Ersteinrichtung. Geben Sie jetzt Ihre persönliche E-Mail-Adresse an. Danach gehört das Projekt nur noch Ihrem persönlichen LUMINA-Zugang (zusätzlich zur LUMINA-Administration).</p>
+            <div className="formRow"><label>Vorname<input value={handoff.firstName} onChange={e=>setHandoff({...handoff,firstName:e.target.value})}/></label><label>Nachname<input value={handoff.lastName} onChange={e=>setHandoff({...handoff,lastName:e.target.value})}/></label></div>
+            <label>Persönliche E-Mail-Adresse<input type="email" placeholder="name@unternehmen.de" value={handoff.email} onChange={e=>setHandoff({...handoff,email:e.target.value})}/></label>
+            <p className="cardHint">Ist die E-Mail-Adresse noch nicht in LUMINA vorhanden, wird automatisch ein persönlicher Pilotzugang mit dem Erstpasswort <strong>start123</strong> angelegt.</p>
+            <button className="primaryButton" disabled={busy} onClick={transferGuestProject}>{busy?"Übergabe läuft …":"Projekt persönlich übernehmen"}</button>
+          </div> : <div className="handoffSuccess">
+            <p className="miniLabel">Übergabe abgeschlossen</p>
+            <h3>{handoffDone.email}</h3>
+            <p className="cardHint">{handoffDone.created?<>Der persönliche Zugang wurde neu angelegt. Erstpasswort: <strong>{handoffDone.temporaryPassword||"start123"}</strong>.</>:<>Der vorhandene persönliche Zugang wurde als Owner freigeschaltet. Das bestehende Passwort bleibt unverändert.</>}</p>
+            <button className="primaryButton" onClick={leaveAfterHandoff}>Abmelden & persönlich anmelden</button>
+          </div>}
+        </>:<><button className="primaryButton" onClick={()=>router.push(`/workflow?project=${encodeURIComponent(projectId)}`)}>Zum Abschluss-Cockpit</button><button className="secondaryButton full" onClick={()=>{setStep(0);setProjectId("");setCompanyId("");setSummary(null);refresh();}}>Weiteres Projekt anlegen</button></>}</div>}
       </aside>
     </div>
   </main>;

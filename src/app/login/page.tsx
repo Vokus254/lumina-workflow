@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const QUICKSTART_EMAIL = process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_EMAIL || "quickstart@volkerkusch.de";
-const QUICKSTART_PASSWORD = process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_PASSWORD || "123";
+const QUICKSTART_PASSWORD = process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_PASSWORD || "start123";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,10 +26,17 @@ export default function LoginPage() {
       ? new URLSearchParams(requestedTarget.split("?")[1] || "").get("email")
       : null;
     const requestedEmail = params.get("email") || targetEmail;
+    const handoff = params.get("handoff");
+    const accountCreated = params.get("created") === "1";
     const timer = window.setTimeout(() => {
       if (requestedMode === "reset") setMode("reset");
       if (recoveryError) setError("Der Link zum Zurücksetzen ist ungültig oder abgelaufen. Bitte fordern Sie eine neue E-Mail an.");
       if (requestedEmail) setEmail(requestedEmail);
+      if (handoff === "1") {
+        setMessage(accountCreated
+          ? "Ihr persönlicher LUMINA-Zugang wurde angelegt. Melden Sie sich jetzt mit Ihrer E-Mail-Adresse und dem Erstpasswort start123 an."
+          : "Das Projekt wurde Ihrem persönlichen LUMINA-Zugang übertragen. Melden Sie sich jetzt mit Ihrem bestehenden Passwort an.");
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
