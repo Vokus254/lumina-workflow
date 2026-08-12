@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ProjectSwitcher } from "./project-switcher";
 import type { ProjectHubContext } from "./project-hub";
 
-export function LegacyDashboard({ query, hubContext, activeProjectId, embedded = false }: { query:string; hubContext:ProjectHubContext; activeProjectId:string; embedded?:boolean }) {
+export function LegacyDashboard({ query, hubContext, activeProjectId, embedded = false, onTaskClose }: { query:string; hubContext:ProjectHubContext; activeProjectId:string; embedded?:boolean; onTaskClose?:() => void }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
   const [error, setError] = useState("");
@@ -34,6 +34,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "lumina-refresh-session") { await sendSession(); return; }
+      if (event.data?.type === "lumina-task-closed") { onTaskClose?.(); return; }
       if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
       await supabase.auth.signOut();
@@ -41,7 +42,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [router, sendSession]);
+  }, [router, sendSession, onTaskClose]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();

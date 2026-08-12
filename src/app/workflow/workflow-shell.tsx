@@ -184,6 +184,7 @@ export function WorkflowShell({
   const [skin, setSkin] = useState<Skin>("lumina");
   const [search, setSearch] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [dataroomStationCode, setDataroomStationCode] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
   const [adminData, setAdminData] = useState<AdminPayload | null>(null);
   const [adminError, setAdminError] = useState("");
@@ -426,7 +427,7 @@ export function WorkflowShell({
 
       {view === "process" ? <section className={styles.processPanel}>
         <div className={styles.processTop}><div><h1>Abschlussprozess</h1><p>Kachelübersicht des Jahresabschlusses. Für den angemeldeten Nutzer relevante Kacheln sind aktiv; übrige bleiben als Orientierung sichtbar.</p></div>{expandedStep ? <button className={styles.secondaryButton} type="button" onClick={() => setExpandedStepId(null)}>Zur Kachelübersicht</button> : null}</div>
-        {activeTaskId ? <div className={styles.legacyHost}><LegacyDashboard query={legacyQuery} hubContext={hubContext} activeProjectId={activeProjectId} embedded/></div> : expandedStep ? <section className={styles.processDrilldown}>
+        {activeTaskId ? <div className={styles.legacyHost}><LegacyDashboard query={legacyQuery} hubContext={hubContext} activeProjectId={activeProjectId} embedded onTaskClose={openProcessOverview}/></div> : expandedStep ? <section className={styles.processDrilldown}>
           <div className={styles.processBreadcrumb}><button type="button" onClick={() => setExpandedStepId(null)}>Abschlussprozess</button><span>›</span><b>{expandedStep.code} · {expandedStep.name}</b></div>
           {expandedChildren.length ? <div className={styles.processGrid}>{expandedChildren.map(renderProcessCard)}</div> : null}
           {expandedDirectTasks.length ? <section className={styles.card}><div className={styles.cardHead}><h2>Zugeordnete Aufgaben</h2><span>{expandedDirectTasks.length}</span></div><div className={styles.taskList}>{expandedDirectTasks.map((task) => <button key={task.id} type="button" className={styles.taskRow} onClick={() => openTask(task.id)}><span className={styles.taskCode}>{task.sourceNumber}<small>Aufgabe</small></span><span className={styles.taskMain}><b>{task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span><span className={styles.due}>{formatDate(task.dueDate)}</span></button>)}</div></section> : null}
@@ -438,9 +439,20 @@ export function WorkflowShell({
         </div>}
       </section> : null}
 
-      {view === "dataroom" ? <section><div className={styles.pageHead}><div><h1>Datenraum</h1><p>Ihre zugeordneten Aufgabenräume und die dazugehörigen Dokumente – ohne zweite, parallele Datenraumdarstellung.</p></div></div>
-        <div className={styles.dataroomSummary}><b>{personalTasks.length}</b><span>zugeordnete Aufgabenräume</span><b>{personalDocuments.length}</b><span>zugehörige Dokumente</span></div>
-        <div className={styles.dataroomGroups}>{stations.map((station) => { const stationTasks = personalTasks.filter((task) => task.stationCode === station.code); if (!stationTasks.length) return null; return <section className={styles.card} key={station.code}><div className={styles.cardHead}><h2>{station.code} · {station.name}</h2><span>{stationTasks.length} Räume</span></div><div className={styles.roomGrid}>{stationTasks.map((task) => { const taskDocs = personalDocumentsByTask.get(task.id) || []; return <button key={task.id} type="button" className={styles.roomCard} onClick={() => openTask(task.id)}><span className={styles.roomIcon}>▤</span><span><b>{task.sourceNumber} · {task.title}</b><small>{task.processStepCode ? `${task.processStepCode} · ${task.processStepName || "Prozessschritt"}` : "Aufgabenraum"}</small></span><strong>{taskDocs.length}</strong><small>{taskDocs.length === 1 ? "Dokument" : "Dokumente"}</small></button>; })}</div></section>; })}</div>
+      {view === "dataroom" ? <section><div className={styles.pageHead}><div><h1>Datenraum</h1><p>Ihre zugeordneten Aufgabenräume und die dazugehörigen Dokumente – gegliedert nach den acht Prozessstationen.</p></div></div>
+        <div className={styles.dataroomStationStrip}>
+          <div className={styles.processOverviewHint}><b>Hauptkacheln</b><span>Aktive Kacheln enthalten Aufgabenräume für Sie. Wählen Sie eine Station, um den Datenraum darunter zu filtern.</span></div>
+          <div className={`${styles.processGrid} ${styles.processRootGrid}`}>{stations.slice(0, 8).map((station) => {
+            const stationTasks = personalTasks.filter((task) => task.stationCode === station.code);
+            const active = stationTasks.length > 0;
+            const selected = dataroomStationCode === station.code;
+            return <button key={station.code} type="button" aria-pressed={selected} className={`${styles.processCard} ${active ? styles.processCardActive : styles.processCardInactive} ${selected ? styles.processCardSelected : ""}`} disabled={!active} onClick={() => active && setDataroomStationCode(selected ? null : station.code)}>
+              <span className={styles.processCode}>{station.code}</span><b>{station.name}</b><small>{active ? `${stationTasks.length} ${stationTasks.length === 1 ? "Aufgabenraum" : "Aufgabenräume"}` : "Für diesen Nutzer nicht relevant"}</small><i>{active ? (selected ? "Filter aufheben" : "Anzeigen") : "Inaktiv"}</i>
+            </button>;
+          })}</div>
+        </div>
+        <div className={styles.dataroomSummary}><b>{personalTasks.length}</b><span>zugeordnete Aufgabenräume</span><b>{personalDocuments.length}</b><span>zugehörige Dokumente</span>{dataroomStationCode ? <button type="button" className={styles.dataroomClearFilter} onClick={() => setDataroomStationCode(null)}>Alle Stationen anzeigen</button> : null}</div>
+        <div className={styles.dataroomGroups}>{stations.map((station) => { if (dataroomStationCode && station.code !== dataroomStationCode) return null; const stationTasks = personalTasks.filter((task) => task.stationCode === station.code); if (!stationTasks.length) return null; return <section className={styles.card} key={station.code}><div className={styles.cardHead}><h2>{station.code} · {station.name}</h2><span>{stationTasks.length} Räume</span></div><div className={styles.roomGrid}>{stationTasks.map((task) => { const taskDocs = personalDocumentsByTask.get(task.id) || []; return <button key={task.id} type="button" className={styles.roomCard} onClick={() => openTask(task.id)}><span className={styles.roomIcon}>▤</span><span><b>{task.sourceNumber} · {task.title}</b><small>{task.processStepCode ? `${task.processStepCode} · ${task.processStepName || "Prozessschritt"}` : "Aufgabenraum"}</small></span><strong>{taskDocs.length}</strong><small>{taskDocs.length === 1 ? "Dokument" : "Dokumente"}</small></button>; })}</div></section>; })}</div>
         {!personalTasks.length ? <section className={styles.card}><p className={styles.emptyBlock}>Für diesen Nutzer sind aktuell keine Aufgabenräume zugeordnet.</p></section> : null}
       </section> : null}
 

@@ -190,3 +190,10 @@
 .myDayGroupHead[data-tone="today"]{border-left:3px solid var(--lumina-primary)}
 .myDayGroupHead[data-tone="week"]{border-left:3px solid #4D78C9}
 .myDayGroupHead[data-tone="later"]{border-left:3px solid var(--lumina-line)}
+
+
+/* P1A FIX6 — konsistente Rückkehr aus Legacy-Aufgabe + Datenraum-Stationen */
+.processCardSelected{border-color:var(--lumina-primary)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--lumina-primary) 18%,transparent),0 7px 18px rgba(16,32,27,.08)!important;background:var(--lumina-primary-soft)!important}
+.dataroomStationStrip{display:grid;gap:14px;margin:0 0 18px}
+.dataroomClearFilter{margin-left:auto;border:1px solid var(--lumina-line);background:var(--lumina-card);color:var(--lumina-primary-dark);border-radius:8px;padding:7px 10px;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+.dataroomClearFilter:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft)}
