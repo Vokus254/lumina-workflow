@@ -66,6 +66,10 @@ type MessageRow = {
   created_at: string | null;
 };
 
+type RoleAssignmentRow = {
+  role_id: string;
+};
+
 function safeText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -73,7 +77,6 @@ function safeText(value: unknown) {
 
 function defaultProjectView(projectRole?: string) {
   if (projectRole === "viewer") return "status" as const;
-  if (projectRole === "owner" || projectRole === "manager" || projectRole === "reviewer") return "process" as const;
   return "start" as const;
 }
 
@@ -99,6 +102,7 @@ export default async function WorkflowPage({
   if (error || !data?.claims) redirect("/login");
 
   const currentEmail = safeText(data.claims.email).toLowerCase();
+  const currentUserId = safeText(data.claims.sub);
   if (QUICKSTART_EMAIL && currentEmail === QUICKSTART_EMAIL) {
     redirect("/quickstart?mode=company&fresh=1");
   }
@@ -110,6 +114,10 @@ export default async function WorkflowPage({
   const adminAccess = await requireLuminaAdmin();
 
   if (!requested.project) {
+    const accessibleProjects = (hub.companies || []).flatMap((company) => company.projects || []);
+    if (accessibleProjects.length === 1) {
+      redirect(`/workflow?project=${encodeURIComponent(accessibleProjects[0].id)}`);
+    }
     return <ProjectHub context={hub} userEmail={currentEmail} isAdmin={adminAccess.ok}/>;
   }
 
@@ -118,16 +126,20 @@ export default async function WorkflowPage({
   if (!activeCompany || !activeProject) redirect("/workflow");
 
   const projectId = requested.project;
-  const [{ data: stepData }, { data: taskData }, { data: documentData }] = await Promise.all([
+  const [{ data: stepData }, { data: taskData }, { data: documentData }, { data: roleAssignmentData }] = await Promise.all([
     supabase.from("process_steps").select("id,parent_id,code,name,sort_order").eq("project_id", projectId).order("sort_order", { ascending: true }),
     supabase.from("tasks").select("id,process_step_id,responsibility_role_id,source_number,title,required_documents_text,due_rule_label,due_date,due_date_override,work_status,review_status").eq("project_id", projectId),
-    // Keine künstliche UI-Begrenzung: RLS bestimmt, welche Dokumente dieser Nutzer sehen darf.
+    // Projektweiter Status darf alle per RLS sichtbaren Dokumente berücksichtigen.
     supabase.from("documents").select("id,task_id,display_name,document_status,created_at").eq("project_id", projectId).is("archived_at", null).order("created_at", { ascending: false }),
+    currentUserId
+      ? supabase.from("role_user_assignments").select("role_id").eq("user_id", currentUserId)
+      : Promise.resolve({ data: [] as RoleAssignmentRow[] }),
   ]);
 
   const steps = (stepData || []) as ProcessStepRow[];
   const rawTasks = (taskData || []) as TaskRow[];
   const rawDocuments = (documentData || []) as DocumentRow[];
+  const assignedRoleIds = new Set(((roleAssignmentData || []) as RoleAssignmentRow[]).map((row) => row.role_id));
   const stepById = new Map(steps.map((step) => [step.id, step]));
   const roots = steps.filter((step) => !step.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
@@ -155,6 +167,7 @@ export default async function WorkflowPage({
       workStatus: task.work_status || "open",
       reviewStatus: task.review_status || "unreviewed",
       responsibilityRoleId: task.responsibility_role_id,
+      assignedToCurrentUser: Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)),
       stationCode: rootCodeForStep(task.process_step_id),
       processStepId: task.process_step_id,
       processStepCode: processStep?.code || null,
@@ -164,7 +177,8 @@ export default async function WorkflowPage({
   });
 
   const relevantStepIds = new Set<string>();
-  for (const task of rawTasks) {
+  const personallyAssignedRawTasks = rawTasks.filter((task) => Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)));
+  for (const task of personallyAssignedRawTasks) {
     let current = task.process_step_id ? stepById.get(task.process_step_id) : undefined;
     const seen = new Set<string>();
     while (current && !seen.has(current.id)) {
@@ -181,7 +195,7 @@ export default async function WorkflowPage({
     name: step.name,
     sortOrder: step.sort_order || 0,
     relevant: relevantStepIds.has(step.id),
-    directTaskIds: rawTasks.filter((task) => task.process_step_id === step.id).map((task) => task.id),
+    directTaskIds: personallyAssignedRawTasks.filter((task) => task.process_step_id === step.id).map((task) => task.id),
   }));
 
   const rootRows = roots.length
@@ -238,7 +252,7 @@ export default async function WorkflowPage({
   }
 
   const nextDeadlineTask = [...tasks]
-    .filter((task) => task.workStatus !== "completed" && task.dueDate && task.dueDate >= today)
+    .filter((task) => task.assignedToCurrentUser && task.workStatus !== "completed" && task.dueDate && task.dueDate >= today)
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))[0];
 
   const legacyParams = new URLSearchParams();
