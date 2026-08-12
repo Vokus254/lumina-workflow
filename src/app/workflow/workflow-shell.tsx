@@ -305,15 +305,15 @@ export function WorkflowShell({
   function switchCompany(companyId: string) {
     const company = hubContext.companies.find((item) => item.id === companyId);
     const firstProject = company?.projects?.[0];
-    if (firstProject) router.push(`/workflow?project=${encodeURIComponent(firstProject.id)}`);
+    if (firstProject) router.push(`/workflow?project=${encodeURIComponent(firstProject.id)}&view=process`);
     else router.push("/workflow");
   }
 
   function switchProject(projectId: string) {
-    if (projectId) router.push(`/workflow?project=${encodeURIComponent(projectId)}`);
+    if (projectId) router.push(`/workflow?project=${encodeURIComponent(projectId)}&view=process`);
   }
 
-  const startLabel = roleView === "projektleitung" ? "Projektsteuerung" : roleView === "cfo" ? "Statusbericht" : roleView === "admin" ? "Administration" : "Meine Arbeit";
+  const startLabel = "Meine Arbeit";
 
   const adminMembers = useMemo(() => {
     if (!adminData) return [];
@@ -380,7 +380,7 @@ export function WorkflowShell({
 
     <aside className={styles.nav}>
       <div className={styles.navGroup}>Arbeiten</div>
-      {navButton("start", startLabel, "◉", roleView === "bearbeiter" ? openTasks.length : roleView === "projektleitung" ? overdue.length + reviewIssues.length : undefined)}
+      {roleView === "bearbeiter" ? navButton("start", startLabel, "◉", openTasks.length) : null}
       {navButton("process", "Abschlussprozess", "▦", undefined, openProcessOverview)}
       {navButton("dataroom", "Datenraum", "⌸", documents.length)}
       <div className={styles.navGroup}>Steuern</div>
@@ -419,7 +419,12 @@ export function WorkflowShell({
           <div className={styles.processBreadcrumb}><button type="button" onClick={() => setExpandedStepId(null)}>Abschlussprozess</button><span>›</span><b>{expandedStep.code} · {expandedStep.name}</b></div>
           {expandedChildren.length ? <div className={styles.processGrid}>{expandedChildren.map(renderProcessCard)}</div> : null}
           {expandedDirectTasks.length ? <section className={styles.card}><div className={styles.cardHead}><h2>Zugeordnete Aufgaben</h2><span>{expandedDirectTasks.length}</span></div><div className={styles.taskList}>{expandedDirectTasks.map((task) => <button key={task.id} type="button" className={styles.taskRow} onClick={() => openTask(task.id)}><span className={styles.taskCode}>{task.sourceNumber}<small>Aufgabe</small></span><span className={styles.taskMain}><b>{task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span><span className={styles.due}>{formatDate(task.dueDate)}</span></button>)}</div></section> : null}
-        </section> : <div className={styles.processStations}>{roots.map((root) => <section key={root.id} className={styles.processStationSection}><div className={styles.processStationHead}><span>{root.code}</span><div><h2>{root.name}</h2><p>{root.relevant ? "Für diesen Nutzer relevante Inhalte sind hervorgehoben." : "Keine direkte Relevanz für diesen Nutzer."}</p></div></div><div className={styles.processGrid}>{(childrenByParent.get(root.id) || []).map(renderProcessCard)}</div></section>)}</div>}
+        </section> : <div className={styles.processOverview}>
+          <div className={styles.processOverviewHint}>
+            <b>Hauptkacheln</b><span>Aktive Kacheln enthalten Aufgaben für Sie. Kinder-Kacheln werden erst nach Auswahl einer Hauptkachel eingeblendet.</span>
+          </div>
+          <div className={`${styles.processGrid} ${styles.processRootGrid}`}>{roots.map(renderProcessCard)}</div>
+        </div>}
       </section> : null}
 
       {view === "dataroom" ? <section><div className={styles.pageHead}><div><h1>Datenraum</h1><p>Alle durch die bestehenden RLS-Berechtigungen sichtbaren Aufgabenräume und Dokumente des Projekts.</p></div><button className={styles.secondaryButton} type="button" onClick={openProcessOverview}>Zum Abschlussprozess</button></div>

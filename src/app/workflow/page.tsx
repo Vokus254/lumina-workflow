@@ -70,6 +70,13 @@ function safeText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+
+function defaultProjectView(projectRole?: string) {
+  if (projectRole === "viewer") return "status" as const;
+  if (projectRole === "owner" || projectRole === "manager" || projectRole === "reviewer") return "process" as const;
+  return "start" as const;
+}
+
 function mapInitialView(requested: { task?: string; view?: string }) {
   if (requested.task) return "process" as const;
   const view = String(requested.view || "").toLowerCase();
@@ -265,6 +272,6 @@ export default async function WorkflowPage({
     nextDeadlineDate={nextDeadlineTask?.dueDate || null}
     nextDeadlineLabel={nextDeadlineTask?.dueRuleLabel || "bis nächste Frist"}
     allowSkinPreview={process.env.VERCEL_ENV === "preview"}
-    initialView={mapInitialView(requested)}
+    initialView={requested.task || requested.view ? mapInitialView(requested) : defaultProjectView(activeProject.project_role)}
   />;
 }
