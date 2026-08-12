@@ -199,7 +199,7 @@
 .dataroomClearFilter:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft)}
 
 /* FIX10: seamless workspace transition + personal status + practical communication */
-.workspaceOverlay{position:fixed;top:var(--topbar-h);left:var(--nav-w);right:0;bottom:0;z-index:75;background:var(--lumina-bg);transition:opacity .12s ease;overflow:hidden}
+.workspaceOverlay{position:fixed;top:var(--topbar-h);left:var(--nav-w);right:0;bottom:0;z-index:75;background:#fff;transition:opacity .12s ease;overflow:hidden}
 .workspaceOverlayLoading{opacity:0;pointer-events:none}
 .workspaceOverlayReady{opacity:1;pointer-events:auto}
 .workspaceOverlay>main{height:100%}
@@ -216,3 +216,20 @@
 .communicationMeta small,.communicationRow time{font-size:11px;color:var(--lumina-ink-3)}
 .communicationOpen{font-size:11.5px;font-weight:750;color:var(--lumina-primary-dark);text-align:right}
 @media(max-width:900px){.workspaceOverlay{left:64px}.communicationRow{grid-template-columns:1fr auto}.communicationMeta,.communicationRow time{display:none}.communicationOpen{white-space:nowrap}}
+
+/* FIX11: prozessorientierter Mein-Tag, aktive Handlungskarten und Admin-Setup */
+.daySummary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px}
+.daySummary span{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--lumina-line);border-radius:10px;background:var(--lumina-card);font-size:11px;color:var(--lumina-ink-3)}
+.daySummary b{font-size:15px;color:var(--lumina-ink)}
+.stationDayGroup{border-bottom:1px solid var(--lumina-line)}
+.stationDayGroup:last-child{border-bottom:0}
+.stationDayHead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:10px 14px;background:color-mix(in srgb,var(--lumina-bg) 82%,var(--lumina-card));border-bottom:1px solid var(--lumina-line)}
+.stationDayHead>div{display:grid;gap:2px}.stationDayHead b{font-size:12px}.stationDayHead small{font-size:10.5px;color:var(--lumina-ink-3)}
+.stationBadge{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--lumina-primary-soft);color:var(--lumina-primary-dark);font-weight:850;font-size:12px}
+.aiAction{width:100%;display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border:0;background:transparent;text-align:left;color:var(--lumina-ink);cursor:pointer}
+.aiAction:hover{background:var(--lumina-primary-soft)}.aiAction span{display:grid;gap:4px}.aiAction b{font-size:12px}.aiAction small{font-size:11px;color:var(--lumina-ink-3)}
+.adminSetupGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0 0 18px}
+.adminSetupGrid button{min-height:150px;display:grid;grid-template-rows:auto auto 1fr auto;gap:8px;padding:18px;border:1px solid var(--lumina-line);border-radius:12px;background:var(--lumina-card);text-align:left;color:var(--lumina-ink);cursor:pointer;box-shadow:var(--lumina-shadow)}
+.adminSetupGrid button:hover{border-color:var(--lumina-primary);transform:translateY(-1px)}
+.adminSetupGrid button>span{font-size:11px;font-weight:850;color:var(--lumina-primary)}.adminSetupGrid button>b{font-size:16px}.adminSetupGrid button>small{font-size:11.5px;line-height:1.45;color:var(--lumina-ink-3)}.adminSetupGrid button>i{font-style:normal;font-size:11px;font-weight:800;color:var(--lumina-primary-dark)}
+@media(max-width:900px){.daySummary{grid-template-columns:repeat(2,minmax(0,1fr))}.adminSetupGrid{grid-template-columns:1fr}}

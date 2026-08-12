@@ -13,6 +13,7 @@ export function LegacyDashboard({
   embedded = false,
   initialTab,
   onReady,
+  onTaskSaved,
   onTaskClose,
 }: {
   query: string;
@@ -21,6 +22,7 @@ export function LegacyDashboard({
   embedded?: boolean;
   initialTab?: string | null;
   onReady?: () => void;
+  onTaskSaved?: (update: { taskId: string; workStatus?: string; reviewStatus?: string; dueDate?: string | null; hasDocument?: boolean }) => void;
   onTaskClose?: () => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -53,6 +55,10 @@ export function LegacyDashboard({
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "lumina-refresh-session") { await sendSession(); return; }
+      if (event.data?.type === "lumina-task-saved") {
+        onTaskSaved?.({ taskId: String(event.data.taskId || ""), workStatus: event.data.workStatus, reviewStatus: event.data.reviewStatus, dueDate: event.data.dueDate ?? null, hasDocument: typeof event.data.hasDocument === "boolean" ? event.data.hasDocument : undefined });
+        return;
+      }
       if (event.data?.type === "lumina-task-closed") { onTaskClose?.(); return; }
       if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
@@ -62,7 +68,7 @@ export function LegacyDashboard({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [router, sendSession, onTaskClose]);
+  }, [router, sendSession, onTaskSaved, onTaskClose]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
@@ -138,10 +144,39 @@ export function LegacyDashboard({
           const style = doc.createElement("style");
           style.id = "lumina-p1a-embedded-style";
           style.textContent = `
+            body{background:#fff!important;}
             body > *:not(#task-modal-backdrop):not(script):not(style){display:none!important;}
             #task-modal-backdrop{display:none!important;}
-            #task-modal-backdrop.open{display:flex!important;}
+            #task-modal-backdrop.open{
+              display:flex!important;position:fixed!important;inset:0!important;
+              padding:0!important;background:#fff!important;backdrop-filter:none!important;
+              align-items:stretch!important;justify-content:stretch!important;overflow:hidden!important;
+            }
+            #task-modal-backdrop .task-modal{
+              width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
+              margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;
+              display:flex!important;flex-direction:column!important;background:#fff!important;
+            }
+            #task-modal-backdrop .task-modal-head{padding:20px 24px!important;background:#fff!important;}
+            #task-modal-backdrop .task-modal-body{flex:1!important;min-height:0!important;overflow:auto!important;}
+            #task-modal-backdrop .task-tabs{
+              display:grid!important;grid-template-columns:repeat(7,minmax(92px,1fr))!important;gap:10px!important;
+              border:0!important;margin:0 0 18px!important;padding:0!important;
+            }
+            #task-modal-backdrop .task-tab{
+              box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;
+              min-height:58px!important;padding:10px 9px!important;border:1px solid #dfe7e3!important;
+              border-radius:10px!important;background:#fff!important;color:#52645e!important;
+              text-align:center!important;font-weight:700!important;line-height:1.2!important;
+              box-shadow:0 1px 2px rgba(15,42,34,.04)!important;
+            }
+            #task-modal-backdrop .task-tab:hover{border-color:#9bcab9!important;background:#f5fbf8!important;color:#176b53!important;}
+            #task-modal-backdrop .task-tab.active{
+              border-color:#4faf8a!important;background:#eaf7f1!important;color:#126b50!important;
+              box-shadow:0 0 0 1px rgba(79,175,138,.08)!important;
+            }
             .lumina-session,.lumina-sync-state,.lumina-structure-loading{display:none!important;}
+            @media(max-width:1050px){#task-modal-backdrop .task-tabs{grid-template-columns:repeat(4,minmax(110px,1fr))!important;}}
           `;
           doc.head.appendChild(style);
         }

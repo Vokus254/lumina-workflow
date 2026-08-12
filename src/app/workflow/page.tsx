@@ -286,6 +286,6 @@ export default async function WorkflowPage({
     nextDeadlineDate={nextDeadlineTask?.dueDate || null}
     nextDeadlineLabel={nextDeadlineTask?.dueRuleLabel || "bis nächste Frist"}
     allowSkinPreview={process.env.VERCEL_ENV === "preview"}
-    initialView={requested.task || requested.view ? mapInitialView(requested) : defaultProjectView(activeProject.project_role)}
+    initialView={requested.task || requested.view ? mapInitialView(requested) : (adminAccess.ok ? "admin" : defaultProjectView(activeProject.project_role))}
   />;
 }

@@ -4745,7 +4745,7 @@ function openTaskModalForStep(stepId,tab='details'){
   openTaskModal(pbc.sub,ri,tab);
 }
 function openTaskModal(sub,ri,tab='details'){activeTaskContext={sub,ri};taskActiveTab=tab==='reminder'?'email':tab;const st=ensureTaskState(sub.data,sub.data.rows[ri],ri);if(tab==='reminder')st.emailKind='reminder';else if(tab==='email')st.emailKind='invite';document.getElementById('task-modal-backdrop').classList.add('open');document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','false');renderTaskModal();}
-function closeTaskModal(){document.getElementById('task-modal-backdrop').classList.remove('open');document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','true');activeTaskContext=null;activeCommunicationMessageId=null;activeCommunicationReply=null;}
+function closeTaskModal(notifyParent=false){document.getElementById('task-modal-backdrop').classList.remove('open');document.getElementById('task-modal-backdrop').setAttribute('aria-hidden','true');activeTaskContext=null;activeCommunicationMessageId=null;activeCommunicationReply=null;if(notifyParent&&window.parent!==window){window.parent.postMessage({type:'lumina-task-closed'},window.location.origin);}}
 function globalProcessTitle(number){
   const station=stations.find(s=>String(s.title||'').trim().startsWith(number+'.'));
   const fallback={1:'Prüfungsauftrag & Mandatierung',2:'Projektplanung & Kick-off',3:'Abschlussvorbereitung',4:'Erstellung Einzelabschlüsse',5:'Konsolidierung & Gruppenabschluss',6:'Prüfungsdurchführung',7:'Feststellung & Gremienbeschluss',8:'Veröffentlichung'}[number]||'Weitere Aufgaben';
@@ -14015,6 +14015,9 @@ async function saveLuminaTaskToSupabase(row,state){
   if(error)throw error;
   state.remoteUpdatedAt=data&&data.updated_at;
   setLuminaSyncState('In Supabase gespeichert');
+  if(window.parent!==window){
+    window.parent.postMessage({type:'lumina-task-saved',taskId:state.remoteTaskId,workStatus:LUMINA_WORK_TO_REMOTE[state.workStatus]||'open',reviewStatus:LUMINA_REVIEW_TO_REMOTE[state.reviewStatus]||'unreviewed',dueDate:row[10]||null,hasDocument:Array.isArray(state.documents)&&state.documents.length>0},location.origin);
+  }
 }
 
 function digestTodayISO(){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
@@ -14050,8 +14053,8 @@ async function startLuminaForSession(session){
   document.body.classList.add('lumina-authenticated');
   render();
   await refreshInboxCount();
-  const requestedTask=new URLSearchParams(location.search).get('task');
-  if(requestedTask){const pbc=luminaPbcRows(),ri=pbc?.rows.findIndex((row,index)=>String(row[0])===requestedTask||ensureTaskState(pbc.sub.data,row,index).remoteTaskId===requestedTask);if(pbc&&ri>=0)openTaskModal(pbc.sub,ri,'room');}
+  const requestedParams=new URLSearchParams(location.search),requestedTask=requestedParams.get('task'),requestedTab=requestedParams.get('tab');
+  if(requestedTask){const pbc=luminaPbcRows(),ri=pbc?.rows.findIndex((row,index)=>String(row[0])===requestedTask||ensureTaskState(pbc.sub.data,row,index).remoteTaskId===requestedTask),validTab=AUFGABEN_REITER.some(([key])=>key===requestedTab)?requestedTab:'room';if(pbc&&ri>=0)openTaskModal(pbc.sub,ri,validTab);}
 }
 
 async function initializeLuminaSupabase(){
@@ -14099,9 +14102,9 @@ document.getElementById("json-import-input").addEventListener("change", (e) => {
 });
 document.getElementById("btn-save-project-folder").addEventListener("click", saveProjectFolderFromToolbar);
 document.getElementById("btn-local-reset").addEventListener("click", () => { if(confirm("Lokalen Autosave wirklich löschen und Ausgangsstand laden?")){ localStorage.removeItem(LUMINA_STORAGE_KEY); location.reload(); } });
-document.getElementById("task-modal-close").addEventListener("click", closeTaskModal);
-document.getElementById("task-modal-cancel").addEventListener("click", closeTaskModal);
-document.getElementById("task-modal-backdrop").addEventListener("click", e => { if(e.target.id === "task-modal-backdrop") closeTaskModal(); });
+document.getElementById("task-modal-close").addEventListener("click", () => closeTaskModal(true));
+document.getElementById("task-modal-cancel").addEventListener("click", () => closeTaskModal(true));
+document.getElementById("task-modal-backdrop").addEventListener("click", e => { if(e.target.id === "task-modal-backdrop") closeTaskModal(true); });
 document.getElementById("task-modal-save").addEventListener("click", async () => { const button=document.getElementById('task-modal-save');button.disabled=true;try{ if(activeTaskContext && !activeTaskContext.globalRoom){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri],st=ensureTaskState(sub.data,row,ri); const c=document.getElementById("task-internal-comment"); if(c) st.internalComment=c.value; await saveLuminaTaskToSupabase(row,st); addActivity(st,"Aufgabe in Supabase gespeichert"); } saveLuminaLocal(); closeTaskModal(); render(); }catch(error){setLuminaSyncState('Speichern fehlgeschlagen',true);showTopNote('Supabase-Speichern fehlgeschlagen: '+error.message,true);}finally{button.disabled=false;} });
 document.getElementById("task-modal-delete-state").addEventListener("click", () => { if(activeTaskContext && !activeTaskContext.globalRoom && confirm("Status, Einreichungen und Verlauf dieser Aufgabe zurücksetzen?")){ const {sub,ri}=activeTaskContext,row=sub.data.rows[ri]; if(sub.data.taskStates && row[12]) delete sub.data.taskStates[row[12]]; renderTaskModal(); scheduleLuminaSave(); } });
 document.addEventListener("input", scheduleLuminaSave, true);
