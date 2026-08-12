@@ -11,6 +11,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
   const router = useRouter();
   const [error, setError] = useState("");
   const [frameReady, setFrameReady] = useState(false);
+  const closeObserverRef = useRef<MutationObserver | null>(null);
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
@@ -53,7 +54,13 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
 
   const frameSource = query ? `/legacy/lumina.html?${query}` : "/legacy/lumina.html";
 
-  useEffect(() => { setFrameReady(false); }, [frameSource]);
+  useEffect(() => {
+    setFrameReady(false);
+    closeObserverRef.current?.disconnect();
+    closeObserverRef.current = null;
+  }, [frameSource]);
+
+  useEffect(() => () => { closeObserverRef.current?.disconnect(); }, []);
 
   const handleFrameLoad = useCallback(async () => {
     if (embedded) {
@@ -63,15 +70,26 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
           const style = doc.createElement("style");
           style.id = "lumina-p1a-embedded-style";
           style.textContent = `
-            .header{min-height:0!important;margin:0 0 14px!important;padding:0 0 12px!important;border-bottom:1px solid var(--border)!important;display:flex!important;align-items:center!important;gap:12px!important;}
-            .header::before{content:"Prozesswerkzeuge";font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);white-space:nowrap;}
-            .header-brand{display:none!important;}
-            .top-toolbar{width:100%!important;justify-content:flex-end!important;}
-            .lumina-session{display:none!important;}
-            .lumina-sync-state,.lumina-structure-loading{display:none!important;}
-            .page{padding-top:20px!important;}
+            /* P1A embedded mode: the legacy dashboard must never be visible behind a task workspace. */
+            body > *:not(#task-modal-backdrop):not(script):not(style){display:none!important;}
+            #task-modal-backdrop{display:none!important;}
+            #task-modal-backdrop.open{display:flex!important;}
+            .lumina-session,.lumina-sync-state,.lumina-structure-loading{display:none!important;}
           `;
           doc.head.appendChild(style);
+        }
+
+        const modalBackdrop = doc?.getElementById("task-modal-backdrop");
+        closeObserverRef.current?.disconnect();
+        if (modalBackdrop && onTaskClose) {
+          let wasOpen = modalBackdrop.classList.contains("open");
+          const observer = new MutationObserver(() => {
+            const isOpen = modalBackdrop.classList.contains("open");
+            if (wasOpen && !isOpen) onTaskClose();
+            wasOpen = isOpen;
+          });
+          observer.observe(modalBackdrop, { attributes: true, attributeFilter: ["class", "aria-hidden"] });
+          closeObserverRef.current = observer;
         }
       } catch {
         // Same-origin styling is a progressive enhancement. The iframe remains usable without it.
@@ -79,7 +97,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
     }
     await sendSession();
     window.setTimeout(() => setFrameReady(true), embedded ? 220 : 0);
-  }, [embedded, sendSession]);
+  }, [embedded, sendSession, onTaskClose]);
 
   if (embedded) {
     return <main style={{ width:"100%", height:"100%", minHeight:0, overflow:"hidden", background:"#fff", position:"relative" }}>
