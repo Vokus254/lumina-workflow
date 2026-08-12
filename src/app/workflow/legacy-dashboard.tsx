@@ -117,11 +117,11 @@ export function LegacyDashboard({
 
         if (initialTab) {
           const tab = doc?.querySelector<HTMLButtonElement>(`.task-tab[data-tab="${initialTab}"]`);
-          if (tab && !tab.classList.contains("active")) {
+          if (!tab) return;
+          if (!tab.classList.contains("active")) {
             tab.click();
             return;
           }
-          if (tab && !tab.classList.contains("active")) return;
         }
 
         if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
