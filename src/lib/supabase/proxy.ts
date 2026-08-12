@@ -25,7 +25,7 @@ export async function updateSession(request: NextRequest) {
   const isAuthenticated = Boolean(data?.claims);
   const path = request.nextUrl.pathname;
 
-  if (!isAuthenticated && (path.startsWith("/workflow") || path.startsWith("/admin"))) {
+  if (!isAuthenticated && (path.startsWith("/workflow") || path.startsWith("/admin") || path.startsWith("/legacy/"))) {
     const url = request.nextUrl.clone();
     const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     url.pathname = "/login";
