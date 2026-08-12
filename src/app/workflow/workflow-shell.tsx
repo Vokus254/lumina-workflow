@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { LegacyDashboard } from "./legacy-dashboard";
@@ -66,7 +66,7 @@ export type ShellMessage = {
 
 type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
 type Skin = "lumina" | "blue" | "light" | "yellow";
-type ShellView = "start" | "process" | "dataroom" | "messages" | "status" | "admin";
+type ShellView = "start" | "process" | "messages" | "status" | "admin";
 
 type AdminUser = {
   id: string;
@@ -184,8 +184,8 @@ export function WorkflowShell({
   const [skin, setSkin] = useState<Skin>("lumina");
   const [search, setSearch] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
-  const [dataroomStationCode, setDataroomStationCode] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
+  const returnScreenRef = useRef<{ view: ShellView; expandedStepId: string | null } | null>(null);
   const [adminData, setAdminData] = useState<AdminPayload | null>(null);
   const [adminError, setAdminError] = useState("");
 
@@ -313,15 +313,40 @@ export function WorkflowShell({
   }
 
   function openTask(taskId: string) {
-    router.push(`/workflow?project=${encodeURIComponent(activeProjectId)}&task=${encodeURIComponent(taskId)}`);
+    returnScreenRef.current = { view, expandedStepId };
+    setActiveTaskId(taskId);
+    setView("process");
   }
 
   function openProcessOverview() {
+    returnScreenRef.current = null;
     setActiveTaskId(null);
     setExpandedStepId(null);
     setView("process");
     router.replace(`/workflow?project=${encodeURIComponent(activeProjectId)}&view=process`);
   }
+
+  function closeTaskWorkspace() {
+    setActiveTaskId(null);
+    const previous = returnScreenRef.current;
+    returnScreenRef.current = null;
+    if (previous) {
+      setView(previous.view);
+      setExpandedStepId(previous.expandedStepId);
+      return;
+    }
+    setExpandedStepId(null);
+    setView("process");
+    router.replace(`/workflow?project=${encodeURIComponent(activeProjectId)}&view=process`);
+  }
+
+  const activeLegacyQuery = useMemo(() => {
+    const params = new URLSearchParams(legacyQuery);
+    if (activeTaskId) params.set("task", activeTaskId);
+    else params.delete("task");
+    params.set("project", activeProjectId);
+    return params.toString();
+  }, [legacyQuery, activeTaskId, activeProjectId]);
 
   function switchCompany(companyId: string) {
     const company = hubContext.companies.find((item) => item.id === companyId);
@@ -375,7 +400,7 @@ export function WorkflowShell({
 
   return <div className={styles.shell} data-skin={skin}>
     <header className={styles.topbar}>
-      <button className={styles.brand} type="button" onClick={() => router.push("/workflow")} title="Zur Projektzentrale">
+      <button className={styles.brand} type="button" onClick={openProcessOverview} title="Zum Abschlussprozess">
         <span className={styles.logo}>L</span><strong>LUMINA</strong>
       </button>
       <div className={styles.contextSelectors}>
@@ -401,7 +426,6 @@ export function WorkflowShell({
       <div className={styles.navGroup}>Arbeiten</div>
       {roleView !== "cfo" ? navButton("start", "Mein Tag", "◉", personalOpenTasks.length) : null}
       {navButton("process", "Abschlussprozess", "▦", undefined, openProcessOverview)}
-      {navButton("dataroom", "Datenraum", "⌸", personalDocuments.length)}
       <div className={styles.navGroup}>Steuern</div>
       {navButton("messages", "Nachrichten", "✉", messages.length)}
       {roleView !== "cfo" ? navButton("status", "Statusbericht", "◔") : null}
@@ -427,7 +451,7 @@ export function WorkflowShell({
 
       {view === "process" ? <section className={styles.processPanel}>
         <div className={styles.processTop}><div><h1>Abschlussprozess</h1><p>Kachelübersicht des Jahresabschlusses. Für den angemeldeten Nutzer relevante Kacheln sind aktiv; übrige bleiben als Orientierung sichtbar.</p></div>{expandedStep ? <button className={styles.secondaryButton} type="button" onClick={() => setExpandedStepId(null)}>Zur Kachelübersicht</button> : null}</div>
-        {activeTaskId ? <div className={styles.legacyHost}><LegacyDashboard query={legacyQuery} hubContext={hubContext} activeProjectId={activeProjectId} embedded onTaskClose={openProcessOverview}/></div> : expandedStep ? <section className={styles.processDrilldown}>
+        {activeTaskId ? <div className={styles.legacyHost}><LegacyDashboard query={activeLegacyQuery} hubContext={hubContext} activeProjectId={activeProjectId} embedded onTaskClose={closeTaskWorkspace}/></div> : expandedStep ? <section className={styles.processDrilldown}>
           <div className={styles.processBreadcrumb}><button type="button" onClick={() => setExpandedStepId(null)}>Abschlussprozess</button><span>›</span><b>{expandedStep.code} · {expandedStep.name}</b></div>
           {expandedChildren.length ? <div className={styles.processGrid}>{expandedChildren.map(renderProcessCard)}</div> : null}
           {expandedDirectTasks.length ? <section className={styles.card}><div className={styles.cardHead}><h2>Zugeordnete Aufgaben</h2><span>{expandedDirectTasks.length}</span></div><div className={styles.taskList}>{expandedDirectTasks.map((task) => <button key={task.id} type="button" className={styles.taskRow} onClick={() => openTask(task.id)}><span className={styles.taskCode}>{task.sourceNumber}<small>Aufgabe</small></span><span className={styles.taskMain}><b>{task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span><span className={styles.due}>{formatDate(task.dueDate)}</span></button>)}</div></section> : null}
@@ -437,23 +461,6 @@ export function WorkflowShell({
           </div>
           <div className={`${styles.processGrid} ${styles.processRootGrid}`}>{roots.map(renderProcessCard)}</div>
         </div>}
-      </section> : null}
-
-      {view === "dataroom" ? <section><div className={styles.pageHead}><div><h1>Datenraum</h1><p>Ihre zugeordneten Aufgabenräume und die dazugehörigen Dokumente – gegliedert nach den acht Prozessstationen.</p></div></div>
-        <div className={styles.dataroomStationStrip}>
-          <div className={styles.processOverviewHint}><b>Hauptkacheln</b><span>Aktive Kacheln enthalten Aufgabenräume für Sie. Wählen Sie eine Station, um den Datenraum darunter zu filtern.</span></div>
-          <div className={`${styles.processGrid} ${styles.processRootGrid}`}>{stations.slice(0, 8).map((station) => {
-            const stationTasks = personalTasks.filter((task) => task.stationCode === station.code);
-            const active = stationTasks.length > 0;
-            const selected = dataroomStationCode === station.code;
-            return <button key={station.code} type="button" aria-pressed={selected} className={`${styles.processCard} ${active ? styles.processCardActive : styles.processCardInactive} ${selected ? styles.processCardSelected : ""}`} disabled={!active} onClick={() => active && setDataroomStationCode(selected ? null : station.code)}>
-              <span className={styles.processCode}>{station.code}</span><b>{station.name}</b><small>{active ? `${stationTasks.length} ${stationTasks.length === 1 ? "Aufgabenraum" : "Aufgabenräume"}` : "Für diesen Nutzer nicht relevant"}</small><i>{active ? (selected ? "Filter aufheben" : "Anzeigen") : "Inaktiv"}</i>
-            </button>;
-          })}</div>
-        </div>
-        <div className={styles.dataroomSummary}><b>{personalTasks.length}</b><span>zugeordnete Aufgabenräume</span><b>{personalDocuments.length}</b><span>zugehörige Dokumente</span>{dataroomStationCode ? <button type="button" className={styles.dataroomClearFilter} onClick={() => setDataroomStationCode(null)}>Alle Stationen anzeigen</button> : null}</div>
-        <div className={styles.dataroomGroups}>{stations.map((station) => { if (dataroomStationCode && station.code !== dataroomStationCode) return null; const stationTasks = personalTasks.filter((task) => task.stationCode === station.code); if (!stationTasks.length) return null; return <section className={styles.card} key={station.code}><div className={styles.cardHead}><h2>{station.code} · {station.name}</h2><span>{stationTasks.length} Räume</span></div><div className={styles.roomGrid}>{stationTasks.map((task) => { const taskDocs = personalDocumentsByTask.get(task.id) || []; return <button key={task.id} type="button" className={styles.roomCard} onClick={() => openTask(task.id)}><span className={styles.roomIcon}>▤</span><span><b>{task.sourceNumber} · {task.title}</b><small>{task.processStepCode ? `${task.processStepCode} · ${task.processStepName || "Prozessschritt"}` : "Aufgabenraum"}</small></span><strong>{taskDocs.length}</strong><small>{taskDocs.length === 1 ? "Dokument" : "Dokumente"}</small></button>; })}</div></section>; })}</div>
-        {!personalTasks.length ? <section className={styles.card}><p className={styles.emptyBlock}>Für diesen Nutzer sind aktuell keine Aufgabenräume zugeordnet.</p></section> : null}
       </section> : null}
 
       {view === "messages" ? <section><div className={styles.pageHead}><div><h1>Nachrichten</h1><p>Rückfragen, Aufgabenkommunikation und Systemhinweise in einer gemeinsamen Sicht.</p></div></div><section className={styles.card}><div className={styles.cardHead}><h2>Letzte Nachrichten</h2><span>{messages.length} sichtbar</span></div><div className={styles.messageList}>{messages.map((message) => <button key={message.id} type="button" onClick={() => message.taskId && openTask(message.taskId)} disabled={!message.taskId}><span><b>{message.subject || "Nachricht"}</b><small>{message.body}</small></span><span>{message.recipientEmail || "Projekt"}</span><time>{formatDateTime(message.createdAt)}</time></button>)}{messages.length === 0 ? <p className={styles.emptyBlock}>Keine sichtbaren Nachrichten.</p> : null}</div></section></section> : null}

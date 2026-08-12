@@ -84,7 +84,7 @@ function mapInitialView(requested: { task?: string; view?: string }) {
   if (requested.task) return "process" as const;
   const view = String(requested.view || "").toLowerCase();
   if (["process", "cockpit", "abschlussprozess"].includes(view)) return "process" as const;
-  if (["dataroom", "datenraum"].includes(view)) return "dataroom" as const;
+  if (["dataroom", "datenraum"].includes(view)) return "process" as const;
   if (["messages", "nachrichten", "inbox"].includes(view)) return "messages" as const;
   if (["status", "statusbericht", "report"].includes(view)) return "status" as const;
   if (view === "admin") return "admin" as const;
@@ -113,19 +113,19 @@ export default async function WorkflowPage({
   const hub = (hubData || { companies: [] }) as ProjectHubContext;
   const adminAccess = await requireLuminaAdmin();
 
-  if (!requested.project) {
+  let projectId = requested.project || "";
+  if (!projectId) {
     const accessibleProjects = (hub.companies || []).flatMap((company) => company.projects || []);
     if (accessibleProjects.length === 1) {
-      redirect(`/workflow?project=${encodeURIComponent(accessibleProjects[0].id)}`);
+      projectId = accessibleProjects[0].id;
+    } else {
+      return <ProjectHub context={hub} userEmail={currentEmail} isAdmin={adminAccess.ok}/>;
     }
-    return <ProjectHub context={hub} userEmail={currentEmail} isAdmin={adminAccess.ok}/>;
   }
 
-  const activeCompany = (hub.companies || []).find((company) => (company.projects || []).some((project) => project.id === requested.project));
-  const activeProject = activeCompany?.projects?.find((project) => project.id === requested.project);
+  const activeCompany = (hub.companies || []).find((company) => (company.projects || []).some((project) => project.id === projectId));
+  const activeProject = activeCompany?.projects?.find((project) => project.id === projectId);
   if (!activeCompany || !activeProject) redirect("/workflow");
-
-  const projectId = requested.project;
   const [{ data: stepData }, { data: taskData }, { data: documentData }, { data: roleAssignmentData }] = await Promise.all([
     supabase.from("process_steps").select("id,parent_id,code,name,sort_order").eq("project_id", projectId).order("sort_order", { ascending: true }),
     supabase.from("tasks").select("id,process_step_id,responsibility_role_id,source_number,title,required_documents_text,due_rule_label,due_date,due_date_override,work_status,review_status").eq("project_id", projectId),

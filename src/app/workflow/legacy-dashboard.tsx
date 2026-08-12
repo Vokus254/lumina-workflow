@@ -10,6 +10,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
   const [error, setError] = useState("");
+  const [frameReady, setFrameReady] = useState(false);
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
@@ -52,6 +53,8 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
 
   const frameSource = query ? `/legacy/lumina.html?${query}` : "/legacy/lumina.html";
 
+  useEffect(() => { setFrameReady(false); }, [frameSource]);
+
   const handleFrameLoad = useCallback(async () => {
     if (embedded) {
       try {
@@ -65,6 +68,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
             .header-brand{display:none!important;}
             .top-toolbar{width:100%!important;justify-content:flex-end!important;}
             .lumina-session{display:none!important;}
+            .lumina-sync-state,.lumina-structure-loading{display:none!important;}
             .page{padding-top:20px!important;}
           `;
           doc.head.appendChild(style);
@@ -74,6 +78,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
       }
     }
     await sendSession();
+    window.setTimeout(() => setFrameReady(true), embedded ? 220 : 0);
   }, [embedded, sendSession]);
 
   if (embedded) {
@@ -84,7 +89,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
         src={frameSource}
         title="LUMINA Abschlussprozess"
         onLoad={handleFrameLoad}
-        style={{ display:"block", width:"100%", height:"100%", border:0, background:"#fff" }}
+        style={{ display:"block", width:"100%", height:"100%", border:0, background:"#fff", opacity:frameReady ? 1 : 0 }}
       />
     </main>;
   }
