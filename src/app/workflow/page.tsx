@@ -6,6 +6,7 @@ import {
   WorkflowShell,
   type ShellDocument,
   type ShellMessage,
+  type ShellProcessStep,
   type ShellStation,
   type ShellTask,
 } from "./workflow-shell";
@@ -113,7 +114,8 @@ export default async function WorkflowPage({
   const [{ data: stepData }, { data: taskData }, { data: documentData }] = await Promise.all([
     supabase.from("process_steps").select("id,parent_id,code,name,sort_order").eq("project_id", projectId).order("sort_order", { ascending: true }),
     supabase.from("tasks").select("id,process_step_id,responsibility_role_id,source_number,title,required_documents_text,due_rule_label,due_date,due_date_override,work_status,review_status").eq("project_id", projectId),
-    supabase.from("documents").select("id,task_id,display_name,document_status,created_at").eq("project_id", projectId).is("archived_at", null).order("created_at", { ascending: false }).limit(80),
+    // Keine künstliche UI-Begrenzung: RLS bestimmt, welche Dokumente dieser Nutzer sehen darf.
+    supabase.from("documents").select("id,task_id,display_name,document_status,created_at").eq("project_id", projectId).is("archived_at", null).order("created_at", { ascending: false }),
   ]);
 
   const steps = (stepData || []) as ProcessStepRow[];
@@ -134,18 +136,45 @@ export default async function WorkflowPage({
   }
 
   const documentTaskIds = new Set(rawDocuments.map((document) => document.task_id).filter((taskId): taskId is string => Boolean(taskId)));
-  const tasks: ShellTask[] = rawTasks.map((task) => ({
-    id: task.id,
-    sourceNumber: task.source_number || "–",
-    title: task.title || "Unbenannte Aufgabe",
-    requiredDocuments: task.required_documents_text || "",
-    dueDate: task.due_date_override || task.due_date,
-    dueRuleLabel: task.due_rule_label,
-    workStatus: task.work_status || "open",
-    reviewStatus: task.review_status || "unreviewed",
-    responsibilityRoleId: task.responsibility_role_id,
-    stationCode: rootCodeForStep(task.process_step_id),
-    hasDocument: documentTaskIds.has(task.id),
+  const tasks: ShellTask[] = rawTasks.map((task) => {
+    const processStep = task.process_step_id ? stepById.get(task.process_step_id) : undefined;
+    return {
+      id: task.id,
+      sourceNumber: task.source_number || "–",
+      title: task.title || "Unbenannte Aufgabe",
+      requiredDocuments: task.required_documents_text || "",
+      dueDate: task.due_date_override || task.due_date,
+      dueRuleLabel: task.due_rule_label,
+      workStatus: task.work_status || "open",
+      reviewStatus: task.review_status || "unreviewed",
+      responsibilityRoleId: task.responsibility_role_id,
+      stationCode: rootCodeForStep(task.process_step_id),
+      processStepId: task.process_step_id,
+      processStepCode: processStep?.code || null,
+      processStepName: processStep?.name || null,
+      hasDocument: documentTaskIds.has(task.id),
+    };
+  });
+
+  const relevantStepIds = new Set<string>();
+  for (const task of rawTasks) {
+    let current = task.process_step_id ? stepById.get(task.process_step_id) : undefined;
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      relevantStepIds.add(current.id);
+      current = current.parent_id ? stepById.get(current.parent_id) : undefined;
+    }
+  }
+
+  const processSteps: ShellProcessStep[] = steps.map((step) => ({
+    id: step.id,
+    parentId: step.parent_id,
+    code: step.code,
+    name: step.name,
+    sortOrder: step.sort_order || 0,
+    relevant: relevantStepIds.has(step.id),
+    directTaskIds: rawTasks.filter((task) => task.process_step_id === step.id).map((task) => task.id),
   }));
 
   const rootRows = roots.length
@@ -186,10 +215,10 @@ export default async function WorkflowPage({
       .select("id,task_id,subject,body_text,recipient_email,status,created_at")
       .in("task_id", ids)
       .order("created_at", { ascending: false })
-      .limit(50)));
+      .limit(100)));
     const messageRows = messageResponses.flatMap((response) => (response.data || []) as MessageRow[])
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
-      .slice(0, 50);
+      .slice(0, 200);
     messages = messageRows.map((message) => ({
       id: message.id,
       taskId: message.task_id,
@@ -227,10 +256,12 @@ export default async function WorkflowPage({
     displayName={displayName}
     isAdmin={adminAccess.ok}
     stations={stations}
+    processSteps={processSteps}
     tasks={tasks}
     documents={documents}
     messages={messages}
     legacyQuery={legacyParams.toString()}
+    selectedTaskId={requested.task || null}
     nextDeadlineDate={nextDeadlineTask?.dueDate || null}
     nextDeadlineLabel={nextDeadlineTask?.dueRuleLabel || "bis nächste Frist"}
     allowSkinPreview={process.env.VERCEL_ENV === "preview"}
