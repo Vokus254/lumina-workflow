@@ -197,3 +197,22 @@
 .dataroomStationStrip{display:grid;gap:14px;margin:0 0 18px}
 .dataroomClearFilter{margin-left:auto;border:1px solid var(--lumina-line);background:var(--lumina-card);color:var(--lumina-primary-dark);border-radius:8px;padding:7px 10px;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
 .dataroomClearFilter:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft)}
+
+/* FIX10: seamless workspace transition + personal status + practical communication */
+.workspaceOverlay{position:fixed;top:var(--topbar-h);left:var(--nav-w);right:0;bottom:0;z-index:75;background:var(--lumina-bg);transition:opacity .12s ease;overflow:hidden}
+.workspaceOverlayLoading{opacity:0;pointer-events:none}
+.workspaceOverlayReady{opacity:1;pointer-events:auto}
+.workspaceOverlay>main{height:100%}
+.tableRowInactive{opacity:.46;cursor:default!important;background:color-mix(in srgb,var(--lumina-bg) 65%,#fff)}
+.tableRowInactive:hover{background:color-mix(in srgb,var(--lumina-bg) 65%,#fff)!important}
+.communicationList{display:grid}
+.communicationRow{display:grid;grid-template-columns:minmax(360px,1fr) 180px 145px 170px;gap:18px;align-items:center;width:100%;padding:15px 18px;border:0;border-bottom:1px solid var(--lumina-line);background:#fff;text-align:left;color:var(--lumina-ink);cursor:pointer}
+.communicationRow:last-child{border-bottom:0}
+.communicationRow:hover{background:color-mix(in srgb,var(--lumina-primary-soft) 35%,#fff)}
+.communicationTask,.communicationMeta{display:grid;gap:4px;min-width:0}
+.communicationTask b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.communicationTask small{font-size:11.5px;color:var(--lumina-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.communicationMeta b{font-size:11.5px}
+.communicationMeta small,.communicationRow time{font-size:11px;color:var(--lumina-ink-3)}
+.communicationOpen{font-size:11.5px;font-weight:750;color:var(--lumina-primary-dark);text-align:right}
+@media(max-width:900px){.workspaceOverlay{left:64px}.communicationRow{grid-template-columns:1fr auto}.communicationMeta,.communicationRow time{display:none}.communicationOpen{white-space:nowrap}}

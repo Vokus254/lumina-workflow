@@ -185,6 +185,8 @@ export function WorkflowShell({
   const [search, setSearch] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
+  const [activeTaskTab, setActiveTaskTab] = useState<string | null>(null);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const returnScreenRef = useRef<{ view: ShellView; expandedStepId: string | null } | null>(null);
   const [adminData, setAdminData] = useState<AdminPayload | null>(null);
   const [adminError, setAdminError] = useState("");
@@ -192,6 +194,8 @@ export function WorkflowShell({
   useEffect(() => {
     setView(initialView);
     setActiveTaskId(selectedTaskId || null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
   }, [initialView, selectedTaskId]);
 
   const roleView = defaultRoleView(projectRole);
@@ -264,12 +268,13 @@ export function WorkflowShell({
   ].filter((group) => group.rows.length > 0);
   const sortedWork = workGroups.flatMap((group) => group.rows);
 
-  const taskTotal = tasks.length;
-  const completed = tasks.filter((task) => task.workStatus === "completed").length;
-  const reviewed = tasks.filter((task) => task.reviewStatus && task.reviewStatus !== "unreviewed").length;
-  const requiredEvidenceTasks = tasks.filter((task) => task.requiredDocuments.trim().length > 0);
+  // Der Statusbericht ist bewusst persönlich: dieselbe Aufgabenmenge wie "Mein Tag" und die aktiven Prozesskacheln.
+  const taskTotal = personalTasks.length;
+  const completed = personalTasks.filter((task) => task.workStatus === "completed").length;
+  const reviewed = personalTasks.filter((task) => task.reviewStatus && task.reviewStatus !== "unreviewed").length;
+  const requiredEvidenceTasks = personalTasks.filter((task) => task.requiredDocuments.trim().length > 0);
   const evidenceReady = requiredEvidenceTasks.filter((task) => task.hasDocument).length;
-  const readyForAudit = tasks.filter((task) => {
+  const readyForAudit = personalTasks.filter((task) => {
     const evidenceOk = !task.requiredDocuments.trim() || task.hasDocument;
     return task.workStatus === "completed" && task.reviewStatus === "accepted" && evidenceOk;
   }).length;
@@ -277,9 +282,39 @@ export function WorkflowShell({
   const evidencePct = pct(evidenceReady, requiredEvidenceTasks.length);
   const reviewPct = pct(reviewed, taskTotal);
   const auditReadyPct = pct(readyForAudit, taskTotal);
+  const personalReviewOpen = personalTasks.filter((task) => task.workStatus === "submitted" && task.reviewStatus === "unreviewed");
 
-  const bottleneck = [...stations].sort((a, b) => b.overdue - a.overdue || b.total - a.total)[0];
+  const personalStationRows = stations.slice(0, 8).map((station) => {
+    const stationTasks = personalTasks.filter((task) => task.stationCode === station.code || task.sourceNumber === station.code || task.sourceNumber.startsWith(`${station.code}.`));
+    const dates = stationTasks.map((task) => task.dueDate).filter((date): date is string => Boolean(date)).sort();
+    return {
+      ...station,
+      active: stationTasks.length > 0,
+      total: stationTasks.length,
+      completed: stationTasks.filter((task) => task.workStatus === "completed").length,
+      reviewed: stationTasks.filter((task) => task.reviewStatus && task.reviewStatus !== "unreviewed").length,
+      overdue: stationTasks.filter((task) => task.workStatus !== "completed" && task.dueDate && task.dueDate < todayIso).length,
+      dueDate: dates.at(-1) || null,
+    };
+  });
+  const bottleneck = personalStationRows.filter((station) => station.active).sort((a, b) => b.overdue - a.overdue || b.total - a.total)[0];
   const initials = (displayName || userEmail || "LU").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "LU";
+
+  const communicationThreads = useMemo(() => {
+    const byTask = new Map<string, ShellMessage[]>();
+    for (const message of messages) {
+      if (!message.taskId || !personalTaskIds.has(message.taskId)) continue;
+      const rows = byTask.get(message.taskId) || [];
+      rows.push(message);
+      byTask.set(message.taskId, rows);
+    }
+    return [...byTask.entries()].map(([taskId, rows]) => {
+      rows.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      const task = taskById.get(taskId);
+      return task ? { task, latest: rows[0], count: rows.length } : null;
+    }).filter((row): row is { task: ShellTask; latest: ShellMessage; count: number } => Boolean(row))
+      .sort((a, b) => String(b.latest.createdAt || "").localeCompare(String(a.latest.createdAt || "")));
+  }, [messages, personalTaskIds, taskById]);
 
   const deadlineDays = useMemo(() => {
     if (!nextDeadlineDate) return null;
@@ -312,10 +347,12 @@ export function WorkflowShell({
     router.refresh();
   }
 
-  function openTask(taskId: string) {
+  function openTask(taskId: string, initialTab: string | null = null) {
     returnScreenRef.current = { view, expandedStepId };
+    setActiveTaskTab(initialTab);
+    setWorkspaceReady(false);
     setActiveTaskId(taskId);
-    setView("process");
+    // Die bisherige Shell-Sicht bleibt stehen, bis der Arbeitsraum tatsächlich bereit ist.
   }
 
   function openProcessOverview() {
@@ -328,6 +365,8 @@ export function WorkflowShell({
 
   function closeTaskWorkspace() {
     setActiveTaskId(null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
     const previous = returnScreenRef.current;
     returnScreenRef.current = null;
     if (previous) {
@@ -427,7 +466,7 @@ export function WorkflowShell({
       {roleView !== "cfo" ? navButton("start", "Mein Tag", "◉", personalOpenTasks.length) : null}
       {navButton("process", "Abschlussprozess", "▦", undefined, openProcessOverview)}
       <div className={styles.navGroup}>Steuern</div>
-      {navButton("messages", "Nachrichten", "✉", messages.length)}
+      {navButton("messages", "Kommunikation", "✉", communicationThreads.length)}
       {roleView !== "cfo" ? navButton("status", "Statusbericht", "◔") : null}
       {isAdmin ? navButton("admin", "Administration", "⚙") : null}
       <div className={styles.navFooter}><b>{companyName}</b><span>{projectName}</span><span>Stichtag {formatDate(reportingDate)}</span></div>
@@ -443,15 +482,15 @@ export function WorkflowShell({
 
       {(view === "start" && roleView === "cfo") || view === "status" ? <section>
         <div className={styles.pageHead}><div><h1>Statusbericht</h1><p>{companyName} · {projectName} · Stand {new Date().toLocaleDateString("de-DE")}</p></div></div>
-        <div className={styles.kpis}><Kpi value={`${processingPct}%`} label="Bearbeitungsgrad" note={`${completed} von ${taskTotal} abgeschlossen`} progress={processingPct}/><Kpi value={`${evidencePct}%`} label="Nachweisvollständigkeit" note={`${evidenceReady} von ${requiredEvidenceTasks.length} Nachweispflichten mit Dokument`} progress={evidencePct}/><Kpi value={`${reviewPct}%`} label="Reviewquote" note={`${reviewed} von ${taskTotal} review-bearbeitet`} progress={reviewPct} danger={reviewOpen.length > 0}/><Kpi value={`${auditReadyPct}%`} label="Prüfungsbereitschaft" note="Abgeschlossen + akzeptiert + erforderlicher Nachweis" progress={auditReadyPct}/></div>
-        <div className={styles.twoColumns}><section className={styles.card}><div className={styles.cardHead}><h2>Meilensteine / Stationen</h2></div><table className={styles.table}><thead><tr><th>Station</th><th>Frist</th><th>Status</th></tr></thead><tbody>{stations.slice(0, 8).map((station) => { const progress = pct(station.completed, station.total); return <tr key={station.id || station.code} onClick={openProcessOverview}><td><b>{station.code} · {station.name}</b></td><td>{formatDate(station.dueDate)}</td><td><span className={`${styles.chip} ${station.overdue ? styles.chipReviewIssue : progress === 100 ? styles.chipDone : styles.chipWorking}`}>{station.overdue ? `${station.overdue} überfällig` : progress === 100 ? "Abgeschlossen" : `${progress}% bearbeitet`}</span></td></tr>; })}</tbody></table></section>
-          <section className={styles.card}><div className={styles.cardHead}><h2>Wesentliche Risiken</h2></div><div className={styles.riskList}>{reviewOpen.length ? <p><i className={styles.dotRed}/><span><b>Review-Stau</b><small>{reviewOpen.length} eingereichte Aufgaben warten auf Review.</small></span></p> : null}{overdue.length ? <p><i className={styles.dotAmber}/><span><b>Terminrisiko</b><small>{overdue.length} offene Aufgaben sind überfällig.</small></span></p> : null}{bottleneck ? <p><i className={styles.dotBlue}/><span><b>{bottleneck.name}</b><small>{bottleneck.total} Maßnahmen bündeln sich in dieser Station.</small></span></p> : null}{!reviewOpen.length && !overdue.length ? <p className={styles.empty}>Aktuell keine kritischen Warnsignale aus den sichtbaren Aufgaben.</p> : null}</div></section>
+        <div className={styles.kpis}><Kpi value={`${processingPct}%`} label="Bearbeitungsgrad" note={`${completed} von ${taskTotal} abgeschlossen`} progress={processingPct}/><Kpi value={`${evidencePct}%`} label="Nachweisvollständigkeit" note={`${evidenceReady} von ${requiredEvidenceTasks.length} Nachweispflichten mit Dokument`} progress={evidencePct}/><Kpi value={`${reviewPct}%`} label="Reviewquote" note={`${reviewed} von ${taskTotal} review-bearbeitet`} progress={reviewPct} danger={personalReviewOpen.length > 0}/><Kpi value={`${auditReadyPct}%`} label="Prüfungsbereitschaft" note="Abgeschlossen + akzeptiert + erforderlicher Nachweis" progress={auditReadyPct}/></div>
+        <div className={styles.twoColumns}><section className={styles.card}><div className={styles.cardHead}><h2>Meilensteine / Stationen</h2></div><table className={styles.table}><thead><tr><th>Station</th><th>Frist</th><th>Status</th></tr></thead><tbody>{personalStationRows.map((station) => { const progress = pct(station.completed, station.total); return <tr key={station.id || station.code} className={!station.active ? styles.tableRowInactive : ""} onClick={station.active ? openProcessOverview : undefined}><td><b>{station.code} · {station.name}</b><small className={styles.tableSub}>{station.active ? `${station.total} eigene Aufgabe${station.total === 1 ? "" : "n"}` : "Für diesen Nutzer nicht aktiv"}</small></td><td>{station.active ? formatDate(station.dueDate) : "–"}</td><td>{station.active ? <span className={`${styles.chip} ${station.overdue ? styles.chipReviewIssue : progress === 100 ? styles.chipDone : styles.chipWorking}`}>{station.overdue ? `${station.overdue} überfällig` : progress === 100 ? "Abgeschlossen" : `${progress}% bearbeitet`}</span> : <span className={`${styles.chip} ${styles.chipReviewOpen}`}>Inaktiv</span>}</td></tr>; })}</tbody></table></section>
+          <section className={styles.card}><div className={styles.cardHead}><h2>Wesentliche Risiken</h2></div><div className={styles.riskList}>{personalReviewOpen.length ? <p><i className={styles.dotRed}/><span><b>Review-Stau</b><small>{personalReviewOpen.length} eigene eingereichte Aufgaben warten auf Review.</small></span></p> : null}{personalOverdue.length ? <p><i className={styles.dotAmber}/><span><b>Terminrisiko</b><small>{personalOverdue.length} eigene offene Aufgaben sind überfällig.</small></span></p> : null}{bottleneck ? <p><i className={styles.dotBlue}/><span><b>{bottleneck.name}</b><small>{bottleneck.total} Maßnahmen bündeln sich in dieser Station.</small></span></p> : null}{!personalReviewOpen.length && !personalOverdue.length ? <p className={styles.empty}>Aktuell keine kritischen Warnsignale aus Ihren Aufgaben.</p> : null}</div></section>
         </div>
       </section> : null}
 
       {view === "process" ? <section className={styles.processPanel}>
-        <div className={styles.processTop}><div><h1>Abschlussprozess</h1><p>Kachelübersicht des Jahresabschlusses. Für den angemeldeten Nutzer relevante Kacheln sind aktiv; übrige bleiben als Orientierung sichtbar.</p></div>{expandedStep && !activeTaskId ? <button className={styles.secondaryButton} type="button" onClick={() => setExpandedStepId(null)}>Zur Kachelübersicht</button> : null}</div>
-        {activeTaskId ? <div className={styles.legacyHost}><LegacyDashboard query={activeLegacyQuery} hubContext={hubContext} activeProjectId={activeProjectId} embedded onTaskClose={closeTaskWorkspace}/></div> : expandedStep ? <section className={styles.processDrilldown}>
+        <div className={styles.processTop}><div><h1>Abschlussprozess</h1><p>Kachelübersicht des Jahresabschlusses. Für den angemeldeten Nutzer relevante Kacheln sind aktiv; übrige bleiben als Orientierung sichtbar.</p></div>{expandedStep ? <button className={styles.secondaryButton} type="button" onClick={() => setExpandedStepId(null)}>Zur Kachelübersicht</button> : null}</div>
+        {expandedStep ? <section className={styles.processDrilldown}>
           <div className={styles.processBreadcrumb}><button type="button" onClick={() => setExpandedStepId(null)}>Abschlussprozess</button><span>›</span><b>{expandedStep.code} · {expandedStep.name}</b></div>
           {expandedChildren.length ? <div className={styles.processGrid}>{expandedChildren.map(renderProcessCard)}</div> : null}
           {expandedDirectTasks.length ? <section className={styles.card}><div className={styles.cardHead}><h2>Zugeordnete Aufgaben</h2><span>{expandedDirectTasks.length}</span></div><div className={styles.taskList}>{expandedDirectTasks.map((task) => <button key={task.id} type="button" className={styles.taskRow} onClick={() => openTask(task.id)}><span className={styles.taskCode}>{task.sourceNumber}<small>Aufgabe</small></span><span className={styles.taskMain}><b>{task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span><span className={styles.due}>{formatDate(task.dueDate)}</span></button>)}</div></section> : null}
@@ -463,10 +502,32 @@ export function WorkflowShell({
         </div>}
       </section> : null}
 
-      {view === "messages" ? <section><div className={styles.pageHead}><div><h1>Nachrichten</h1><p>Rückfragen, Aufgabenkommunikation und Systemhinweise in einer gemeinsamen Sicht.</p></div></div><section className={styles.card}><div className={styles.cardHead}><h2>Letzte Nachrichten</h2><span>{messages.length} sichtbar</span></div><div className={styles.messageList}>{messages.map((message) => <button key={message.id} type="button" onClick={() => message.taskId && openTask(message.taskId)} disabled={!message.taskId}><span><b>{message.subject || "Nachricht"}</b><small>{message.body}</small></span><span>{message.recipientEmail || "Projekt"}</span><time>{formatDateTime(message.createdAt)}</time></button>)}{messages.length === 0 ? <p className={styles.emptyBlock}>Keine sichtbaren Nachrichten.</p> : null}</div></section></section> : null}
+      {view === "messages" ? <section>
+        <div className={styles.pageHead}><div><h1>Kommunikation</h1><p>Aufgabenbezogene Vorgänge statt einzelner Nachrichten. Neueste Kommunikation zuerst.</p></div></div>
+        <section className={styles.card}><div className={styles.cardHead}><h2>Kommunikationsvorgänge</h2><span>{communicationThreads.length} Aufgaben mit Nachrichten</span></div>
+          <div className={styles.communicationList}>{communicationThreads.map(({ task, latest, count }) => <button key={task.id} type="button" className={styles.communicationRow} onClick={() => openTask(task.id, "communication")}>
+            <span className={styles.communicationTask}><b>{task.sourceNumber} · {task.title}</b><small>{latest.body || latest.subject || "Nachricht zur Aufgabe"}</small></span>
+            <span className={styles.communicationMeta}><b>{count} Nachricht{count === 1 ? "" : "en"}</b><small>{latest.recipientEmail || "Projektkommunikation"}</small></span>
+            <time>{formatDateTime(latest.createdAt)}</time>
+            <span className={styles.communicationOpen}>Kommunikation öffnen →</span>
+          </button>)}{communicationThreads.length === 0 ? <p className={styles.emptyBlock}>Für Ihre Aufgaben gibt es aktuell keine sichtbare Kommunikation.</p> : null}</div>
+        </section>
+      </section> : null}
 
       {view === "admin" ? <section><div className={styles.pageHead}><div><h1>Administration</h1><p>Projektmitglieder und Berechtigungen im Kontext der gemeinsamen LUMINA-Shell.</p></div><button className={styles.secondaryButton} type="button" onClick={() => router.push("/admin")}>Zentrale Administration öffnen</button></div>{!isAdmin ? <section className={styles.card}><p className={styles.emptyBlock}>Für diese Ansicht ist eine LUMINA-Administrationsberechtigung erforderlich.</p></section> : adminError ? <section className={styles.card}><p className={styles.emptyBlock}>{adminError}</p></section> : !adminData ? <section className={styles.card}><p className={styles.emptyBlock}>Projektmitglieder werden geladen …</p></section> : <section className={styles.card}><div className={styles.cardHead}><h2>Projektmitglieder</h2><span>{adminMembers.length} aktiv</span></div><table className={styles.table}><thead><tr><th>Name / E-Mail</th><th>Projektrolle</th><th>Letzter Login</th><th>Status</th></tr></thead><tbody>{adminMembers.map(({ member, user }) => <tr key={member.user_id}><td><b>{[user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.displayName || user?.email}</b><small className={styles.tableSub}>{user?.email}</small></td><td>{roleLabel(member.security_role)}</td><td>{formatDateTime(user?.lastSignInAt)}</td><td><span className={`${styles.chip} ${user?.blocked ? styles.chipReviewIssue : styles.chipDone}`}>{user?.blocked ? "Gesperrt" : "Aktiv"}</span></td></tr>)}</tbody></table></section>}</section> : null}
     </main>
+
+    {activeTaskId ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
+      <LegacyDashboard
+        query={activeLegacyQuery}
+        hubContext={hubContext}
+        activeProjectId={activeProjectId}
+        embedded
+        initialTab={activeTaskTab}
+        onReady={() => setWorkspaceReady(true)}
+        onTaskClose={closeTaskWorkspace}
+      />
+    </div> : null}
   </div>;
 }
 

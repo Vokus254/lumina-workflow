@@ -6,12 +6,29 @@ import { createClient } from "@/lib/supabase/client";
 import { ProjectSwitcher } from "./project-switcher";
 import type { ProjectHubContext } from "./project-hub";
 
-export function LegacyDashboard({ query, hubContext, activeProjectId, embedded = false, onTaskClose }: { query:string; hubContext:ProjectHubContext; activeProjectId:string; embedded?:boolean; onTaskClose?:() => void }) {
+export function LegacyDashboard({
+  query,
+  hubContext,
+  activeProjectId,
+  embedded = false,
+  initialTab,
+  onReady,
+  onTaskClose,
+}: {
+  query: string;
+  hubContext: ProjectHubContext;
+  activeProjectId: string;
+  embedded?: boolean;
+  initialTab?: string | null;
+  onReady?: () => void;
+  onTaskClose?: () => void;
+}) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
   const [error, setError] = useState("");
   const [frameReady, setFrameReady] = useState(false);
   const closeObserverRef = useRef<MutationObserver | null>(null);
+  const readyTimerRef = useRef<number | null>(null);
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
@@ -27,7 +44,7 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
     }
 
     frameRef.current?.contentWindow?.postMessage(
-      { type:"lumina-session",accessToken:session.access_token,refreshToken:session.refresh_token },
+      { type: "lumina-session", accessToken: session.access_token, refreshToken: session.refresh_token },
       window.location.origin,
     );
   }, []);
@@ -40,7 +57,8 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
       if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
       await supabase.auth.signOut();
-      router.replace("/login"); router.refresh();
+      router.replace("/login");
+      router.refresh();
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
@@ -49,7 +67,8 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace("/login"); router.refresh();
+    router.replace("/login");
+    router.refresh();
   }, [router]);
 
   const frameSource = query ? `/legacy/lumina.html?${query}` : "/legacy/lumina.html";
@@ -58,9 +77,58 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
     setFrameReady(false);
     closeObserverRef.current?.disconnect();
     closeObserverRef.current = null;
-  }, [frameSource]);
+    if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+    readyTimerRef.current = null;
+  }, [frameSource, initialTab]);
 
-  useEffect(() => () => { closeObserverRef.current?.disconnect(); }, []);
+  useEffect(() => () => {
+    closeObserverRef.current?.disconnect();
+    if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+  }, []);
+
+  const markReadyWhenWorkspaceIsOpen = useCallback(() => {
+    if (!embedded) {
+      setFrameReady(true);
+      onReady?.();
+      return;
+    }
+
+    const startedAt = Date.now();
+    if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+    readyTimerRef.current = window.setInterval(() => {
+      try {
+        const doc = frameRef.current?.contentDocument;
+        const modalBackdrop = doc?.getElementById("task-modal-backdrop");
+        const workspaceOpen = Boolean(modalBackdrop?.classList.contains("open"));
+        if (!workspaceOpen) {
+          if (Date.now() - startedAt > 8000) {
+            if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+            readyTimerRef.current = null;
+            setError("Der Arbeitsraum konnte nicht vollständig geöffnet werden.");
+          }
+          return;
+        }
+
+        if (initialTab) {
+          const tab = doc?.querySelector<HTMLButtonElement>(`.task-tab[data-tab="${initialTab}"]`);
+          if (tab && !tab.classList.contains("active")) {
+            tab.click();
+            return;
+          }
+          if (tab && !tab.classList.contains("active")) return;
+        }
+
+        if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+        readyTimerRef.current = null;
+        requestAnimationFrame(() => {
+          setFrameReady(true);
+          onReady?.();
+        });
+      } catch {
+        // Same-origin iframe is expected; keep waiting if the document is not ready yet.
+      }
+    }, 45);
+  }, [embedded, initialTab, onReady]);
 
   const handleFrameLoad = useCallback(async () => {
     if (embedded) {
@@ -70,7 +138,6 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
           const style = doc.createElement("style");
           style.id = "lumina-p1a-embedded-style";
           style.textContent = `
-            /* P1A embedded mode: the legacy dashboard must never be visible behind a task workspace. */
             body > *:not(#task-modal-backdrop):not(script):not(style){display:none!important;}
             #task-modal-backdrop{display:none!important;}
             #task-modal-backdrop.open{display:flex!important;}
@@ -92,22 +159,22 @@ export function LegacyDashboard({ query, hubContext, activeProjectId, embedded =
           closeObserverRef.current = observer;
         }
       } catch {
-        // Same-origin styling is a progressive enhancement. The iframe remains usable without it.
+        // Progressive enhancement only.
       }
     }
     await sendSession();
-    window.setTimeout(() => setFrameReady(true), embedded ? 220 : 0);
-  }, [embedded, sendSession, onTaskClose]);
+    markReadyWhenWorkspaceIsOpen();
+  }, [embedded, sendSession, onTaskClose, markReadyWhenWorkspaceIsOpen]);
 
   if (embedded) {
-    return <main style={{ width:"100%", height:"100%", minHeight:0, overflow:"hidden", background:"#fff", position:"relative" }}>
+    return <main style={{ width: "100%", height: "100%", minHeight: 0, overflow: "hidden", background: "#fff", position: "relative" }}>
       {error && <div className="legacyError" role="alert">{error}</div>}
       <iframe
         ref={frameRef}
         src={frameSource}
-        title="LUMINA Abschlussprozess"
+        title="LUMINA Arbeitsraum"
         onLoad={handleFrameLoad}
-        style={{ display:"block", width:"100%", height:"100%", border:0, background:"#fff", opacity:frameReady ? 1 : 0 }}
+        style={{ display: "block", width: "100%", height: "100%", border: 0, background: "#fff", opacity: frameReady ? 1 : 0 }}
       />
     </main>;
   }
