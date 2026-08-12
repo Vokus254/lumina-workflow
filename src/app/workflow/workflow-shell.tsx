@@ -51,6 +51,7 @@ export type ShellMessage = {
 };
 
 type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
+type Skin = "lumina" | "blue" | "light" | "yellow";
 type ShellView = "start" | "process" | "dataroom" | "messages" | "status" | "admin";
 
 type AdminUser = {
@@ -138,7 +139,7 @@ export function WorkflowShell({
   legacyQuery,
   nextDeadlineDate,
   nextDeadlineLabel,
-  allowRolePreview,
+  allowSkinPreview,
   initialView = "start",
 }: {
   hubContext: ProjectHubContext;
@@ -157,18 +158,18 @@ export function WorkflowShell({
   legacyQuery: string;
   nextDeadlineDate?: string | null;
   nextDeadlineLabel?: string | null;
-  allowRolePreview: boolean;
+  allowSkinPreview: boolean;
   initialView?: ShellView;
 }) {
   const router = useRouter();
   const [view, setView] = useState<ShellView>(initialView);
-  const [previewRole, setPreviewRole] = useState<RoleView>(() => defaultRoleView(projectRole));
+  const [skin, setSkin] = useState<Skin>("lumina");
   const [search, setSearch] = useState("");
   const [adminData, setAdminData] = useState<AdminPayload | null>(null);
   const [adminError, setAdminError] = useState("");
 
-  const roleView = allowRolePreview ? previewRole : defaultRoleView(projectRole);
-  const visibleRoleLabel = allowRolePreview ? (roleView === "bearbeiter" ? "Buchhaltung" : roleView === "projektleitung" ? "Projektleitung" : roleView === "cfo" ? "CFO" : "Admin") : roleLabel(projectRole);
+  const roleView = defaultRoleView(projectRole);
+  const visibleRoleLabel = roleLabel(projectRole);
   const allProjects = useMemo(
     () => hubContext.companies.flatMap((company) => (company.projects || []).map((project) => ({ ...project, companyId: company.id, companyName: company.name }))),
     [hubContext],
@@ -288,7 +289,7 @@ export function WorkflowShell({
     </button>
   );
 
-  return <div className={styles.shell}>
+  return <div className={styles.shell} data-skin={skin}>
     <header className={styles.topbar}>
       <button className={styles.brand} type="button" onClick={() => router.push("/workflow")} title="Zur Projektzentrale">
         <span className={styles.logo}>L</span><strong>LUMINA</strong>
@@ -362,7 +363,12 @@ export function WorkflowShell({
       {view === "admin" ? <section><div className={styles.pageHead}><div><h1>Administration</h1><p>Projektmitglieder und Berechtigungen im Kontext der gemeinsamen LUMINA-Shell.</p></div><button className={styles.secondaryButton} type="button" onClick={() => router.push("/admin")}>Zentrale Administration öffnen</button></div>{!isAdmin ? <section className={styles.card}><p className={styles.emptyBlock}>Für diese Ansicht ist eine LUMINA-Administrationsberechtigung erforderlich.</p></section> : adminError ? <section className={styles.card}><p className={styles.emptyBlock}>{adminError}</p></section> : !adminData ? <section className={styles.card}><p className={styles.emptyBlock}>Projektmitglieder werden geladen …</p></section> : <section className={styles.card}><div className={styles.cardHead}><h2>Projektmitglieder</h2><span>{adminMembers.length} aktiv</span></div><table className={styles.table}><thead><tr><th>Name / E-Mail</th><th>Projektrolle</th><th>Letzter Login</th><th>Status</th></tr></thead><tbody>{adminMembers.map(({ member, user }) => <tr key={member.user_id}><td><b>{[user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.displayName || user?.email}</b><small className={styles.tableSub}>{user?.email}</small></td><td>{roleLabel(member.security_role)}</td><td>{formatDateTime(user?.lastSignInAt)}</td><td><span className={`${styles.chip} ${user?.blocked ? styles.chipReviewIssue : styles.chipDone}`}>{user?.blocked ? "Gesperrt" : "Aktiv"}</span></td></tr>)}</tbody></table></section>}</section> : null}
     </main>
 
-    {allowRolePreview ? <div className={styles.previewSwitch}><span>Vercel Preview · Rolle</span>{(["bearbeiter", "projektleitung", "cfo", "admin"] as RoleView[]).map((role) => <button key={role} type="button" className={previewRole === role ? styles.previewActive : ""} onClick={() => { setPreviewRole(role); setView(role === "admin" ? "admin" : "start"); }}>{role === "bearbeiter" ? "Buchhaltung" : role === "projektleitung" ? "Projektleitung" : role === "cfo" ? "CFO" : "Admin"}</button>)}</div> : null}
+    {allowSkinPreview ? <div className={styles.previewSwitch} aria-label="Vercel Preview Skin-Auswahl"><span>Skin</span>{([
+      ["lumina", "LUMINA"],
+      ["blue", "Blau"],
+      ["light", "Hell"],
+      ["yellow", "Gelb"],
+    ] as const).map(([value, label]) => <button key={value} type="button" className={skin === value ? styles.previewActive : ""} onClick={() => setSkin(value)}><i className={styles.skinDot} data-skin-dot={value}/>{label}</button>)}</div> : null}
   </div>;
 
 }

@@ -216,6 +216,7 @@ export default async function WorkflowPage({
     || "LUMINA Nutzer";
 
   return <WorkflowShell
+    key={`${projectId}:${requested.task || ""}:${requested.view || ""}`}
     hubContext={hub}
     activeProjectId={projectId}
     companyName={activeCompany.name}
@@ -232,7 +233,7 @@ export default async function WorkflowPage({
     legacyQuery={legacyParams.toString()}
     nextDeadlineDate={nextDeadlineTask?.dueDate || null}
     nextDeadlineLabel={nextDeadlineTask?.dueRuleLabel || "bis nächste Frist"}
-    allowRolePreview={process.env.VERCEL_ENV === "preview"}
+    allowSkinPreview={process.env.VERCEL_ENV === "preview"}
     initialView={mapInitialView(requested)}
   />;
 }

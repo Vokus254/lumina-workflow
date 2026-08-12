@@ -54,3 +54,70 @@
 @media(max-width:1180px){.deadline{display:none}.selector{min-width:145px}.twoColumns{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.taskRow{grid-template-columns:64px minmax(200px,1fr) auto auto}.taskRow .due{display:none}}
 @media(max-width:900px){.searchWrap{display:none}.topbar{gap:9px}.contextSelectors{flex:1}.selector{min-width:0;flex:1}.rail{overflow-x:auto}.station{min-width:145px}.nav{width:64px}.navGroup,.navItem span:not(.navIcon):not(.navCount),.navFooter{display:none}.navItem{justify-content:center}.navCount{position:absolute;margin:0;transform:translate(13px,-12px)}.content{margin-left:64px;padding:22px 18px 80px}.contentProcess{padding:0}.taskRow{grid-template-columns:58px minmax(180px,1fr) auto}.taskRow .chip:nth-of-type(2),.taskRow .due{display:none}.documentList button{grid-template-columns:30px 1fr}.documentList button>span:nth-child(3),.documentList time,.messageList button>span:nth-child(2),.messageList time{display:none}.messageList button{grid-template-columns:1fr}}
 @media(max-width:680px){.contextSelectors .selector:first-child{display:none}.roleBadge{display:none}.topbar{padding:0 10px}.brand strong{display:none}.pageHead{align-items:flex-start;flex-direction:column}.kpis{grid-template-columns:1fr 1fr}.taskRow{grid-template-columns:52px 1fr}.taskRow .chip{display:none}.previewSwitch{max-width:calc(100vw - 20px);overflow-x:auto;left:10px;right:10px;transform:none}.previewSwitch>span{display:none}}
+
+/* P1A preview skins: one component set, token-only appearance variants. */
+.shell[data-skin="blue"]{
+  --lumina-ink:#1D2D3E;
+  --lumina-ink-2:#475E75;
+  --lumina-ink-3:#6A7F93;
+  --lumina-bg:#F5F6F7;
+  --lumina-card:#FFFFFF;
+  --lumina-line:#D5DADD;
+  --lumina-primary:#0A6ED1;
+  --lumina-primary-dark:#075CAF;
+  --lumina-primary-soft:#EAF3FC;
+  --lumina-sidebar:#354A5F;
+  --lumina-sidebar-text:#D5E1EA;
+  --lumina-sidebar-active:#24394D;
+  --lumina-radius:6px;
+  --lumina-shadow:0 1px 2px rgba(29,45,62,.08),0 3px 10px rgba(29,45,62,.06);
+}
+.shell[data-skin="light"]{
+  --lumina-ink:#202123;
+  --lumina-ink-2:#565869;
+  --lumina-ink-3:#8E8EA0;
+  --lumina-bg:#F7F7F8;
+  --lumina-card:#FFFFFF;
+  --lumina-line:#E5E5E5;
+  --lumina-primary:#10A37F;
+  --lumina-primary-dark:#0B7F63;
+  --lumina-primary-soft:#E8F7F2;
+  --lumina-sidebar:#FFFFFF;
+  --lumina-sidebar-text:#343541;
+  --lumina-sidebar-active:#ECECF1;
+  --lumina-radius:10px;
+  --lumina-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.shell[data-skin="light"] .nav{border-right:1px solid var(--lumina-line)}
+.shell[data-skin="light"] .navGroup,.shell[data-skin="light"] .navFooter{color:#8E8EA0}
+.shell[data-skin="light"] .navFooter b{color:#343541}
+.shell[data-skin="light"] .navItem:hover{background:#F2F2F3;color:#202123}
+.shell[data-skin="light"] .navItemActive{color:#202123}
+.shell[data-skin="light"] .navItemActive .navIcon{color:var(--lumina-primary)}
+.shell[data-skin="yellow"]{
+  --lumina-ink:#2D2926;
+  --lumina-ink-2:#655D57;
+  --lumina-ink-3:#8A817A;
+  --lumina-bg:#FAF9F5;
+  --lumina-card:#FFFDF8;
+  --lumina-line:#E8E1D7;
+  --lumina-primary:#C15F3C;
+  --lumina-primary-dark:#9D472B;
+  --lumina-primary-soft:#F7E9E2;
+  --lumina-sidebar:#F0EADF;
+  --lumina-sidebar-text:#544D47;
+  --lumina-sidebar-active:#E4DACB;
+  --lumina-radius:14px;
+  --lumina-shadow:0 1px 2px rgba(74,58,46,.05),0 5px 18px rgba(74,58,46,.06);
+}
+.shell[data-skin="yellow"] .nav{border-right:1px solid var(--lumina-line)}
+.shell[data-skin="yellow"] .navGroup,.shell[data-skin="yellow"] .navFooter{color:#92877E}
+.shell[data-skin="yellow"] .navFooter b{color:#4F4742}
+.shell[data-skin="yellow"] .navItem:hover{background:#E9E1D5;color:#2D2926}
+.shell[data-skin="yellow"] .navItemActive{color:#2D2926}
+.shell[data-skin="yellow"] .navItemActive .navIcon{color:var(--lumina-primary)}
+.skinDot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;border:1px solid rgba(255,255,255,.45);vertical-align:-1px}
+.skinDot[data-skin-dot="lumina"]{background:#0E8C6D}
+.skinDot[data-skin-dot="blue"]{background:#0A6ED1}
+.skinDot[data-skin-dot="light"]{background:#E5E5E5}
+.skinDot[data-skin-dot="yellow"]{background:#C15F3C}
