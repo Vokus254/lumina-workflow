@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { generateTemporaryPassword } from "@/lib/secure-password";
 
-const QUICKSTART_EMAIL = (process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_EMAIL || "quickstart@volkerkusch.de").toLowerCase();
-const DEFAULT_TEMP_PASSWORD = process.env.LUMINA_QUICKSTART_TEMP_PASSWORD || "start123";
+const QUICKSTART_EMAIL = process.env.LUMINA_QUICKSTART_EMAIL?.trim().toLowerCase() || "";
 
 function normalizeEmail(value: unknown) {
   return String(value || "").trim().toLowerCase();
@@ -16,6 +16,10 @@ export async function POST(request: Request) {
 
   if (claimsError || !claims?.sub) {
     return NextResponse.json({ error: "Anmeldung erforderlich." }, { status: 401 });
+  }
+
+  if (!QUICKSTART_EMAIL) {
+    return NextResponse.json({ error: "Quickstart ist serverseitig nicht vollständig konfiguriert." }, { status: 503 });
   }
 
   const currentEmail = normalizeEmail(claims.email);
@@ -81,10 +85,12 @@ export async function POST(request: Request) {
   } while (page <= 10);
 
   let created = false;
+  let temporaryPassword: string | null = null;
   if (!targetUser) {
+    temporaryPassword = generateTemporaryPassword();
     const { data: createdData, error: createError } = await admin.auth.admin.createUser({
       email: ownerEmail,
-      password: DEFAULT_TEMP_PASSWORD,
+      password: temporaryPassword,
       email_confirm: true,
       user_metadata: {
         first_name: firstName || undefined,
@@ -147,7 +153,7 @@ export async function POST(request: Request) {
     ok: true,
     email: ownerEmail,
     created,
-    temporaryPassword: created ? DEFAULT_TEMP_PASSWORD : null,
+    temporaryPassword: created ? temporaryPassword : null,
     projectName: project.name,
   });
 }

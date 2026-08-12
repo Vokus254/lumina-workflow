@@ -4,9 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-const QUICKSTART_EMAIL = process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_EMAIL || "quickstart@volkerkusch.de";
-const QUICKSTART_PASSWORD = process.env.NEXT_PUBLIC_LUMINA_QUICKSTART_PASSWORD || "start123";
-
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -34,7 +31,7 @@ export default function LoginPage() {
       if (requestedEmail) setEmail(requestedEmail);
       if (handoff === "1") {
         setMessage(accountCreated
-          ? "Ihr persönlicher LUMINA-Zugang wurde angelegt. Melden Sie sich jetzt mit Ihrer E-Mail-Adresse und dem Erstpasswort start123 an."
+          ? "Ihr persönlicher LUMINA-Zugang wurde angelegt. Melden Sie sich jetzt mit Ihrer E-Mail-Adresse und dem zuvor einmalig angezeigten Erstpasswort an."
           : "Das Projekt wurde Ihrem persönlichen LUMINA-Zugang übertragen. Melden Sie sich jetzt mit Ihrem bestehenden Passwort an.");
       }
     }, 0);
@@ -55,11 +52,13 @@ export default function LoginPage() {
     setMessage("");
     setQuickstartPending(true);
     try {
-      await signIn(QUICKSTART_EMAIL, QUICKSTART_PASSWORD);
+      const response = await fetch("/api/quickstart/session", { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Quickstart konnte nicht geöffnet werden.");
       router.replace("/quickstart?mode=company&fresh=1");
       router.refresh();
-    } catch {
-      setError("Der Quickstart-Testzugang ist noch nicht eingerichtet oder das Passwort stimmt nicht. Bitte prüfen Sie den Supabase-Auth-Nutzer quickstart@volkerkusch.de.");
+    } catch (quickstartError) {
+      setError(quickstartError instanceof Error ? quickstartError.message : "Quickstart konnte nicht geöffnet werden.");
     } finally {
       setQuickstartPending(false);
     }
@@ -201,16 +200,12 @@ export default function LoginPage() {
             <div>
               <p className="miniLabel">Neu bei LUMINA?</p>
               <h3>Neues Projekt mit KAI starten</h3>
-              <p>Für den Pilotbetrieb steht ein gemeinsamer Quickstart-Zugang bereit. Er öffnet ausschließlich den Einrichtungsassistenten – keine fremden Projektübersichten.</p>
-            </div>
-            <div className="quickstartCredentials">
-              <span><b>E-Mail</b>{QUICKSTART_EMAIL}</span>
-              <span><b>Passwort</b>{QUICKSTART_PASSWORD}</span>
+              <p>Für den Pilotbetrieb steht ein serverseitig abgesicherter Quickstart bereit. Er öffnet ausschließlich den Einrichtungsassistenten – keine fremden Projektübersichten.</p>
             </div>
             <button className="quickstartEntryButton" type="button" onClick={handleQuickstart} disabled={quickstartPending || pending}>
               {quickstartPending ? "Quickstart wird geöffnet …" : "KAI Quickstart öffnen →"}
             </button>
-            <small>Testzugang für die Pilotphase. Für den Produktivbetrieb erhält jeder Teilnehmer einen persönlichen Zugang.</small>
+            <small>Der technische Quickstart-Zugang wird ausschließlich serverseitig verwaltet. Persönliche Zugangsdaten werden hier nicht angezeigt.</small>
           </section>}
         </div>
       </section>

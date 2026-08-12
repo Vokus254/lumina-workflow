@@ -185,12 +185,12 @@ export function KaiQuickstart({ initialContext, startCompanyId = "" }: { initial
             <p className="cardHint">Der gemeinsame Quickstart-Zugang ist nur für die Ersteinrichtung. Geben Sie jetzt Ihre persönliche E-Mail-Adresse an. Danach gehört das Projekt nur noch Ihrem persönlichen LUMINA-Zugang (zusätzlich zur LUMINA-Administration).</p>
             <div className="formRow"><label>Vorname<input value={handoff.firstName} onChange={e=>setHandoff({...handoff,firstName:e.target.value})}/></label><label>Nachname<input value={handoff.lastName} onChange={e=>setHandoff({...handoff,lastName:e.target.value})}/></label></div>
             <label>Persönliche E-Mail-Adresse<input type="email" placeholder="name@unternehmen.de" value={handoff.email} onChange={e=>setHandoff({...handoff,email:e.target.value})}/></label>
-            <p className="cardHint">Ist die E-Mail-Adresse noch nicht in LUMINA vorhanden, wird automatisch ein persönlicher Pilotzugang mit dem Erstpasswort <strong>start123</strong> angelegt.</p>
+            <p className="cardHint">Ist die E-Mail-Adresse noch nicht in LUMINA vorhanden, wird automatisch ein persönlicher Pilotzugang mit einem individuellen sicheren Erstpasswort angelegt.</p>
             <button className="primaryButton" disabled={busy} onClick={transferGuestProject}>{busy?"Übergabe läuft …":"Projekt persönlich übernehmen"}</button>
           </div> : <div className="handoffSuccess">
             <p className="miniLabel">Übergabe abgeschlossen</p>
             <h3>{handoffDone.email}</h3>
-            <p className="cardHint">{handoffDone.created?<>Der persönliche Zugang wurde neu angelegt. Erstpasswort: <strong>{handoffDone.temporaryPassword||"start123"}</strong>.</>:<>Der vorhandene persönliche Zugang wurde als Owner freigeschaltet. Das bestehende Passwort bleibt unverändert.</>}</p>
+            <p className="cardHint">{handoffDone.created?<>Der persönliche Zugang wurde neu angelegt. Bitte notieren Sie dieses einmalig angezeigte Erstpasswort: <strong>{handoffDone.temporaryPassword}</strong>.</>:<>Der vorhandene persönliche Zugang wurde als Owner freigeschaltet. Das bestehende Passwort bleibt unverändert.</>}</p>
             <button className="primaryButton" onClick={leaveAfterHandoff}>Abmelden & persönlich anmelden</button>
           </div>}
         </>:<><button className="primaryButton" onClick={()=>router.push(`/workflow?project=${encodeURIComponent(projectId)}`)}>Zum Abschluss-Cockpit</button><button className="secondaryButton full" onClick={()=>{setStep(0);setProjectId("");setCompanyId("");setSummary(null);refresh();}}>Weiteres Projekt anlegen</button></>}</div>}

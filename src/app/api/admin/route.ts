@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireLuminaAdmin } from "@/lib/lumina-admin";
+import { generateTemporaryPassword } from "@/lib/secure-password";
 
 function text(v: unknown) { return String(v ?? "").trim(); }
 function email(v: unknown) { return text(v).toLowerCase(); }
@@ -105,7 +106,8 @@ export async function POST(request: Request) {
     if (action === "create_user") {
       const mail = email(body.email);
       if (!mail.includes("@")) throw new Error("Gültige E-Mail-Adresse erforderlich.");
-      const password = text(body.password) || "start123";
+      const suppliedPassword = text(body.password);
+      const password = suppliedPassword || generateTemporaryPassword();
       const firstName = text(body.firstName), lastName = text(body.lastName);
       const { data, error } = await admin.auth.admin.createUser({
         email: mail,
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
         user_metadata: { first_name: firstName || undefined, last_name: lastName || undefined, display_name: [firstName, lastName].filter(Boolean).join(" ") || undefined },
       });
       if (error) throw error;
-      return NextResponse.json({ ok: true, userId: data.user?.id });
+      return NextResponse.json({ ok: true, userId: data.user?.id, temporaryPassword: suppliedPassword ? null : password });
     }
 
     if (action === "update_user") {
@@ -135,9 +137,11 @@ export async function POST(request: Request) {
     }
 
     if (action === "reset_password") {
-      const { error } = await admin.auth.admin.updateUserById(text(body.userId), { password: text(body.password) || "start123" });
+      const suppliedPassword = text(body.password);
+      const password = suppliedPassword || generateTemporaryPassword();
+      const { error } = await admin.auth.admin.updateUserById(text(body.userId), { password });
       if (error) throw error;
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, temporaryPassword: suppliedPassword ? null : password });
     }
 
     if (action === "delete_user") {

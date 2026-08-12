@@ -75,7 +75,7 @@ function escapeHtml(value: string) {
   })[character] || character);
 }
 
-async function getAdminDigests() {
+async function getAdminDigests(projectId: string) {
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
   const user = userData.user;
@@ -84,19 +84,22 @@ async function getAdminDigests() {
     return { error: "Nicht angemeldet.", status: 401 as const };
   }
 
-  const { data: memberships, error: membershipError } = await supabase
+  if (!projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    return { error: "projectId fehlt oder ist ungültig.", status: 400 as const };
+  }
+
+  const { data: membership, error: membershipError } = await supabase
     .from("project_members")
     .select("project_id,security_role")
     .eq("user_id", user.id)
+    .eq("project_id", projectId)
     .eq("active", true)
     .in("security_role", ["owner", "manager"])
-    .limit(1);
+    .maybeSingle();
 
-  if (membershipError || !memberships?.length || user.email?.toLowerCase() !== "admin@volkerkusch.de") {
-    return { error: "Diese Funktion ist nur für die LUMINA-Administration verfügbar.", status: 403 as const };
+  if (membershipError || !membership || user.email?.toLowerCase() !== "admin@volkerkusch.de") {
+    return { error: "Keine Berechtigung für dieses Projekt.", status: 403 as const };
   }
-
-  const projectId = memberships[0].project_id;
   const [{ data: roles, error: rolesError }, { data: tasks, error: tasksError }, { data: project, error: projectError }] = await Promise.all([
     supabase
       .from("responsibility_roles")
@@ -197,17 +200,19 @@ function createMessage(digest: RoleDigest, project: { name: string; reportingDat
   return { subject, html, text };
 }
 
-export async function GET() {
-  const result = await getAdminDigests();
+export async function GET(request: Request) {
+  const projectId = new URL(request.url).searchParams.get("projectId")?.trim() || "";
+  const result = await getAdminDigests(projectId);
   if ("error" in result) return Response.json({ error: result.error }, { status: result.status });
   return Response.json(result);
 }
 
 export async function POST(request: Request) {
-  const result = await getAdminDigests();
+  const body = await request.json().catch(() => null) as { confirmed?: boolean; projectId?: string } | null;
+  const projectId = String(body?.projectId || "").trim();
+  const result = await getAdminDigests(projectId);
   if ("error" in result) return Response.json({ error: result.error }, { status: result.status });
 
-  const body = await request.json().catch(() => null) as { confirmed?: boolean } | null;
   if (!body?.confirmed) return Response.json({ error: "Der Versand wurde nicht bestätigt." }, { status: 400 });
   if (!result.smtpConfigured) return Response.json({ error: "Der IONOS-Mailversand ist in Vercel noch nicht vollständig eingerichtet." }, { status: 503 });
 

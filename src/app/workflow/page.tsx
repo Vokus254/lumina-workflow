@@ -6,7 +6,7 @@ import { requireLuminaAdmin } from "@/lib/lumina-admin";
 
 export const dynamic = "force-dynamic";
 
-const QUICKSTART_EMAIL = "quickstart@volkerkusch.de";
+const QUICKSTART_EMAIL = process.env.LUMINA_QUICKSTART_EMAIL?.trim().toLowerCase() || "";
 
 export default async function WorkflowPage({
   searchParams,
@@ -19,7 +19,7 @@ export default async function WorkflowPage({
   if (error || !data?.claims) redirect("/login");
 
   const currentEmail = String(data.claims.email || "").toLowerCase();
-  if (currentEmail === QUICKSTART_EMAIL) {
+  if (QUICKSTART_EMAIL && currentEmail === QUICKSTART_EMAIL) {
     // The shared pilot account is onboarding-only. It must never become a common
     // project switcher for unrelated pilot users.
     redirect("/quickstart?mode=company&fresh=1");
