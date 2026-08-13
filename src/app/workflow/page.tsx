@@ -108,10 +108,22 @@ export default async function WorkflowPage({
   }
 
   const requested = await searchParams;
+  const adminAccess = await requireLuminaAdmin();
+  const isSuperAdmin = adminAccess.ok && adminAccess.isSuperAdmin;
   const { data: hubData, error: hubError } = await supabase.rpc("project_hub_context");
   if (hubError) throw new Error(`Projektübersicht konnte nicht geladen werden: ${hubError.message}`);
-  const hub = (hubData || { companies: [] }) as ProjectHubContext;
-  const adminAccess = await requireLuminaAdmin();
+  let hub = (hubData || { companies: [] }) as ProjectHubContext;
+  if (isSuperAdmin) {
+    hub = {
+      ...hub,
+      companies: (hub.companies || []).map((company) => ({
+        ...company,
+        company_role: "owner",
+        can_manage_company: true,
+        projects: (company.projects || []).map((project) => ({ ...project, project_role: "owner" })),
+      })),
+    };
+  }
 
   let projectId = requested.project || "";
   if (!projectId) {
@@ -167,7 +179,7 @@ export default async function WorkflowPage({
       workStatus: task.work_status || "open",
       reviewStatus: task.review_status || "unreviewed",
       responsibilityRoleId: task.responsibility_role_id,
-      assignedToCurrentUser: Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)),
+      assignedToCurrentUser: isSuperAdmin || Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)),
       stationCode: rootCodeForStep(task.process_step_id),
       processStepId: task.process_step_id,
       processStepCode: processStep?.code || null,
@@ -177,7 +189,7 @@ export default async function WorkflowPage({
   });
 
   const relevantStepIds = new Set<string>();
-  const personallyAssignedRawTasks = rawTasks.filter((task) => Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)));
+  const personallyAssignedRawTasks = isSuperAdmin ? rawTasks : rawTasks.filter((task) => Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)));
   for (const task of personallyAssignedRawTasks) {
     let current = task.process_step_id ? stepById.get(task.process_step_id) : undefined;
     const seen = new Set<string>();
@@ -194,7 +206,7 @@ export default async function WorkflowPage({
     code: step.code,
     name: step.name,
     sortOrder: step.sort_order || 0,
-    relevant: relevantStepIds.has(step.id),
+    relevant: isSuperAdmin || relevantStepIds.has(step.id),
     directTaskIds: personallyAssignedRawTasks.filter((task) => task.process_step_id === step.id).map((task) => task.id),
   }));
 
@@ -272,10 +284,11 @@ export default async function WorkflowPage({
     companyName={activeCompany.name}
     projectName={activeProject.name}
     reportingDate={activeProject.reporting_date}
-    projectRole={activeProject.project_role}
+    projectRole={isSuperAdmin ? "owner" : activeProject.project_role}
     userEmail={currentEmail}
     displayName={displayName}
     isAdmin={adminAccess.ok}
+    isSuperAdmin={isSuperAdmin}
     stations={stations}
     processSteps={processSteps}
     tasks={tasks}

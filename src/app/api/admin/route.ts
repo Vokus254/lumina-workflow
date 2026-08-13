@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireLuminaAdmin } from "@/lib/lumina-admin";
+import { isLuminaSuperAdminEmail, requireLuminaAdmin } from "@/lib/lumina-admin";
 import { generateTemporaryPassword } from "@/lib/secure-password";
 
 function text(v: unknown) { return String(v ?? "").trim(); }
@@ -15,6 +15,45 @@ async function listAllUsers(admin: any) {
     if (data.users.length < 200) break;
   }
   return users;
+}
+
+async function removeStoredVersions(admin: any, documentIds: string[]) {
+  if (!documentIds.length) return;
+  const { data: versions, error } = await admin
+    .from("document_versions")
+    .select("storage_bucket,storage_path")
+    .in("document_id", documentIds);
+  if (error) throw error;
+  const byBucket = new Map<string, string[]>();
+  for (const row of versions || []) {
+    if (!row.storage_bucket || !row.storage_path) continue;
+    const rows = byBucket.get(row.storage_bucket) || [];
+    rows.push(row.storage_path);
+    byBucket.set(row.storage_bucket, rows);
+  }
+  for (const [bucket, paths] of byBucket) {
+    for (let i = 0; i < paths.length; i += 100) {
+      const { error: storageError } = await admin.storage.from(bucket).remove(paths.slice(i, i + 100));
+      if (storageError) throw storageError;
+    }
+  }
+}
+
+async function removeTaskDocuments(admin: any, taskId: string) {
+  const { data: docs, error } = await admin.from("documents").select("id").eq("task_id", taskId);
+  if (error) throw error;
+  const ids = (docs || []).map((row: any) => row.id);
+  await removeStoredVersions(admin, ids);
+  if (ids.length) {
+    const { error: deleteError } = await admin.from("documents").delete().in("id", ids);
+    if (deleteError) throw deleteError;
+  }
+}
+
+async function removeProjectStorage(admin: any, projectId: string) {
+  const { data: docs, error } = await admin.from("documents").select("id").eq("project_id", projectId);
+  if (error) throw error;
+  await removeStoredVersions(admin, (docs || []).map((row: any) => row.id));
 }
 
 export async function GET() {
@@ -85,7 +124,7 @@ export async function GET() {
     }).filter((a: any) => a.project_id);
 
     return NextResponse.json({
-      currentAdmin: { id: access.userId, email: access.email },
+      currentAdmin: { id: access.userId, email: access.email, isSuperAdmin: access.isSuperAdmin },
       users: normalizedUsers,
       companies: companiesRes.data ?? [],
       projects: projects.map((p: any) => ({ ...p, taskCount: taskCounts[p.id] || 0, documentCount: documentCounts[p.id] || 0 })),
@@ -122,6 +161,10 @@ export async function POST(request: Request) {
         user_metadata: { first_name: firstName || undefined, last_name: lastName || undefined, display_name: [firstName, lastName].filter(Boolean).join(" ") || undefined },
       });
       if (error) throw error;
+      if (data.user?.id && isLuminaSuperAdminEmail(mail)) {
+        const { error: adminError } = await admin.from("lumina_admins").upsert({ user_id: data.user.id, active: true }, { onConflict: "user_id" });
+        if (adminError) throw adminError;
+      }
       return NextResponse.json({ ok: true, userId: data.user?.id, temporaryPassword: suppliedPassword ? null : password });
     }
 
@@ -133,6 +176,10 @@ export async function POST(request: Request) {
         user_metadata: { first_name: firstName || undefined, last_name: lastName || undefined, display_name: [firstName, lastName].filter(Boolean).join(" ") || undefined },
       });
       if (error) throw error;
+      if (isLuminaSuperAdminEmail(mail)) {
+        const { error: adminError } = await admin.from("lumina_admins").upsert({ user_id: userId, active: true }, { onConflict: "user_id" });
+        if (adminError) throw adminError;
+      }
       return NextResponse.json({ ok: true });
     }
 
@@ -152,7 +199,10 @@ export async function POST(request: Request) {
 
     if (action === "delete_user") {
       if (text(body.userId) === access.userId) throw new Error("Der aktuell angemeldete Admin kann sich nicht selbst löschen.");
-      const { error } = await admin.auth.admin.deleteUser(text(body.userId), false);
+      const targetId = text(body.userId);
+      const { data: target } = await admin.auth.admin.getUserById(targetId);
+      if (isLuminaSuperAdminEmail(target?.user?.email)) throw new Error("Der definierte Superadmin kann nicht über die Oberfläche gelöscht werden.");
+      const { error } = await admin.auth.admin.deleteUser(targetId, false);
       if (error) throw new Error(`Benutzer konnte nicht endgültig gelöscht werden: ${error.message}. Falls bereits Belege/Historien verknüpft sind, Benutzer stattdessen sperren.`);
       return NextResponse.json({ ok: true });
     }
@@ -192,7 +242,8 @@ export async function POST(request: Request) {
       if (pids.length) {
         const { count, error: de } = await admin.from("documents").select("id", { count: "exact", head: true }).in("project_id", pids);
         if (de) throw de;
-        if ((count || 0) > 0) throw new Error("Gesellschaft enthält Dokumente. Aus Sicherheitsgründen bitte archivieren statt endgültig löschen.");
+        if ((count || 0) > 0 && !access.isSuperAdmin) throw new Error("Gesellschaft enthält Dokumente. Aus Sicherheitsgründen bitte archivieren statt endgültig löschen.");
+        if (access.isSuperAdmin) for (const pid of pids) await removeProjectStorage(admin, pid);
         for (const pid of pids) {
           const { error } = await admin.from("projects").delete().eq("id", pid);
           if (error) throw error;
@@ -240,7 +291,8 @@ export async function POST(request: Request) {
       const projectId = text(body.projectId);
       const { count, error: de } = await admin.from("documents").select("id", { count: "exact", head: true }).eq("project_id", projectId);
       if (de) throw de;
-      if ((count || 0) > 0) throw new Error("Projekt enthält Dokumente. Aus Sicherheitsgründen bitte archivieren statt endgültig löschen.");
+      if ((count || 0) > 0 && !access.isSuperAdmin) throw new Error("Projekt enthält Dokumente. Aus Sicherheitsgründen bitte archivieren statt endgültig löschen.");
+      if (access.isSuperAdmin) await removeProjectStorage(admin, projectId);
       const { error } = await admin.from("projects").delete().eq("id", projectId);
       if (error) throw error;
       return NextResponse.json({ ok: true });
@@ -329,7 +381,8 @@ export async function POST(request: Request) {
       ]);
       if (docError) throw docError;
       if (msgError) throw msgError;
-      if ((docCount || 0) > 0 || (msgCount || 0) > 0) throw new Error("Maßnahme enthält Dokumente oder Kommunikation und kann daher nicht gelöscht werden.");
+      if (((docCount || 0) > 0 || (msgCount || 0) > 0) && !access.isSuperAdmin) throw new Error("Maßnahme enthält Dokumente oder Kommunikation und kann daher nicht gelöscht werden.");
+      if (access.isSuperAdmin && (docCount || 0) > 0) await removeTaskDocuments(admin, taskId);
       const { error } = await admin.from("tasks").delete().eq("id", taskId);
       if (error) throw error;
       return NextResponse.json({ ok: true });

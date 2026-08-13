@@ -148,6 +148,7 @@ export function WorkflowShell({
   userEmail,
   displayName,
   isAdmin,
+  isSuperAdmin = false,
   stations,
   processSteps,
   tasks,
@@ -169,6 +170,7 @@ export function WorkflowShell({
   userEmail: string;
   displayName: string;
   isAdmin: boolean;
+  isSuperAdmin?: boolean;
   stations: ShellStation[];
   processSteps: ShellProcessStep[];
   tasks: ShellTask[];
@@ -205,7 +207,7 @@ export function WorkflowShell({
   }, [initialView, selectedTaskId]);
 
   const roleView = defaultRoleView(projectRole);
-  const visibleRoleLabel = roleLabel(projectRole);
+  const visibleRoleLabel = isSuperAdmin ? "Superadmin" : roleLabel(projectRole);
   const allProjects = useMemo(
     () => hubContext.companies.flatMap((company) => (company.projects || []).map((project) => ({ ...project, companyId: company.id, companyName: company.name }))),
     [hubContext],
