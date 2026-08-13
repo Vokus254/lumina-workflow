@@ -206,3 +206,41 @@ footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1
 .adminMeasuresWorkspace .buttonRow.compact{margin:0;align-items:center}.adminMeasuresWorkspace .buttonRow.compact>*{flex:0 0 auto}
 .adminMeasureForm .secondaryAdminButton{width:100%;margin-top:9px}
 @media(max-width:1050px){.adminMeasuresWorkspace{grid-template-columns:1fr}.adminMeasuresWorkspace .adminMeasureForm{position:static}.adminMeasuresWorkspace .adminMeasureTableWrap{max-height:520px}}
+
+/* P1A FIX17 — Admin-Dichte, Typografie und flexible Maßnahmenfelder */
+.adminEmbedded{
+  font-family:Inter,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:13px;
+  line-height:1.4;
+  letter-spacing:0;
+}
+.adminEmbedded button,.adminEmbedded input,.adminEmbedded select,.adminEmbedded textarea{font:inherit}
+.adminEmbedded .adminEmbeddedTitle h1{font-size:24px;line-height:1.15;letter-spacing:-.02em;font-weight:750}
+.adminEmbedded .adminEmbeddedTitle p{font-size:13px;line-height:1.4}
+.adminEmbedded .adminTabs button{font-size:12.5px;font-weight:650;padding:9px 13px;border-radius:8px}
+.adminEmbedded .adminSearch{font-size:12.5px;min-height:40px}
+.adminEmbedded .adminPanel{padding:18px}
+.adminEmbedded .adminPanel h2{font-size:18px;line-height:1.2;letter-spacing:-.015em;font-weight:750;margin:0 0 12px}
+.adminEmbedded .adminPanel h3{font-size:13px;line-height:1.25;font-weight:750}
+.adminEmbedded .panelHead{margin-bottom:12px}
+.adminEmbedded .formHint{font-size:12px;line-height:1.45;color:var(--lumina-ink-3);margin:3px 0 12px}
+.adminEmbedded .adminTable{font-size:12.5px;line-height:1.35}
+.adminEmbedded .adminTable th{font-size:10px;letter-spacing:.05em;padding:9px 10px;font-weight:750}
+.adminEmbedded .adminTable td{padding:10px;vertical-align:top}
+.adminEmbedded .adminTable td b{font-size:12.5px;font-weight:700}
+.adminEmbedded .adminTable td small{font-size:11px;line-height:1.35}
+.adminEmbedded .formPanel label{font-size:11px;font-weight:750;line-height:1.3;margin:11px 0;color:var(--lumina-ink-2)}
+.adminEmbedded .formPanel input,.adminEmbedded .formPanel select,.adminEmbedded .formPanel textarea{width:100%;margin-top:6px;border:1px solid var(--lumina-line);border-radius:8px;padding:9px 10px;background:var(--lumina-card);color:var(--lumina-ink);font-size:12.5px;line-height:1.4}
+.adminEmbedded .formPanel textarea{resize:vertical;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
+.adminEmbedded .adminAutoTextarea{min-height:86px;max-height:320px}
+.adminEmbedded .adminAutoTextarea:focus,.adminEmbedded .formPanel input:focus,.adminEmbedded .formPanel select:focus{outline:2px solid color-mix(in srgb,var(--lumina-primary) 22%,transparent);border-color:var(--lumina-primary)}
+.adminAccessLine{display:block;line-height:1.35;margin:0 0 3px;overflow-wrap:anywhere}
+.adminAccessLine:last-child{margin-bottom:0}
+.adminUserTable,.adminPermissionTable{min-width:1120px}
+.adminUserTable th:nth-child(1){width:190px}.adminUserTable th:nth-child(2){width:155px}.adminUserTable th:nth-child(3){width:205px}.adminUserTable th:nth-child(4){width:190px}.adminUserTable th:nth-child(5){width:76px}.adminUserTable th:nth-child(6){width:92px}.adminUserTable th:nth-child(7){width:100px}
+.adminPermissionTable th:nth-child(1){width:210px}.adminPermissionTable th:nth-child(2){width:190px}.adminPermissionTable th:nth-child(3){width:250px}.adminPermissionTable th:nth-child(4){width:230px}.adminPermissionTable th:nth-child(5){width:80px}
+.adminMeasuresWorkspace{grid-template-columns:minmax(0,1fr) minmax(360px,410px)}
+.adminMeasuresWorkspace .adminMeasureForm{max-height:calc(100dvh - 145px);overflow:auto}
+.adminMeasuresWorkspace .adminMeasureTable td:nth-child(2),.adminMeasuresWorkspace .adminMeasureTable td:nth-child(3){white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1200px){.adminMeasuresWorkspace{grid-template-columns:minmax(0,1fr) 350px}}
+@media(max-width:1050px){.adminMeasuresWorkspace{grid-template-columns:1fr}.adminMeasuresWorkspace .adminMeasureForm{max-height:none}}
