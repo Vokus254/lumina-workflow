@@ -416,9 +416,20 @@ export function WorkflowShell({
   function openProcessOverview() {
     returnScreenRef.current = null;
     setActiveTaskId(null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
     setExpandedStepId(null);
     setView("process");
     router.replace(`/workflow?project=${encodeURIComponent(activeProjectId)}&view=process`);
+  }
+
+  function navigateShellView(target: ShellView) {
+    returnScreenRef.current = null;
+    setActiveTaskId(null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
+    setExpandedStepId(null);
+    setView(target);
   }
 
   function openStationDrilldown(stationCode: string) {
@@ -482,7 +493,7 @@ export function WorkflowShell({
   }, [adminData, activeProjectId]);
 
   const navButton = (target: ShellView, label: string, icon: string, count?: number, action?: () => void) => (
-    <button type="button" className={`${styles.navItem} ${view === target ? styles.navItemActive : ""}`} onClick={action || (() => setView(target))}>
+    <button type="button" className={`${styles.navItem} ${view === target ? styles.navItemActive : ""}`} onClick={action || (() => navigateShellView(target))}>
       <span className={styles.navIcon}>{icon}</span><span>{label}</span>{typeof count === "number" && count > 0 ? <span className={styles.navCount}>{count}</span> : null}
     </button>
   );
