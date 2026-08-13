@@ -177,3 +177,32 @@ footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1
 .adminEmbedded .adminMeasureTable thead th{position:sticky;top:0;z-index:2;background:var(--lumina-card)}
 .adminEmbedded .adminMeasureTable th:nth-child(1){width:76px}.adminEmbedded .adminMeasureTable th:nth-child(2){width:190px}.adminEmbedded .adminMeasureTable th:nth-child(4){width:105px}.adminEmbedded .adminMeasureTable th:nth-child(5){width:120px}.adminEmbedded .adminMeasureTable th:nth-child(6){width:115px}
 .adminEmbedded .statusPill.submitted{background:#edf0ff;color:#4e5ea8}
+
+/* P1A FIX16 — Administration und Maßnahmen vollständig in Shell-Skins */
+.adminEmbedded{background:var(--lumina-bg);color:var(--lumina-ink);padding:0}
+.adminEmbedded .adminToolbar{background:transparent}
+.adminEmbedded .adminTabs button{border-color:var(--lumina-line);background:var(--lumina-card);color:var(--lumina-ink-2);box-shadow:none}
+.adminEmbedded .adminTabs button:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark);background:var(--lumina-primary-soft)}
+.adminEmbedded .adminTabs button.active{background:var(--lumina-primary)!important;border-color:var(--lumina-primary)!important;color:#fff!important}
+.adminEmbedded .adminPanel,.adminEmbedded .adminEntityCard,.adminEmbedded .adminSearch,.adminEmbedded .formPanel input,.adminEmbedded .formPanel select{background:var(--lumina-card)!important;border-color:var(--lumina-line)!important;color:var(--lumina-ink)!important}
+.adminEmbedded .adminPanel{box-shadow:var(--lumina-shadow);border-radius:var(--lumina-radius)}
+.adminEmbedded .adminTable tbody tr:hover{background:var(--lumina-primary-soft)}
+.adminEmbedded .adminTable button,.adminEmbedded .panelHead button,.adminEmbedded .buttonRow button,.adminEmbedded .secondaryAdminButton{background:var(--lumina-card);border:1px solid var(--lumina-line);color:var(--lumina-ink);border-radius:var(--lumina-radius);padding:9px 12px;font-weight:700;cursor:pointer}
+.adminEmbedded .adminTable button:hover,.adminEmbedded .panelHead button:hover,.adminEmbedded .buttonRow button:hover,.adminEmbedded .secondaryAdminButton:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.adminEmbedded .primaryButton{background:var(--lumina-primary)!important;border-color:var(--lumina-primary)!important;color:#fff!important}
+.adminEmbedded .adminBack{color:var(--lumina-primary-dark)}
+.adminEmbedded .adminMeasureCount{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.adminEmbedded .statusPill.active{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.adminEmbedded .statusPill.draft{background:color-mix(in srgb,var(--lumina-line) 65%,var(--lumina-card));color:var(--lumina-ink-2)}
+.adminEmbedded .statusPill.submitted{background:var(--lumina-blue-soft);color:var(--lumina-blue)}
+.adminEmbedded .statusPill.locked{background:var(--lumina-warn-soft);color:var(--lumina-warn)}
+.adminMeasuresWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start;padding-bottom:24px}
+.adminMeasuresWorkspace .adminPanel{min-width:0}
+.adminMeasuresWorkspace .adminMeasureForm{position:sticky;top:76px}
+.adminMeasuresWorkspace .adminMeasureTableWrap{max-height:calc(100dvh - 245px);overflow:auto;border:1px solid var(--lumina-line);border-radius:var(--lumina-radius)}
+.adminMeasuresWorkspace .adminMeasureTable{min-width:1050px}
+.adminMeasuresWorkspace .adminMeasureTable thead th{position:sticky;top:0;z-index:2;background:var(--lumina-card)}
+.adminMeasuresWorkspace .adminMeasureTable tbody tr{cursor:pointer}
+.adminMeasuresWorkspace .buttonRow.compact{margin:0;align-items:center}.adminMeasuresWorkspace .buttonRow.compact>*{flex:0 0 auto}
+.adminMeasureForm .secondaryAdminButton{width:100%;margin-top:9px}
+@media(max-width:1050px){.adminMeasuresWorkspace{grid-template-columns:1fr}.adminMeasuresWorkspace .adminMeasureForm{position:static}.adminMeasuresWorkspace .adminMeasureTableWrap{max-height:520px}}

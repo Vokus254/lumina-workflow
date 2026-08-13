@@ -195,7 +195,7 @@ export function WorkflowShell({
   const [adminError, setAdminError] = useState("");
   const [myDaySort, setMyDaySort] = useState<MyDaySort>("due");
   const [openMyDayGroups, setOpenMyDayGroups] = useState<Record<string, boolean>>({});
-  const [adminSection, setAdminSection] = useState<"users" | "companies" | "projects" | "permissions" | null>(null);
+  const [adminSection, setAdminSection] = useState<"users" | "companies" | "projects" | "measures" | "permissions" | null>(null);
 
   useEffect(() => {
     setView(initialView);
@@ -613,15 +613,15 @@ export function WorkflowShell({
           embedded
           initialTab={adminSection}
           activeProjectId={activeProjectId}
-          projectTasks={effectiveTasks}
           onBack={() => setAdminSection(null)}
         /> : <>
           <div className={styles.pageHead}><div><h1>Administration</h1><p>Projekt-Setup, Stammdaten, Rollen und die 202 Maßnahmen direkt in der LUMINA-Arbeitsoberfläche.</p></div></div>
           <div className={styles.adminSetupGrid}>
             <button type="button" onClick={() => setAdminSection("users")}><span>01</span><b>Benutzer verwalten</b><small>Benutzer anlegen, bearbeiten, sperren und Zugänge vorbereiten.</small><i>Öffnen →</i></button>
             <button type="button" onClick={() => setAdminSection("permissions")}><span>02</span><b>Rollen & Berechtigungen</b><small>Gesellschafts- und Projektrollen vergeben sowie Workflow-Zuordnungen kontrollieren.</small><i>Öffnen →</i></button>
-            <button type="button" onClick={() => setAdminSection("projects")}><span>03</span><b>Projekte & 202 Maßnahmen</b><small>Jahresabschlussprojekt und die vollständige Maßnahmenliste des aktiven Projekts verwalten.</small><i>Öffnen →</i></button>
-            <button type="button" onClick={() => setAdminSection("companies")}><span>04</span><b>Gesellschaften</b><small>Mandantenstammdaten und Gesellschaftsstatus zentral verwalten.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("projects")}><span>03</span><b>Projekte</b><small>Jahresabschlussprojekte anlegen, bearbeiten und verwalten.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("measures")}><span>04</span><b>Maßnahmen</b><small>Die 202 Maßnahmen des aktiven Projekts anlegen, bearbeiten, speichern und löschen.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("companies")}><span>05</span><b>Gesellschaften</b><small>Mandantenstammdaten und Gesellschaftsstatus zentral verwalten.</small><i>Öffnen →</i></button>
           </div>
           {adminError ? <section className={styles.card}><p className={styles.emptyBlock}>{adminError}</p></section> : !adminData ? <section className={styles.card}><p className={styles.emptyBlock}>Projektmitglieder werden geladen …</p></section> : <section className={styles.card}><div className={styles.cardHead}><h2>Projektmitglieder · {projectName}</h2><span>{adminMembers.length} aktiv</span></div><table className={styles.table}><thead><tr><th>Name / E-Mail</th><th>Projektrolle</th><th>Letzter Login</th><th>Status</th></tr></thead><tbody>{adminMembers.map(({ member, user }) => <tr key={member.user_id}><td><b>{[user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.displayName || user?.email}</b><small className={styles.tableSub}>{user?.email}</small></td><td>{roleLabel(member.security_role)}</td><td>{formatDateTime(user?.lastSignInAt)}</td><td><span className={`${styles.chip} ${user?.blocked ? styles.chipReviewIssue : styles.chipDone}`}>{user?.blocked ? "Gesperrt" : "Aktiv"}</span></td></tr>)}</tbody></table></section>}
         </>}
@@ -638,6 +638,7 @@ export function WorkflowShell({
         onReady={() => setWorkspaceReady(true)}
         onTaskSaved={applyTaskUpdate}
         onTaskClose={closeTaskWorkspace}
+        skin={skin}
       />
     </div> : null}
   </div>;

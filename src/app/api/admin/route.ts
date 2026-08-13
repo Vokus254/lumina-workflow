@@ -23,7 +23,7 @@ export async function GET() {
   const admin = access.admin;
 
   try {
-    const [users, companiesRes, projectsRes, cmRes, pmRes, rolesRes, roleAssignmentsRes] = await Promise.all([
+    const [users, companiesRes, projectsRes, cmRes, pmRes, rolesRes, roleAssignmentsRes, processStepsRes] = await Promise.all([
       listAllUsers(admin),
       admin.from("companies").select("id,name,legal_form,registered_office,currency_code,status,created_at,updated_at").order("name"),
       admin.from("projects").select("id,company_id,name,fiscal_year_start,fiscal_year_end,reporting_date,status,created_at,updated_at").order("reporting_date", { ascending: false }),
@@ -31,6 +31,7 @@ export async function GET() {
       admin.from("project_members").select("project_id,user_id,security_role,active"),
       admin.from("responsibility_roles").select("id,project_id,role_key,display_name"),
       admin.from("role_user_assignments").select("role_id,user_id"),
+      admin.from("process_steps").select("id,project_id,code,name,sort_order").order("sort_order"),
     ]);
     if (companiesRes.error) throw companiesRes.error;
     if (projectsRes.error) throw projectsRes.error;
@@ -38,21 +39,23 @@ export async function GET() {
     if (pmRes.error) throw pmRes.error;
     if (rolesRes.error) throw rolesRes.error;
     if (roleAssignmentsRes.error) throw roleAssignmentsRes.error;
+    if (processStepsRes.error) throw processStepsRes.error;
 
     const projects = projectsRes.data ?? [];
     const projectIds = projects.map((p: any) => p.id);
     let taskCounts: Record<string, number> = {};
     let documentCounts: Record<string, number> = {};
     let roleTaskCounts: Record<string, number> = {};
+    let adminTasks: any[] = [];
     if (projectIds.length) {
       const [tasksRes, docsRes] = await Promise.all([
-        admin.from("tasks").select("project_id,responsibility_role_id").in("project_id", projectIds),
+        admin.from("tasks").select("id,project_id,process_step_id,responsibility_role_id,source_number,title,required_documents_text,due_date,work_status,review_status,legacy_source_key").in("project_id", projectIds),
         admin.from("documents").select("project_id").in("project_id", projectIds),
       ]);
-      if (!tasksRes.error) for (const row of tasksRes.data ?? []) {
+      if (!tasksRes.error) { adminTasks = tasksRes.data ?? []; for (const row of adminTasks) {
         taskCounts[row.project_id] = (taskCounts[row.project_id] || 0) + 1;
         if (row.responsibility_role_id) roleTaskCounts[row.responsibility_role_id] = (roleTaskCounts[row.responsibility_role_id] || 0) + 1;
-      }
+      }}
       if (!docsRes.error) for (const row of docsRes.data ?? []) documentCounts[row.project_id] = (documentCounts[row.project_id] || 0) + 1;
     }
 
@@ -89,6 +92,9 @@ export async function GET() {
       companyMembers: cmRes.data ?? [],
       projectMembers: pmRes.data ?? [],
       roleAssignments: effectiveRoleAssignments,
+      responsibilityRoles: rolesRes.data ?? [],
+      processSteps: processStepsRes.data ?? [],
+      tasks: adminTasks,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Admin-Daten konnten nicht geladen werden." }, { status: 500 });
@@ -257,6 +263,74 @@ export async function POST(request: Request) {
     }
     if (action === "remove_project_member") {
       const { error } = await admin.from("project_members").delete().eq("project_id", text(body.projectId)).eq("user_id", text(body.userId));
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "assign_responsibility_role") {
+      const roleId = text(body.roleId), userId = text(body.userId);
+      if (!roleId || !userId) throw new Error("Benutzer und Workflow-Rolle sind erforderlich.");
+      const { error } = await admin.from("role_user_assignments").upsert({ role_id: roleId, user_id: userId }, { onConflict: "role_id,user_id" });
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+    if (action === "remove_responsibility_role") {
+      const { error } = await admin.from("role_user_assignments").delete().eq("role_id", text(body.roleId)).eq("user_id", text(body.userId));
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "create_task") {
+      const projectId = text(body.projectId), title = text(body.title);
+      if (!projectId || !title) throw new Error("Projekt und Aufgabenbezeichnung sind erforderlich.");
+      const processStepId = text(body.processStepId) || null;
+      const roleId = text(body.responsibilityRoleId) || null;
+      const sourceNumber = text(body.sourceNumber) || null;
+      const legacyKey = `admin:${Date.now()}:${Math.random().toString(36).slice(2,10)}`;
+      const { data, error } = await admin.from("tasks").insert({
+        project_id: projectId,
+        process_step_id: processStepId,
+        responsibility_role_id: roleId,
+        source_number: sourceNumber,
+        title,
+        required_documents_text: text(body.requiredDocuments) || null,
+        due_date: asDate(body.dueDate),
+        work_status: text(body.workStatus) || "open",
+        review_status: text(body.reviewStatus) || "unreviewed",
+        legacy_source_key: legacyKey,
+      }).select("id").single();
+      if (error) throw error;
+      return NextResponse.json({ ok: true, taskId: data.id });
+    }
+
+    if (action === "update_task") {
+      const taskId = text(body.taskId);
+      if (!taskId) throw new Error("Maßnahme fehlt.");
+      const { error } = await admin.from("tasks").update({
+        process_step_id: text(body.processStepId) || null,
+        responsibility_role_id: text(body.responsibilityRoleId) || null,
+        source_number: text(body.sourceNumber) || null,
+        title: text(body.title),
+        required_documents_text: text(body.requiredDocuments) || null,
+        due_date: asDate(body.dueDate),
+        work_status: text(body.workStatus) || "open",
+        review_status: text(body.reviewStatus) || "unreviewed",
+        updated_at: new Date().toISOString(),
+      }).eq("id", taskId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "delete_task") {
+      const taskId = text(body.taskId);
+      const [{ count: docCount, error: docError }, { count: msgCount, error: msgError }] = await Promise.all([
+        admin.from("documents").select("id", { count: "exact", head: true }).eq("task_id", taskId),
+        admin.from("task_messages").select("id", { count: "exact", head: true }).eq("task_id", taskId),
+      ]);
+      if (docError) throw docError;
+      if (msgError) throw msgError;
+      if ((docCount || 0) > 0 || (msgCount || 0) > 0) throw new Error("Maßnahme enthält Dokumente oder Kommunikation und kann daher nicht gelöscht werden.");
+      const { error } = await admin.from("tasks").delete().eq("id", taskId);
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
