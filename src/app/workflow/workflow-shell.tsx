@@ -69,6 +69,8 @@ type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
 type Skin = "lumina" | "blue" | "light" | "yellow";
 type ShellView = "start" | "process" | "messages" | "status" | "admin";
 type MyDaySort = "due" | "number" | "process";
+type SparringAssistant = "KAI" | "KIRA";
+type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string };
 
 type AdminUser = {
   id: string;
@@ -198,6 +200,12 @@ export function WorkflowShell({
   const [myDaySort, setMyDaySort] = useState<MyDaySort>("due");
   const [openMyDayGroups, setOpenMyDayGroups] = useState<Record<string, boolean>>({});
   const [adminSection, setAdminSection] = useState<"users" | "companies" | "projects" | "measures" | "permissions" | null>(null);
+  const [sparringAssistant, setSparringAssistant] = useState<SparringAssistant>("KAI");
+  const [sparringMessages, setSparringMessages] = useState<SparringMessage[]>([]);
+  const [sparringInput, setSparringInput] = useState("");
+  const [sparringLoading, setSparringLoading] = useState(false);
+  const [sparringError, setSparringError] = useState("");
+  const sparringAutoRef = useRef<string>("");
 
   useEffect(() => {
     setView(initialView);
@@ -321,6 +329,55 @@ export function WorkflowShell({
   const sortedWork = [...personalOpenTasks].sort(compareDue);
   const kaiTarget = personalReviewIssues[0] || personalOverdue[0] || personalToday[0] || personalThisWeek[0] || sortedWork[0] || null;
   const kaiTargetTab = kaiTarget && (kaiTarget.reviewStatus === "changes_required" || kaiTarget.reviewStatus === "question") ? "review" : null;
+
+  const sparringStorageKey = `lumina-sparring:${activeProjectId}:${userEmail}:${todayIso}`;
+  async function askSparring(assistant: SparringAssistant, question: string, mode: "assessment" | "chat" = "chat") {
+    const text = question.trim();
+    if (!text || sparringLoading) return;
+    setSparringAssistant(assistant);
+    setSparringError("");
+    setSparringLoading(true);
+    const history = sparringMessages.slice(-8);
+    if (mode === "chat") setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
+    try {
+      const response = await fetch("/api/ai/day-sparring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "KI-Sparring ist derzeit nicht erreichbar.");
+      const assistantMessage: SparringMessage = { role: "assistant", assistant, content: String(payload.response || "") };
+      setSparringMessages((current) => {
+        const next = [...current, assistantMessage];
+        try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
+        return next;
+      });
+    } catch (error) {
+      setSparringError(error instanceof Error ? error.message : "KI-Sparring ist derzeit nicht erreichbar.");
+    } finally {
+      setSparringLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (view !== "start" || roleView === "cfo") return;
+    try {
+      const cached = window.sessionStorage.getItem(sparringStorageKey);
+      if (cached && sparringMessages.length === 0) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) setSparringMessages(parsed.slice(-12));
+      }
+    } catch {}
+  }, [sparringStorageKey, view, roleView]);
+
+  useEffect(() => {
+    if (view !== "start" || roleView === "cfo" || personalOpenTasks.length === 0 || sparringMessages.length > 0 || sparringLoading) return;
+    const key = `${activeProjectId}:${userEmail}:${todayIso}`;
+    if (sparringAutoRef.current === key) return;
+    sparringAutoRef.current = key;
+    void askSparring("KAI", "Beurteile meine heutige Arbeitssituation und sage mir in wenigen Worten, worauf ich mich jetzt konzentrieren sollte.", "assessment");
+  }, [view, roleView, personalOpenTasks.length, activeProjectId, userEmail, todayIso, sparringMessages.length, sparringLoading]);
 
   // Der Statusbericht ist bewusst persönlich: dieselbe Aufgabenmenge wie "Mein Tag" und die aktiven Prozesskacheln.
   const taskTotal = personalTasks.length;
@@ -569,7 +626,15 @@ export function WorkflowShell({
         <div className={styles.twoColumns}><section className={styles.card}><div className={`${styles.cardHead} ${styles.myDayCardHead}`}><div><h2>Meine Aufgaben</h2><small>Startansicht eingeklappt · Standard nach Fälligkeit</small></div><div className={styles.myDaySort} role="group" aria-label="Aufgaben sortieren">{([
           ["due", "Fälligkeit"], ["number", "Aufgabennummer"], ["process", "Prozessschritt"],
         ] as const).map(([value, label]) => <button key={value} type="button" className={myDaySort === value ? styles.myDaySortActive : ""} onClick={() => { setMyDaySort(value); setOpenMyDayGroups({}); }}>{label}</button>)}</div><span>{personalOpenTasks.length} offen</span></div><div className={`${styles.taskList} ${styles.taskListScrollable} ${styles.myDayList}`}>{myDayGroups.length ? myDayGroups.map((group) => { const isOpen = Boolean(openMyDayGroups[group.key]); return <section className={styles.myDayAccordion} key={group.key}><button type="button" className={styles.myDayAccordionHead} aria-expanded={isOpen} onClick={() => setOpenMyDayGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}><span className={styles.myDayChevron}>{isOpen ? "⌄" : "›"}</span><span><b>{group.label}</b><small>{group.note}</small></span></button>{isOpen ? <div className={styles.myDayAccordionBody}><div className={styles.myDayColumns}><span>Fälligkeit</span><span>Prozessschritt</span><span>Aufgabe</span><span>Bearbeitung</span><span>Review</span></div>{group.rows.map((task) => <button key={task.id} type="button" className={styles.myDayTaskRow} onClick={() => openTask(task.id)}><span className={`${styles.myDayDue} ${task.dueDate && task.dueDate < todayIso ? styles.dueLate : ""}`}>{task.dueDate === todayIso ? "heute" : formatDate(task.dueDate)}</span><span className={styles.myDayProcess}><b>{processLabel(task)}</b><small>{task.processStepName || "Arbeitsschritt"}</small></span><span className={styles.myDayTask}><b>{taskNumber(task)} · {task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span></button>)}</div> : null}</section>; }) : <p className={styles.emptyBlock}>Für Sie sind aktuell keine offenen Aufgaben zugeordnet.</p>}</div></section>
-          <div className={styles.stack}><section className={styles.card}><div className={styles.cardHead}><h2>Rückfragen an mich</h2><span>{personalReviewIssues.length || ""}</span></div><div className={styles.sideList}>{personalReviewIssues.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id, task.reviewStatus === "question" ? "communication" : "review")}><i className={styles.dotRed}/><span><b>{task.processStepCode || task.processStepName || "Aufgabe"} · {task.title}</b><small>{reviewLabel(task.reviewStatus)} · direkt öffnen</small></span></button>)}{personalReviewIssues.length === 0 ? <p className={styles.empty}>Keine offenen Review-Rückfragen.</p> : null}</div></section><section className={styles.card}><div className={styles.cardHead}><h2>KAI schlägt vor</h2></div>{kaiTarget ? <button className={styles.aiAction} type="button" onClick={() => openTask(kaiTarget.id, kaiTargetTab)}><i className={styles.dotGreen}/><span><b>{personalReviewIssues.length ? "Offene Rückfrage zuerst klären" : personalOverdue.length ? `${personalOverdue.length} überfällige eigene Aufgaben priorisieren` : "Nächste Aufgabe nach Fälligkeit bearbeiten"}</b><small>{kaiTarget.processStepCode || kaiTarget.stationCode} · {kaiTarget.title} → öffnen</small></span></button> : <div className={styles.aiHint}><i className={styles.dotGreen}/><span>Aktuell sind Ihnen keine offenen Aufgaben zugeordnet.</span></div>}</section></div>
+          <div className={styles.stack}><section className={styles.card}><div className={styles.cardHead}><h2>Rückfragen an mich</h2><span>{personalReviewIssues.length || ""}</span></div><div className={styles.sideList}>{personalReviewIssues.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id, task.reviewStatus === "question" ? "communication" : "review")}><i className={styles.dotRed}/><span><b>{task.processStepCode || task.processStepName || "Aufgabe"} · {task.title}</b><small>{reviewLabel(task.reviewStatus)} · direkt öffnen</small></span></button>)}{personalReviewIssues.length === 0 ? <p className={styles.empty}>Keine offenen Review-Rückfragen.</p> : null}</div></section><section className={`${styles.card} ${styles.sparringCard}`}>
+              <div className={styles.sparringHead}><div><span className={styles.sparringKicker}>Persönliches Tages-Sparring</span><h2>KAI & KIRA</h2><small>Kennt Ihre Rollen, Aufgaben, Fristen, Nachweise und offenen Rückfragen.</small></div><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div></div>
+              {kaiTarget ? <button className={styles.sparringTaskHint} type="button" onClick={() => openTask(kaiTarget.id, kaiTargetTab)}><span>Direkter Arbeitsvorschlag</span><b>{kaiTarget.processStepCode || kaiTarget.stationCode} · {kaiTarget.title}</b><small>Aufgabe öffnen →</small></button> : null}
+              <div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p></div>) : <div className={styles.sparringEmpty}>{sparringLoading ? "KAI beurteilt Ihre aktuelle Situation …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading && sparringMessages.length ? <div className={styles.sparringTyping}>{sparringAssistant} denkt …</div> : null}</div>
+              {sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}
+              <div className={styles.sparringPrompts}>{(sparringAssistant === "KAI" ? ["Was hat heute Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich für den Prüfer vorbereiten?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"]).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div>
+              <div className={styles.sparringComposer}><textarea value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über Ihren Abschluss sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div>
+              <div className={styles.sparringDisclaimer}>KI-Sparring · fachliche Empfehlungen bitte prüfen · keine automatische Status- oder Datenänderung.</div>
+            </section></div>
         </div>
       </section> : null}
 

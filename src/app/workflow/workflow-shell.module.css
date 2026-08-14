@@ -263,3 +263,24 @@
 @media(max-width:1180px){.myDayColumns,.myDayTaskRow{grid-template-columns:88px minmax(170px,.8fr) minmax(230px,1.2fr) auto}.myDayColumns>span:nth-child(5),.myDayTaskRow>.chip:last-child{display:none}}
 @media(max-width:900px){.myDaySort{width:100%;margin-left:0}.myDaySort button{flex:1}.myDayColumns,.myDayTaskRow{grid-template-columns:84px minmax(160px,.8fr) minmax(220px,1.2fr)}.myDayColumns>span:nth-child(n+4),.myDayTaskRow>.chip{display:none}}
 @media(max-width:680px){.myDayColumns,.myDayTaskRow{grid-template-columns:78px 1fr}.myDayColumns>span:nth-child(2),.myDayTaskRow>.myDayProcess{display:none}.myDayTaskRow{min-height:44px}}
+
+
+/* KAI/KIRA V5 – persönliches Tages-Sparring auf Basis des serverseitig autorisierten Nutzerkontexts */
+.sparringCard{overflow:hidden}
+.sparringHead{display:flex;justify-content:space-between;gap:14px;padding:15px 16px 12px;border-bottom:1px solid var(--lumina-line);background:linear-gradient(135deg,color-mix(in srgb,var(--lumina-primary-soft) 72%,#fff),#fff)}
+.sparringHead>div:first-child{display:grid;gap:2px}.sparringHead h2{margin:0;font-size:16px}.sparringHead small{font-size:10.75px;line-height:1.35;color:var(--lumina-ink-3)}
+.sparringKicker{font-size:9.5px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--lumina-primary-dark)}
+.sparringSwitch{display:flex;align-self:flex-start;gap:3px;padding:3px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff}
+.sparringSwitch button{border:0;background:transparent;border-radius:6px;padding:6px 9px;font:inherit;font-size:10.5px;font-weight:850;color:var(--lumina-ink-2);cursor:pointer}
+.sparringSwitchActive{background:var(--lumina-primary)!important;color:#fff!important}
+.sparringTaskHint{width:100%;display:grid;gap:2px;padding:10px 16px;border:0;border-bottom:1px solid var(--lumina-line);background:#fff;text-align:left;color:var(--lumina-ink);cursor:pointer}
+.sparringTaskHint:hover{background:var(--lumina-primary-soft)}.sparringTaskHint span{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:800;color:var(--lumina-ink-3)}.sparringTaskHint b{font-size:11.5px}.sparringTaskHint small{font-size:10px;color:var(--lumina-primary-dark);font-weight:750}
+.sparringConversation{max-height:310px;overflow:auto;display:grid;gap:8px;padding:12px 14px;background:color-mix(in srgb,var(--lumina-bg) 48%,#fff)}
+.sparringBubble{max-width:94%;display:grid;gap:3px;padding:9px 11px;border-radius:10px;border:1px solid var(--lumina-line);box-shadow:0 1px 2px rgba(16,32,27,.03)}.sparringBubble b{font-size:9.5px;letter-spacing:.04em;text-transform:uppercase}.sparringBubble p{margin:0;white-space:pre-wrap;font-size:11.5px;line-height:1.45}
+.sparringBubbleAi{justify-self:start;background:#fff}.sparringBubbleAi b{color:var(--lumina-primary-dark)}.sparringBubbleUser{justify-self:end;background:var(--lumina-primary-soft);border-color:color-mix(in srgb,var(--lumina-primary) 20%,var(--lumina-line))}.sparringBubbleUser b{color:var(--lumina-ink-2)}
+.sparringEmpty,.sparringTyping{font-size:11px;color:var(--lumina-ink-3);padding:4px 2px}.sparringTyping{font-style:italic}
+.sparringError{margin:10px 14px 0;padding:8px 10px;border-radius:8px;background:#fff2f0;border:1px solid #efc8c3;color:#9b332c;font-size:10.75px}
+.sparringPrompts{display:flex;flex-wrap:wrap;gap:5px;padding:10px 14px 4px;border-top:1px solid var(--lumina-line);background:#fff}.sparringPrompts button{border:1px solid var(--lumina-line);border-radius:999px;background:#fff;color:var(--lumina-primary-dark);padding:5px 8px;font:inherit;font-size:9.75px;font-weight:750;cursor:pointer}.sparringPrompts button:hover{background:var(--lumina-primary-soft);border-color:var(--lumina-primary)}.sparringPrompts button:disabled{opacity:.5;cursor:default}
+.sparringComposer{display:grid;grid-template-columns:1fr auto;gap:7px;padding:8px 14px 10px;background:#fff}.sparringComposer textarea{min-height:54px;max-height:130px;resize:vertical;border:1px solid var(--lumina-line);border-radius:9px;padding:9px 10px;font:inherit;font-size:11.5px;color:var(--lumina-ink);outline:none}.sparringComposer textarea:focus{border-color:var(--lumina-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--lumina-primary) 10%,transparent)}.sparringComposer button{align-self:end;border:0;border-radius:8px;background:var(--lumina-primary);color:#fff;padding:9px 12px;font:inherit;font-size:10.75px;font-weight:850;cursor:pointer}.sparringComposer button:disabled{opacity:.45;cursor:default}
+.sparringDisclaimer{padding:0 14px 11px;background:#fff;font-size:9.25px;color:var(--lumina-ink-3)}
+@media(max-width:900px){.sparringHead{flex-direction:column}.sparringSwitch{align-self:flex-start}.sparringConversation{max-height:260px}.sparringComposer{grid-template-columns:1fr}.sparringComposer button{justify-self:end}}
