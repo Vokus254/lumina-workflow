@@ -203,6 +203,8 @@
 .workspaceOverlayLoading{opacity:0;pointer-events:none}
 .workspaceOverlayReady{opacity:1;pointer-events:auto}
 .workspaceOverlay>main{height:100%}
+.toolWorkspaceClose{position:absolute;top:12px;right:18px;z-index:5;width:36px;height:36px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink2);font-size:24px;line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(16,32,27,.08)}
+.toolWorkspaceClose:hover{border-color:var(--primary);color:var(--primary-dark);background:var(--primary-soft)}
 .tableRowInactive{opacity:.46;cursor:default!important;background:color-mix(in srgb,var(--lumina-bg) 65%,#fff)}
 .tableRowInactive:hover{background:color-mix(in srgb,var(--lumina-bg) 65%,#fff)!important}
 .communicationList{display:grid}

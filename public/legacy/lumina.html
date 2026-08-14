@@ -1222,6 +1222,56 @@ function werkzeugLabel(sub){
            pbc:"Liste", kontenmapping:"Zuordnung", statement:"Auswertung", milestones:"Zeitplan"
          }[sub.type] || "Werkzeug";
 }
+function measureCodeFromTitle(title){
+  const match=String(title||"").match(/^\s*(\d+(?:\.\d+)*)\.?\s*/);
+  return match?match[1]:"";
+}
+const LUMINA_TOOL_TITLES={
+  "2.1.1":"Zeitplan der Meilensteine",
+  "2.1.2":"Gesamtverantwortung & Koordination",
+  "2.2.1":"Verantwortliche je Bilanzposten",
+  "2.2.2":"Gesamtverantwortung & Koordination",
+  "2.4.1":"Maßnahmen- / Aufgabenliste",
+  "2.4.2":"Gesamtverantwortung & Koordination",
+  "3.17.1":"SuSa hochladen",
+  "3.17.2":"Mapping",
+  "3.17.3":"Berichtsstruktur",
+  "4.4.1":"Bilanz & GuV",
+  "4.4.2":"Gesamtverantwortung & Koordination"
+};
+function toolSubCode(m,subIndex){
+  const code=measureCodeFromTitle(m?.title);
+  return code?`${code}.${subIndex+1}`:String(subIndex+1);
+}
+function toolSubTitle(m,subIndex,sub){
+  const code=toolSubCode(m,subIndex);
+  return LUMINA_TOOL_TITLES[code]||sub?.text||"Werkzeug";
+}
+function openRequestedTool(toolCode){
+  const wanted=String(toolCode||"").trim();
+  if(!wanted)return false;
+  for(let i=0;i<stations.length;i++){
+    const measures=stations[i].measures||[];
+    for(let j=0;j<measures.length;j++){
+      const m=measures[j];
+      const mCode=measureCodeFromTitle(m.title);
+      if(wanted===mCode){
+        view={level:"subitems",station:i,measure:j};
+        render();
+        return true;
+      }
+      for(let k=0;k<(m.subitems||[]).length;k++){
+        if(wanted===toolSubCode(m,k)){
+          const target=subitemViewLevel(m.subitems[k]);
+          view={level:target||"subitems",station:i,measure:j,sub:k};
+          render();
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 // Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
 // Nur noch für den alten Kachelpfad; der neue adressiert über guidanceByStepId.
 const guidanceByCode = new Map();
@@ -1463,10 +1513,11 @@ function renderGrid(){
           const tile = document.createElement("button");
           tile.className = "tile" + (sub.done ? " is-complete" : "");
           tile.title = sub.text;
+          const subCode=toolSubCode(m,k);
           tile.innerHTML = `
-            <span class="tile-num">${luminaEsc(werkzeugLabel(sub))}</span>
-            <span class="tile-title">${luminaEsc(sub.text)}</span>
-            <div class="tile-bottom"><div class="tile-meta"><span class="tile-frac">Werkzeug</span></div></div>
+            <span class="tile-num">${luminaEsc(subCode)}</span>
+            <span class="tile-title">${luminaEsc(toolSubTitle(m,k,sub))}</span>
+            <div class="tile-bottom"><div class="tile-meta"><span class="tile-frac">${luminaEsc(werkzeugLabel(sub))}</span></div></div>
           `;
           tile.addEventListener("click", () => {
             view = { level: ziel, station: view.station, measure: view.measure, sub: k };
@@ -1555,30 +1606,33 @@ function renderGrid(){
     const m = stations[view.station].measures[view.measure];
     m.subitems.forEach((sub, k) => {
       const tile = document.createElement("button");
+      const subCode=toolSubCode(m,k);
+      const subTitle=toolSubTitle(m,k,sub);
       tile.className = "tile tile-leaf" + (sub.done ? " is-complete" : "");
-      tile.innerHTML = sub.fields
-        ? `<span class="tile-form-badge">Formular</span><span class="tile-title">${sub.text}</span>`
+      tile.title=`${subCode} · ${subTitle}`;
+      tile.innerHTML = `<span class="tile-num">${luminaEsc(subCode)}</span>` + (sub.fields
+        ? `<span class="tile-form-badge">Formular</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "roles"
-        ? `<span class="tile-form-badge">Rollen</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Rollen</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "tree"
-        ? `<span class="tile-form-badge">Struktur</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Struktur</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "table"
-        ? `<span class="tile-form-badge">Tabelle</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Tabelle</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "import"
-        ? `<span class="tile-form-badge">Import</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Import</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "mapping"
-        ? `<span class="tile-form-badge">Mapping</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Mapping</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "pbc"
-        ? `<span class="tile-form-badge">Liste</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Liste</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "kontenmapping"
-        ? `<span class="tile-form-badge">Zuordnung</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Zuordnung</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "statement"
-        ? `<span class="tile-form-badge">Auswertung</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Auswertung</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "milestones"
-        ? `<span class="tile-form-badge">Zeitplan</span><span class="tile-title">${sub.text}</span>`
+        ? `<span class="tile-form-badge">Zeitplan</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
         : sub.type === "guidance"
-        ? `<span class="tile-form-badge">Anleitung</span><span class="tile-title">${sub.text}</span>`
-        : `<span class="tile-check"></span><span class="tile-title">${sub.text}</span>`;
+        ? `<span class="tile-form-badge">Anleitung</span><span class="tile-title">${luminaEsc(subTitle)}</span>`
+        : `<span class="tile-check"></span><span class="tile-title">${luminaEsc(subTitle)}</span>`);
       tile.addEventListener("click", () => {
         if(sub.fields){
           view = { level: "form", station: view.station, measure: view.measure, sub: k };
@@ -14053,8 +14107,14 @@ async function startLuminaForSession(session){
   document.body.classList.add('lumina-authenticated');
   render();
   await refreshInboxCount();
-  const requestedParams=new URLSearchParams(location.search),requestedTask=requestedParams.get('task'),requestedTab=requestedParams.get('tab');
-  if(requestedTask){const pbc=luminaPbcRows(),ri=pbc?.rows.findIndex((row,index)=>String(row[0])===requestedTask||ensureTaskState(pbc.sub.data,row,index).remoteTaskId===requestedTask),validTab=AUFGABEN_REITER.some(([key])=>key===requestedTab)?requestedTab:'room';if(pbc&&ri>=0)openTaskModal(pbc.sub,ri,validTab);}
+  const requestedParams=new URLSearchParams(location.search),requestedTask=requestedParams.get('task'),requestedTab=requestedParams.get('tab'),requestedTool=requestedParams.get('tool');
+  if(requestedTool){
+    document.body.classList.add('lumina-tool-mode');
+    openRequestedTool(requestedTool);
+  } else if(requestedTask){
+    const pbc=luminaPbcRows(),ri=pbc?.rows.findIndex((row,index)=>String(row[0])===requestedTask||ensureTaskState(pbc.sub.data,row,index).remoteTaskId===requestedTask),validTab=AUFGABEN_REITER.some(([key])=>key===requestedTab)?requestedTab:'room';
+    if(pbc&&ri>=0)openTaskModal(pbc.sub,ri,validTab);
+  }
 }
 
 async function initializeLuminaSupabase(){

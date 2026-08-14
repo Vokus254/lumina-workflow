@@ -82,6 +82,7 @@ export function LegacyDashboard({
     router.refresh();
   }, [router]);
 
+  const toolMode = new URLSearchParams(query).has("tool");
   const frameSource = query ? `/legacy/lumina.html?${query}` : "/legacy/lumina.html";
 
   useEffect(() => {
@@ -136,6 +137,13 @@ export function LegacyDashboard({
       onReady?.();
       return;
     }
+    if (toolMode) {
+      window.setTimeout(() => {
+        setFrameReady(true);
+        onReady?.();
+      }, 120);
+      return;
+    }
 
     const startedAt = Date.now();
     if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
@@ -172,7 +180,7 @@ export function LegacyDashboard({
         // Same-origin iframe is expected; keep waiting if the document is not ready yet.
       }
     }, 45);
-  }, [embedded, initialTab, onReady]);
+  }, [embedded, initialTab, onReady, toolMode]);
 
   const handleFrameLoad = useCallback(async () => {
     if (embedded) {
@@ -181,7 +189,14 @@ export function LegacyDashboard({
         if (doc && !doc.getElementById("lumina-p1a-embedded-style")) {
           const style = doc.createElement("style");
           style.id = "lumina-p1a-embedded-style";
-          style.textContent = `
+          style.textContent = toolMode ? `
+            :root{--p1a-bg:#f4f6f4;--p1a-card:#fff;--p1a-line:#e2e7e3;--p1a-ink:#10201b;--p1a-ink2:#3c4a45;--p1a-ink3:#77837e;--p1a-primary:#0e8c6d;--p1a-primary-dark:#0a6b53;--p1a-primary-soft:#e3f2ec;--p1a-radius:10px;}
+            body{background:var(--p1a-card)!important;color:var(--p1a-ink)!important;}
+            body > *:not(.page):not(script):not(style){display:none!important;}
+            .page{display:block!important;max-width:none!important;margin:0!important;padding:28px 32px 96px!important;background:var(--p1a-card)!important;min-height:100vh!important;}
+            .page .header,.page .top-export-note{display:none!important;}
+            .page .context-row{margin-top:0!important;}
+          ` : `
             :root{--p1a-bg:#f4f6f4;--p1a-card:#fff;--p1a-line:#e2e7e3;--p1a-ink:#10201b;--p1a-ink2:#3c4a45;--p1a-ink3:#77837e;--p1a-primary:#0e8c6d;--p1a-primary-dark:#0a6b53;--p1a-primary-soft:#e3f2ec;--p1a-radius:10px;}
             body{background:var(--p1a-card)!important;color:var(--p1a-ink)!important;}
             body > *:not(#task-modal-backdrop):not(script):not(style){display:none!important;}
@@ -242,7 +257,7 @@ export function LegacyDashboard({
     }
     await sendSession();
     markReadyWhenWorkspaceIsOpen();
-  }, [embedded, sendSession, onTaskClose, onTabChange, markReadyWhenWorkspaceIsOpen]);
+  }, [embedded, sendSession, onTaskClose, onTabChange, markReadyWhenWorkspaceIsOpen, toolMode]);
 
   if (embedded) {
     return <main style={{ width: "100%", height: "100%", minHeight: 0, overflow: "hidden", background: "transparent", position: "relative" }}>

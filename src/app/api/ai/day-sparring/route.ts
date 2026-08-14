@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 type Assistant = "KAI" | "KIRA";
 type HistoryItem = { role?: "user" | "assistant"; content?: string; assistant?: Assistant };
-type PageContext = { view?: string; taskId?: string | null; tab?: string | null; processStepId?: string | null; processStepCode?: string | null; processStepName?: string | null };
+type PageContext = { view?: string; taskId?: string | null; tab?: string | null; processStepId?: string | null; processStepCode?: string | null; processStepName?: string | null; toolCode?: string | null; toolName?: string | null };
 type MemoryType = "decision" | "commitment" | "open_point" | "preference" | "escalation" | "result";
 type MemoryRow = { id: string; task_id?: string | null; memory_type: MemoryType; title: string; content: string; status: string; updated_at?: string | null };
 type MemoryAction = { action?: "add" | "resolve"; id?: string; type?: MemoryType; title?: string; content?: string; taskId?: string | null };
@@ -23,7 +23,7 @@ function extractOutputText(payload: any): string {
   return parts.join("\n").trim();
 }
 
-function boundedJson(value: unknown, maxLength = 19000) {
+function boundedJson(value: unknown, maxLength = 42000) {
   const json = JSON.stringify(value, null, 2);
   return json.length <= maxLength ? json : `${json.slice(0, maxLength)}\n… [Kontext gekürzt]`;
 }
@@ -109,6 +109,8 @@ export async function POST(request: Request) {
     processStepId: body.pageContext?.processStepId ? String(body.pageContext.processStepId).slice(0, 80) : null,
     processStepCode: body.pageContext?.processStepCode ? String(body.pageContext.processStepCode).slice(0, 60) : null,
     processStepName: body.pageContext?.processStepName ? String(body.pageContext.processStepName).slice(0, 200) : null,
+    toolCode: body.pageContext?.toolCode ? String(body.pageContext.toolCode).slice(0, 60) : null,
+    toolName: body.pageContext?.toolName ? String(body.pageContext.toolName).slice(0, 200) : null,
   };
   if (!projectId || !prompt) return NextResponse.json({ error: "Projekt oder Frage fehlt." }, { status: 400 });
   if (prompt.length > 4000) return NextResponse.json({ error: "Die Frage ist zu lang. Bitte auf maximal 4.000 Zeichen kürzen." }, { status: 400 });
@@ -121,7 +123,7 @@ export async function POST(request: Request) {
   if (projectError || !project) return NextResponse.json({ error: "Kein Zugriff auf dieses Projekt." }, { status: 403 });
 
   const userId = String(claims.sub);
-  const [roleAssignmentResult, projectMemberResult, companyResult, rolesResult, stepsResult, taskResult, milestoneResult, dueDatesResult, memoryResult] = await Promise.all([
+  const [roleAssignmentResult, projectMemberResult, companyResult, rolesResult, stepsResult, taskResult, milestoneResult, dueDatesResult, memoryResult, scheduleMatrixResult] = await Promise.all([
     supabase.from("role_user_assignments").select("role_id").eq("user_id", userId),
     supabase.from("project_members").select("security_role,active").eq("project_id", projectId).eq("user_id", userId).maybeSingle(),
     supabase.from("companies").select("id,name,legal_form,registered_office,currency_code").eq("id", project.company_id).maybeSingle(),
@@ -132,6 +134,7 @@ export async function POST(request: Request) {
     supabase.from("project_milestones").select("id,milestone_key,label,milestone_date,status,notes,source_type,is_key_milestone,sort_order").eq("project_id", projectId).order("milestone_date", { ascending: true }),
     supabase.from("process_step_due_dates").select("id,process_step_id,phase_key,due_rule_label,due_date,due_date_override,sort_order").eq("project_id", projectId).order("sort_order", { ascending: true }),
     supabase.from("kai_kira_memories").select("id,task_id,memory_type,title,content,status,updated_at").eq("project_id", projectId).eq("user_id", userId).eq("status", "active").order("updated_at", { ascending: false }).limit(80),
+    supabase.rpc("get_project_schedule_responsibility", { p_project_id: projectId }),
   ]);
 
   if (taskResult.error) return NextResponse.json({ error: "Der autorisierte Aufgabenkontext konnte nicht geladen werden." }, { status: 500 });
@@ -143,6 +146,7 @@ export async function POST(request: Request) {
   const stepRows = stepsResult.data || [];
   const stepById = new Map(stepRows.map((step: any) => [String(step.id), step]));
   const taskIds = taskRows.map((task: any) => String(task.id));
+  const roleById = new Map(visibleRoles.map((role: any) => [String(role.id), role]));
 
   const [documentsResult, messagesResult, eventsResult] = await Promise.all([
     taskIds.length ? supabase.from("documents").select("task_id,display_name,document_status,created_at").in("task_id", taskIds).is("archived_at", null).limit(120) : Promise.resolve({ data: [] as any[] }),
@@ -161,6 +165,10 @@ export async function POST(request: Request) {
       number: task.source_number,
       title: task.title,
       responsibilityRoleId: task.responsibility_role_id,
+      responsibility: task.responsibility_role_id ? (() => {
+        const role: any = roleById.get(String(task.responsibility_role_id));
+        return role ? { role: role.display_name || role.role_key, roleKey: role.role_key, person: [role.first_name, role.last_name].filter(Boolean).join(" ") || null, email: role.email || null } : null;
+      })() : null,
       assignedToCurrentUser: Boolean(task.responsibility_role_id && roleIds.has(String(task.responsibility_role_id))),
       processStep: step ? `${step.code} · ${step.name}` : null,
       processStepCode: step?.code || null,
@@ -198,6 +206,11 @@ export async function POST(request: Request) {
     };
   }).filter((row: any) => row.date || row.label).slice(0, 80);
 
+  const scheduleRows = scheduleMatrixResult.error ? [] : (scheduleMatrixResult.data || []);
+  const scheduleResponsibilityMatrix = scheduleRows.map((row: any) => [
+    row.schedule_type, row.due_date, row.process_step_code, row.label, row.responsibility_role, row.responsible_person, row.responsible_email, row.status, row.source,
+  ]);
+
   const activeMemories: MemoryRow[] = memoryResult.error ? [] : (memoryResult.data || []) as MemoryRow[];
   const relevantMemories = selectRelevantMemories(activeMemories, prompt, currentTask?.id || null);
 
@@ -226,14 +239,19 @@ export async function POST(request: Request) {
       tab: requestedPageContext.tab ? (tabLabels[requestedPageContext.tab] || requestedPageContext.tab) : null,
       processStep: requestedPageContext.processStepCode || requestedPageContext.processStepName ? { code: requestedPageContext.processStepCode, name: requestedPageContext.processStepName } : null,
       currentTask,
+      tool: requestedPageContext.toolCode ? { code: requestedPageContext.toolCode, name: requestedPageContext.toolName || requestedPageContext.processStepName || null } : null,
       currentTaskDocuments: currentTaskDocuments.map((document: any) => ({ displayName: document.display_name, status: document.document_status, createdAt: document.created_at })),
       currentTaskMessages: currentTaskMessages.map((message: any) => ({ subject: message.subject, body: String(message.body_text || "").slice(0, 500), status: message.status, createdAt: message.created_at })),
       currentTaskActivity: currentTask ? (eventsResult.data || []).map((event: any) => ({ type: event.event_type, data: event.event_data, createdAt: event.created_at })) : [],
       note: requestedPageContext.taskId && !currentTask ? "Die angeforderte Aufgabe ist im autorisierten Kontext nicht sichtbar und wurde deshalb nicht an die KI übergeben." : null,
     },
     projectControl: {
+      scheduleResponsibilityMatrix: {
+        columns: ["type","date","processStep","label","role","person","email","status","source"],
+        rows: scheduleResponsibilityMatrix,
+        completeForAuthorizedProject: !scheduleMatrixResult.error,
+      },
       explicitMilestones: explicitMilestones.map((row: any) => ({ label: row.label, date: row.milestone_date, status: row.status, notes: row.notes, source: row.source_type, key: Boolean(row.is_key_milestone) })),
-      scheduledProcessDates: scheduledDates,
       visibleResponsibilities: visibleRoles.map((role: any) => ({ key: role.role_key, name: role.display_name, contact: [role.first_name, role.last_name].filter(Boolean).join(" ") || null, email: role.email || null, assignedToCurrentUser: roleIds.has(String(role.id)) })),
       accessibleTasks: normalizedTasks.length,
       openAccessibleTasks: openAccessibleTasks.length,
@@ -259,7 +277,7 @@ export async function POST(request: Request) {
     ? `Du bist KIRA, die kritische KI-Reviewpartnerin in LUMINA. Du sparrst mit einem erfahrenen Finance-Anwender auf professionellem Niveau. Prüfe Vollständigkeit, Nachweise, Plausibilität, Abschlussrisiken, Review-Stau und Widersprüche. Sei klar und knapp. Allgemeines HGB-/Abschlusswissen ist erlaubt, aber Projektfakten, Erinnerungen, Fachwissen und Empfehlungen müssen sauber getrennt bleiben. Du änderst niemals Daten, Status oder Freigaben.`
     : `Du bist KAI, der operative KI-Sparringspartner in LUMINA. Du arbeitest mit einem erfahrenen Finance-Anwender auf Augenhöhe. Nutze aktuelle LUMINA-Fakten, Rollen, Aufgaben, Termine, Meilensteine, Zuständigkeiten, Nachweise, Kommunikation und passende gespeicherte Erinnerungen. Wenn Hauptbuchhaltung erkennbar ist, antworte wie ein erfahrener Hauptbuch-Sparringspartner und nicht wie ein Lehrbuch. Du änderst niemals Daten, Status oder Freigaben.`;
 
-  const factRule = `WICHTIGE QUELLENREGEL: Wenn der Nutzer nach "den Terminen", "dem Status", "den Meilensteinen", "den hinterlegten Daten", "dem Projektplan", Zuständigkeiten oder anderen konkreten Projektinformationen fragt, nenne zuerst ausschließlich die tatsächlich im serverseitigen LUMINA-Kontext vorhandenen Fakten. Erfinde keine fehlenden Termine. Falls kein expliziter Meilenstein gespeichert ist, sage genau das. Eigene Termine oder Maßnahmen erst anschließend und ausdrücklich als "Empfehlung" oder "Vorschlag" kennzeichnen.`;
+  const factRule = `WICHTIGE QUELLENREGEL: Wenn der Nutzer nach Terminen, Status, Meilensteinen, Projektplan oder Zuständigkeiten fragt, nutze zuerst die vollständige scheduleResponsibilityMatrix im LUMINA-Kontext. KAI/KIRA sollen alle im autorisierten Projektkontext vorhandenen Task-Termine, Prozess-Termine und Meilensteine kennen und die jeweils hinterlegte Rolle/Person nennen. Wenn für einen Termin keine Zuständigkeit hinterlegt ist, sage ausdrücklich "keine Zuständigkeit in LUMINA hinterlegt". Nicht raten. Eigene Termine oder Maßnahmen erst danach klar als Empfehlung/Vorschlag kennzeichnen.`;
   const outputRule = mode === "assessment"
     ? `Dies ist die automatische Tagesbeurteilung. Antworte in höchstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2–3 konkrete Prioritäten und höchstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
     : `Antworte auf Deutsch, konkret und standardmäßig kurz (meist 3–7 Punkte oder wenige Absätze). Wenn mehr Details sinnvoll wären, biete am Ende knapp "Mehr Details" an. Erfinde keine Projektfakten.`;
@@ -321,7 +339,7 @@ export async function POST(request: Request) {
         situation: serverContext.personalSituation,
         currentPage: serverContext.currentPage,
         milestones: explicitMilestones.length,
-        scheduledDates: scheduledDates.length,
+        scheduledDates: scheduleResponsibilityMatrix.length,
       },
       memory: { active: Math.max(0, activeMemories.length + added - resolved), used: relevantMemories.length, added, resolved, persistent: !memoryResult.error },
     });
