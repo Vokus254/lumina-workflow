@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { LegacyDashboard } from "./legacy-dashboard";
+import AdminHub from "../admin/admin-hub";
 import type { ProjectHubContext } from "./project-hub";
 import styles from "./workflow-shell.module.css";
 
@@ -67,6 +68,7 @@ export type ShellMessage = {
 type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
 type Skin = "lumina" | "blue" | "light" | "yellow";
 type ShellView = "start" | "process" | "messages" | "status" | "admin";
+type MyDaySort = "due" | "number" | "process";
 
 type AdminUser = {
   id: string;
@@ -146,6 +148,7 @@ export function WorkflowShell({
   userEmail,
   displayName,
   isAdmin,
+  isSuperAdmin = false,
   stations,
   processSteps,
   tasks,
@@ -167,6 +170,7 @@ export function WorkflowShell({
   userEmail: string;
   displayName: string;
   isAdmin: boolean;
+  isSuperAdmin?: boolean;
   stations: ShellStation[];
   processSteps: ShellProcessStep[];
   tasks: ShellTask[];
@@ -191,6 +195,9 @@ export function WorkflowShell({
   const returnScreenRef = useRef<{ view: ShellView; expandedStepId: string | null } | null>(null);
   const [adminData, setAdminData] = useState<AdminPayload | null>(null);
   const [adminError, setAdminError] = useState("");
+  const [myDaySort, setMyDaySort] = useState<MyDaySort>("due");
+  const [openMyDayGroups, setOpenMyDayGroups] = useState<Record<string, boolean>>({});
+  const [adminSection, setAdminSection] = useState<"users" | "companies" | "projects" | "measures" | "permissions" | null>(null);
 
   useEffect(() => {
     setView(initialView);
@@ -200,7 +207,7 @@ export function WorkflowShell({
   }, [initialView, selectedTaskId]);
 
   const roleView = defaultRoleView(projectRole);
-  const visibleRoleLabel = roleLabel(projectRole);
+  const visibleRoleLabel = isSuperAdmin ? "Superadmin" : roleLabel(projectRole);
   const allProjects = useMemo(
     () => hubContext.companies.flatMap((company) => (company.projects || []).map((project) => ({ ...project, companyId: company.id, companyName: company.name }))),
     [hubContext],
@@ -275,7 +282,43 @@ export function WorkflowShell({
       issues: rows.filter((task) => task.reviewStatus === "changes_required" || task.reviewStatus === "question").length,
     };
   }).filter((group) => group.rows.length > 0);
-  const sortedWork = stationWorkGroups.flatMap((group) => group.rows);
+
+  const stationByCode = new Map(stations.slice(0, 8).map((station) => [station.code, station]));
+  const taskNumber = (task: ShellTask) => task.processStepCode || task.sourceNumber || task.stationCode || "–";
+  const processLabel = (task: ShellTask) => {
+    const station = task.stationCode ? stationByCode.get(task.stationCode) : undefined;
+    return station ? `${station.code}. ${station.name}` : (task.processStepName || task.stationCode || "Ohne Prozessschritt");
+  };
+  const compareTaskNumber = (a: ShellTask, b: ShellTask) => taskNumber(a).localeCompare(taskNumber(b), "de", { numeric: true }) || a.title.localeCompare(b.title, "de");
+  const compareDue = (a: ShellTask, b: ShellTask) => String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")) || compareTaskNumber(a, b);
+  const compareProcess = (a: ShellTask, b: ShellTask) => String(a.stationCode || "99").localeCompare(String(b.stationCode || "99"), "de", { numeric: true }) || String(a.processStepName || "").localeCompare(String(b.processStepName || ""), "de", { numeric: true }) || compareTaskNumber(a, b);
+  const myDayRows = [...personalOpenTasks].sort(myDaySort === "due" ? compareDue : myDaySort === "number" ? compareTaskNumber : compareProcess);
+  const myDayGroups = (() => {
+    const groups = new Map<string, { key: string; label: string; note: string; rows: ShellTask[] }>();
+    for (const task of myDayRows) {
+      let key = "";
+      let label = "";
+      if (myDaySort === "due") {
+        key = `due:${task.dueDate || "none"}`;
+        label = task.dueDate ? formatDate(task.dueDate) : "Ohne Fälligkeit";
+      } else if (myDaySort === "number") {
+        const stationCode = task.stationCode || taskNumber(task).split(".")[0] || "–";
+        key = `number:${stationCode}`;
+        label = stationCode === "–" ? "Weitere Aufgaben" : `Aufgaben ${stationCode}.x`;
+      } else {
+        key = `process:${task.stationCode || "none"}`;
+        label = processLabel(task);
+      }
+      const current = groups.get(key) || { key, label, note: "", rows: [] };
+      current.rows.push(task);
+      groups.set(key, current);
+    }
+    return [...groups.values()].map((group) => ({
+      ...group,
+      note: `${group.rows.length} Aufgabe${group.rows.length === 1 ? "" : "n"}${group.rows.some((task) => task.dueDate && task.dueDate < todayIso) ? ` · ${group.rows.filter((task) => task.dueDate && task.dueDate < todayIso).length} überfällig` : ""}`,
+    }));
+  })();
+  const sortedWork = [...personalOpenTasks].sort(compareDue);
   const kaiTarget = personalReviewIssues[0] || personalOverdue[0] || personalToday[0] || personalThisWeek[0] || sortedWork[0] || null;
   const kaiTargetTab = kaiTarget && (kaiTarget.reviewStatus === "changes_required" || kaiTarget.reviewStatus === "question") ? "review" : null;
 
@@ -377,9 +420,21 @@ export function WorkflowShell({
   function openProcessOverview() {
     returnScreenRef.current = null;
     setActiveTaskId(null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
     setExpandedStepId(null);
     setView("process");
     router.replace(`/workflow?project=${encodeURIComponent(activeProjectId)}&view=process`);
+  }
+
+  function navigateShellView(target: ShellView) {
+    returnScreenRef.current = null;
+    setActiveTaskId(null);
+    setActiveTaskTab(null);
+    setWorkspaceReady(false);
+    setExpandedStepId(null);
+    if (target !== "admin") setAdminSection(null);
+    setView(target);
   }
 
   function openStationDrilldown(stationCode: string) {
@@ -443,7 +498,7 @@ export function WorkflowShell({
   }, [adminData, activeProjectId]);
 
   const navButton = (target: ShellView, label: string, icon: string, count?: number, action?: () => void) => (
-    <button type="button" className={`${styles.navItem} ${view === target ? styles.navItemActive : ""}`} onClick={action || (() => setView(target))}>
+    <button type="button" className={`${styles.navItem} ${view === target ? styles.navItemActive : ""}`} onClick={action || (() => navigateShellView(target))}>
       <span className={styles.navIcon}>{icon}</span><span>{label}</span>{typeof count === "number" && count > 0 ? <span className={styles.navCount}>{count}</span> : null}
     </button>
   );
@@ -511,7 +566,9 @@ export function WorkflowShell({
       {view === "start" && roleView !== "cfo" ? <section>
         <div className={styles.pageHead}><div><h1>Mein Tag</h1><p>{personalOpenTasks.length} eigene offene Aufgaben · {personalOverdue.length} überfällig · {personalReviewIssues.length} Rückfragen/Nachbesserungen</p></div>{kaiTarget ? <button className={styles.primaryButton} type="button" onClick={() => openTask(kaiTarget.id, kaiTargetTab)}>Nächste Aufgabe öffnen</button> : null}</div>
         <div className={styles.daySummary}><span><b>{stationWorkGroups.length}</b> aktive Stationen</span><span><b>{personalOverdue.length}</b> überfällig</span><span><b>{personalReviewIssues.length}</b> Rückfragen</span><span><b>{nextDeadlineDate ? formatDate(nextDeadlineDate) : "–"}</b> nächste Frist</span></div>
-        <div className={styles.twoColumns}><section className={styles.card}><div className={styles.cardHead}><h2>Meine Aufgaben nach Prozessstation</h2><span>{personalOpenTasks.length} offen</span></div><div className={`${styles.taskList} ${styles.taskListScrollable} ${styles.myDayList}`}>{stationWorkGroups.length ? stationWorkGroups.map(({ station, rows, overdue: stationOverdue, issues }) => <section className={styles.stationDayGroup} key={station.code}><div className={styles.stationDayHead}><span className={styles.stationBadge}>{station.code}</span><div><b>{station.name}</b><small>{rows.length} Aufgabe{rows.length === 1 ? "" : "n"}{stationOverdue ? ` · ${stationOverdue} überfällig` : ""}{issues ? ` · ${issues} Rückfrage${issues === 1 ? "" : "n"}` : ""}</small></div></div>{rows.map((task) => <button key={task.id} type="button" className={styles.taskRow} onClick={() => openTask(task.id)}><span className={styles.taskCode}><b>{task.processStepCode || station.code}</b></span><span className={styles.taskMain}><b>{task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span><span className={`${styles.due} ${task.dueDate && task.dueDate < todayIso ? styles.dueLate : ""}`}>{task.dueDate === todayIso ? "heute" : formatDate(task.dueDate)}</span></button>)}</section>) : <p className={styles.emptyBlock}>Für Sie sind aktuell keine offenen Aufgaben zugeordnet.</p>}</div></section>
+        <div className={styles.twoColumns}><section className={styles.card}><div className={`${styles.cardHead} ${styles.myDayCardHead}`}><div><h2>Meine Aufgaben</h2><small>Startansicht eingeklappt · Standard nach Fälligkeit</small></div><div className={styles.myDaySort} role="group" aria-label="Aufgaben sortieren">{([
+          ["due", "Fälligkeit"], ["number", "Aufgabennummer"], ["process", "Prozessschritt"],
+        ] as const).map(([value, label]) => <button key={value} type="button" className={myDaySort === value ? styles.myDaySortActive : ""} onClick={() => { setMyDaySort(value); setOpenMyDayGroups({}); }}>{label}</button>)}</div><span>{personalOpenTasks.length} offen</span></div><div className={`${styles.taskList} ${styles.taskListScrollable} ${styles.myDayList}`}>{myDayGroups.length ? myDayGroups.map((group) => { const isOpen = Boolean(openMyDayGroups[group.key]); return <section className={styles.myDayAccordion} key={group.key}><button type="button" className={styles.myDayAccordionHead} aria-expanded={isOpen} onClick={() => setOpenMyDayGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}><span className={styles.myDayChevron}>{isOpen ? "⌄" : "›"}</span><span><b>{group.label}</b><small>{group.note}</small></span></button>{isOpen ? <div className={styles.myDayAccordionBody}><div className={styles.myDayColumns}><span>Fälligkeit</span><span>Prozessschritt</span><span>Aufgabe</span><span>Bearbeitung</span><span>Review</span></div>{group.rows.map((task) => <button key={task.id} type="button" className={styles.myDayTaskRow} onClick={() => openTask(task.id)}><span className={`${styles.myDayDue} ${task.dueDate && task.dueDate < todayIso ? styles.dueLate : ""}`}>{task.dueDate === todayIso ? "heute" : formatDate(task.dueDate)}</span><span className={styles.myDayProcess}><b>{processLabel(task)}</b><small>{task.processStepName || "Arbeitsschritt"}</small></span><span className={styles.myDayTask}><b>{taskNumber(task)} · {task.title}</b><small>{task.requiredDocuments || "Keine zusätzliche Unterlage angegeben"}</small></span><span className={`${styles.chip} ${workClass(task.workStatus)}`}>{workLabel(task.workStatus)}</span><span className={`${styles.chip} ${reviewClass(task.reviewStatus)}`}>{reviewLabel(task.reviewStatus)}</span></button>)}</div> : null}</section>; }) : <p className={styles.emptyBlock}>Für Sie sind aktuell keine offenen Aufgaben zugeordnet.</p>}</div></section>
           <div className={styles.stack}><section className={styles.card}><div className={styles.cardHead}><h2>Rückfragen an mich</h2><span>{personalReviewIssues.length || ""}</span></div><div className={styles.sideList}>{personalReviewIssues.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id, task.reviewStatus === "question" ? "communication" : "review")}><i className={styles.dotRed}/><span><b>{task.processStepCode || task.processStepName || "Aufgabe"} · {task.title}</b><small>{reviewLabel(task.reviewStatus)} · direkt öffnen</small></span></button>)}{personalReviewIssues.length === 0 ? <p className={styles.empty}>Keine offenen Review-Rückfragen.</p> : null}</div></section><section className={styles.card}><div className={styles.cardHead}><h2>KAI schlägt vor</h2></div>{kaiTarget ? <button className={styles.aiAction} type="button" onClick={() => openTask(kaiTarget.id, kaiTargetTab)}><i className={styles.dotGreen}/><span><b>{personalReviewIssues.length ? "Offene Rückfrage zuerst klären" : personalOverdue.length ? `${personalOverdue.length} überfällige eigene Aufgaben priorisieren` : "Nächste Aufgabe nach Fälligkeit bearbeiten"}</b><small>{kaiTarget.processStepCode || kaiTarget.stationCode} · {kaiTarget.title} → öffnen</small></span></button> : <div className={styles.aiHint}><i className={styles.dotGreen}/><span>Aktuell sind Ihnen keine offenen Aufgaben zugeordnet.</span></div>}</section></div>
         </div>
       </section> : null}
@@ -551,13 +608,22 @@ export function WorkflowShell({
       </section> : null}
 
       {view === "admin" ? <section>
-        <div className={styles.pageHead}><div><h1>Administration</h1><p>Projekt-Setup und Berechtigungen sind unabhängig von Ihren persönlichen Arbeitsaufgaben.</p></div></div>
-        {!isAdmin ? <section className={styles.card}><p className={styles.emptyBlock}>Für diese Ansicht ist eine LUMINA-Administrationsberechtigung erforderlich.</p></section> : <>
+        {!isAdmin ? <>
+          <div className={styles.pageHead}><div><h1>Administration</h1><p>Projekt-Setup und Berechtigungen sind unabhängig von Ihren persönlichen Arbeitsaufgaben.</p></div></div>
+          <section className={styles.card}><p className={styles.emptyBlock}>Für diese Ansicht ist eine LUMINA-Administrationsberechtigung erforderlich.</p></section>
+        </> : adminSection ? <AdminHub
+          embedded
+          initialTab={adminSection}
+          activeProjectId={activeProjectId}
+          onBack={() => setAdminSection(null)}
+        /> : <>
+          <div className={styles.pageHead}><div><h1>Administration</h1><p>Projekt-Setup, Stammdaten, Rollen und die 202 Maßnahmen direkt in der LUMINA-Arbeitsoberfläche.</p></div></div>
           <div className={styles.adminSetupGrid}>
-            <button type="button" onClick={() => router.push("/admin?tab=users")}><span>01</span><b>Benutzer verwalten</b><small>Benutzer anlegen, bearbeiten, sperren und Zugänge vorbereiten.</small><i>Öffnen →</i></button>
-            <button type="button" onClick={() => router.push("/admin?tab=permissions")}><span>02</span><b>Rollen & Berechtigungen</b><small>Gesellschafts- und Projektrollen vergeben sowie Workflow-Zuordnungen kontrollieren.</small><i>Öffnen →</i></button>
-            <button type="button" onClick={() => router.push("/admin?tab=projects")}><span>03</span><b>Projekte & 202 Maßnahmen</b><small>Jahresabschlussprojekt aus dem LUMINA-Master mit den 202 Maßnahmen anlegen oder pflegen.</small><i>Öffnen →</i></button>
-            <button type="button" onClick={() => router.push("/admin?tab=companies")}><span>04</span><b>Gesellschaften</b><small>Mandantenstammdaten und Gesellschaftsstatus zentral verwalten.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("users")}><span>01</span><b>Benutzer verwalten</b><small>Benutzer anlegen, bearbeiten, sperren und Zugänge vorbereiten.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("permissions")}><span>02</span><b>Rollen & Berechtigungen</b><small>Gesellschafts- und Projektrollen vergeben sowie Workflow-Zuordnungen kontrollieren.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("projects")}><span>03</span><b>Projekte</b><small>Jahresabschlussprojekte anlegen, bearbeiten und verwalten.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("measures")}><span>04</span><b>Maßnahmen</b><small>Die 202 Maßnahmen des aktiven Projekts anlegen, bearbeiten, speichern und löschen.</small><i>Öffnen →</i></button>
+            <button type="button" onClick={() => setAdminSection("companies")}><span>05</span><b>Gesellschaften</b><small>Mandantenstammdaten und Gesellschaftsstatus zentral verwalten.</small><i>Öffnen →</i></button>
           </div>
           {adminError ? <section className={styles.card}><p className={styles.emptyBlock}>{adminError}</p></section> : !adminData ? <section className={styles.card}><p className={styles.emptyBlock}>Projektmitglieder werden geladen …</p></section> : <section className={styles.card}><div className={styles.cardHead}><h2>Projektmitglieder · {projectName}</h2><span>{adminMembers.length} aktiv</span></div><table className={styles.table}><thead><tr><th>Name / E-Mail</th><th>Projektrolle</th><th>Letzter Login</th><th>Status</th></tr></thead><tbody>{adminMembers.map(({ member, user }) => <tr key={member.user_id}><td><b>{[user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.displayName || user?.email}</b><small className={styles.tableSub}>{user?.email}</small></td><td>{roleLabel(member.security_role)}</td><td>{formatDateTime(user?.lastSignInAt)}</td><td><span className={`${styles.chip} ${user?.blocked ? styles.chipReviewIssue : styles.chipDone}`}>{user?.blocked ? "Gesperrt" : "Aktiv"}</span></td></tr>)}</tbody></table></section>}
         </>}
@@ -574,6 +640,7 @@ export function WorkflowShell({
         onReady={() => setWorkspaceReady(true)}
         onTaskSaved={applyTaskUpdate}
         onTaskClose={closeTaskWorkspace}
+        skin={skin}
       />
     </div> : null}
   </div>;

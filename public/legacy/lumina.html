@@ -14111,12 +14111,24 @@ document.addEventListener("input", scheduleLuminaSave, true);
 document.addEventListener("change", scheduleLuminaSave, true);
 
 window.addEventListener('message',async event=>{
-  if(event.origin!==location.origin||event.data?.type!=='lumina-session')return;
-  try{
-    const {data,error}=await luminaDb.auth.setSession({access_token:event.data.accessToken,refresh_token:event.data.refreshToken});
-    if(error)throw error;
-    if(data.session&&!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession(data.session);
-  }catch(error){setLuminaAuthError(error.message||'LUMINA konnte nicht geladen werden.');}
+  if(event.origin!==location.origin)return;
+  const type=event.data?.type;
+  if(type==='lumina-session'){
+    try{
+      const {data,error}=await luminaDb.auth.setSession({access_token:event.data.accessToken,refresh_token:event.data.refreshToken});
+      if(error)throw error;
+      if(data.session&&!document.body.classList.contains('lumina-authenticated'))await startLuminaForSession(data.session);
+    }catch(error){setLuminaAuthError(error.message||'LUMINA konnte nicht geladen werden.');}
+    return;
+  }
+  if(type==='lumina-admin-ping')return;
+  if(type==='lumina-admin-workbook-export'){
+    try{await luminaExportGesamtWorkbook();if(window.parent!==window)window.parent.postMessage({type:'lumina-admin-workbook-result',ok:true,action:'export'},location.origin);}catch(error){if(window.parent!==window)window.parent.postMessage({type:'lumina-admin-workbook-result',ok:false,action:'export',error:error?.message||'Workbook-Export fehlgeschlagen.'},location.origin);}
+    return;
+  }
+  if(type==='lumina-admin-workbook-import'){
+    try{const buffer=event.data?.buffer;if(!buffer)throw new Error('Workbook-Datei fehlt.');const file=new File([buffer],event.data?.name||'LUMINA_Abschluss-Workbook.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});await luminaImportGesamtWorkbookFile(file);if(window.parent!==window)window.parent.postMessage({type:'lumina-admin-workbook-result',ok:true,action:'import'},location.origin);}catch(error){if(window.parent!==window)window.parent.postMessage({type:'lumina-admin-workbook-result',ok:false,action:'import',error:error?.message||'Workbook-Import fehlgeschlagen.'},location.origin);}
+  }
 });
 if(window.parent!==window){
   document.querySelector('.lumina-auth-card h2').textContent='Dashboard wird geladen …';
