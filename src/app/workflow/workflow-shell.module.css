@@ -284,3 +284,33 @@
 .sparringComposer{display:grid;grid-template-columns:1fr auto;gap:7px;padding:8px 14px 10px;background:#fff}.sparringComposer textarea{min-height:54px;max-height:130px;resize:vertical;border:1px solid var(--lumina-line);border-radius:9px;padding:9px 10px;font:inherit;font-size:11.5px;color:var(--lumina-ink);outline:none}.sparringComposer textarea:focus{border-color:var(--lumina-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--lumina-primary) 10%,transparent)}.sparringComposer button{align-self:end;border:0;border-radius:8px;background:var(--lumina-primary);color:#fff;padding:9px 12px;font:inherit;font-size:10.75px;font-weight:850;cursor:pointer}.sparringComposer button:disabled{opacity:.45;cursor:default}
 .sparringDisclaimer{padding:0 14px 11px;background:#fff;font-size:9.25px;color:var(--lumina-ink-3)}
 @media(max-width:900px){.sparringHead{flex-direction:column}.sparringSwitch{align-self:flex-start}.sparringConversation{max-height:260px}.sparringComposer{grid-template-columns:1fr}.sparringComposer button{justify-self:end}}
+
+/* KAI/KIRA V6 – kompakte Tageskarte + großer Bottom-Drawer */
+.sparringCompact .sparringHead{border-bottom:1px solid var(--lumina-line)}
+.sparringCompactPreview{display:grid;gap:4px;padding:12px 16px;background:#fff;max-height:116px;overflow:hidden;position:relative}
+.sparringCompactPreview:after{content:"";position:absolute;left:0;right:0;bottom:0;height:28px;background:linear-gradient(transparent,#fff);pointer-events:none}
+.sparringCompactPreview b{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--lumina-primary-dark)}
+.sparringCompactPreview p{margin:0;font-size:11.5px;line-height:1.45;color:var(--lumina-ink-2);white-space:pre-wrap}
+.sparringCompactActions{display:grid;gap:5px;padding:10px 14px 12px;border-top:1px solid var(--lumina-line);background:#fff}
+.sparringCompactActions small{font-size:9.5px;color:var(--lumina-ink-3)}
+.sparringOpenButton{width:100%;border:0;border-radius:9px;background:var(--lumina-primary);color:#fff;padding:10px 12px;font:inherit;font-size:11px;font-weight:850;cursor:pointer}
+.sparringOpenButton:hover{filter:brightness(.96)}
+.sparringDrawerBackdrop{position:fixed;inset:0;z-index:80;background:rgba(14,28,24,.20);display:flex;align-items:flex-end;justify-content:center;padding:18px 28px 20px 214px;backdrop-filter:blur(1px)}
+.sparringDrawer{width:min(1180px,86vw);height:min(620px,62vh);min-height:420px;display:grid;grid-template-rows:auto 1fr;border:1px solid var(--lumina-line);border-radius:16px 16px 12px 12px;background:#fff;box-shadow:0 24px 70px rgba(15,34,28,.28);overflow:hidden}
+.sparringDrawerTop{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 16px;border-bottom:1px solid var(--lumina-line);background:linear-gradient(135deg,color-mix(in srgb,var(--lumina-primary-soft) 72%,#fff),#fff)}
+.sparringDrawerTop>div:first-child{display:grid;gap:2px}.sparringDrawerTop h2{margin:0;font-size:17px}.sparringDrawerTop small{font-size:10.5px;color:var(--lumina-ink-3)}
+.sparringDrawerControls{display:flex;align-items:center;gap:9px}
+.sparringClose{width:34px;height:34px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:22px;line-height:1;cursor:pointer}
+.sparringClose:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.sparringDrawerBody{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto auto auto;background:#fff}
+.sparringDrawer .sparringConversation{max-height:none;min-height:0;padding:18px 22px;gap:12px}
+.sparringDrawer .sparringBubble{max-width:76%;padding:11px 13px;border-radius:12px}
+.sparringDrawer .sparringBubble p{font-size:12.5px;line-height:1.55}
+.sparringDrawer .sparringPrompts{padding:10px 20px 5px;gap:7px}
+.sparringDrawer .sparringPrompts button{font-size:10.25px;padding:6px 10px}
+.sparringDrawer .sparringComposer{padding:8px 20px 10px;grid-template-columns:minmax(0,1fr) auto;align-items:end}
+.sparringDrawer .sparringComposer textarea{min-height:64px;max-height:150px;font-size:12.5px;padding:11px 12px}
+.sparringDrawer .sparringComposer button{padding:11px 16px;font-size:11.5px}
+.sparringDrawer .sparringDisclaimer{padding:0 20px 10px;font-size:9.5px}
+@media(max-width:1000px){.sparringDrawerBackdrop{padding-left:24px}.sparringDrawer{width:94vw;height:68vh}.sparringDrawer .sparringBubble{max-width:86%}}
+@media(max-width:680px){.sparringDrawerBackdrop{padding:10px 8px}.sparringDrawer{width:100%;height:78vh;min-height:360px;border-radius:14px 14px 8px 8px}.sparringDrawerTop{align-items:flex-start}.sparringDrawerControls{align-items:flex-start}.sparringDrawer .sparringBubble{max-width:94%}.sparringDrawer .sparringComposer{grid-template-columns:1fr}.sparringDrawer .sparringComposer button{justify-self:end}}
