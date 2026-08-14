@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { LegacyDashboard } from "./legacy-dashboard";
 import AdminHub from "../admin/admin-hub";
 import type { ProjectHubContext } from "./project-hub";
+import { isSpecialToolStep } from "./special-tools";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -72,7 +73,6 @@ type MyDaySort = "due" | "number" | "process";
 type SparringAssistant = "KAI" | "KIRA";
 type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string };
 
-const SPECIAL_TOOL_STEPS = new Set(["2.1", "2.2", "2.4", "3.17", "4.4"]);
 type SparringUsage = { inputTokens: number; outputTokens: number; totalTokens: number; estimatedEur: number | null; model: string; exchangeRate?: number | null };
 type SparringMemoryInfo = { active: number; used: number; added: number; resolved: number; persistent: boolean };
 
@@ -644,13 +644,22 @@ export function WorkflowShell({
     const params = new URLSearchParams(legacyQuery);
     if (activeTaskId) params.set("task", activeTaskId);
     else params.delete("task");
-    if (activeToolCode) params.set("tool", activeToolCode);
-    else params.delete("tool");
+    if (activeToolCode) {
+      params.set("tool", activeToolCode);
+      // T2-Fallback: falls die Nummerierung im gespeicherten Projektzustand vom Prozessschritt-Code
+      // abweicht, kann public/legacy/lumina.html zusaetzlich ueber den Kachelnamen suchen, statt
+      // ergebnislos und stillschweigend leer zu bleiben.
+      if (activeToolStep?.name) params.set("toolName", activeToolStep.name);
+      else params.delete("toolName");
+    } else {
+      params.delete("tool");
+      params.delete("toolName");
+    }
     if (activeTaskTab) params.set("tab", activeTaskTab);
     else params.delete("tab");
     params.set("project", activeProjectId);
     return params.toString();
-  }, [legacyQuery, activeTaskId, activeToolCode, activeTaskTab, activeProjectId]);
+  }, [legacyQuery, activeTaskId, activeToolCode, activeToolStep, activeTaskTab, activeProjectId]);
 
   function switchCompany(companyId: string) {
     const company = hubContext.companies.find((item) => item.id === companyId);
@@ -688,10 +697,11 @@ export function WorkflowShell({
     const directTasks = step.directTaskIds.map((id) => taskById.get(id)).filter((task): task is ShellTask => Boolean(task));
     const isLeafTask = children.length === 0 && directTasks.length === 1;
     const isActive = step.relevant;
+    const isSpecialTool = isSpecialToolStep(step.code);
     const taskCount = directTasks.length + children.reduce((sum, child) => sum + child.directTaskIds.length, 0);
     const onClick = () => {
       if (!isActive) return;
-      if (SPECIAL_TOOL_STEPS.has(step.code)) {
+      if (isSpecialTool) {
         openTool(step.code);
         return;
       }
@@ -701,8 +711,8 @@ export function WorkflowShell({
     return <button key={step.id} type="button" className={`${styles.processCard} ${isActive ? styles.processCardActive : styles.processCardInactive}`} onClick={onClick} disabled={!isActive}>
       <span className={styles.processCode}>{step.code}</span>
       <b>{step.name}</b>
-      <small>{isActive ? `${taskCount || directTasks.length || 1} relevante Zuordnung${(taskCount || directTasks.length) === 1 ? "" : "en"}` : "Für diesen Nutzer nicht relevant"}</small>
-      <i>{isActive ? (children.length ? "Öffnen" : "Aufgabe öffnen") : "Inaktiv"}</i>
+      <small>{isActive ? (isSpecialTool ? "Projektweites Werkzeug" : `${taskCount || directTasks.length || 1} relevante Zuordnung${(taskCount || directTasks.length) === 1 ? "" : "en"}`) : "Für diesen Nutzer nicht relevant"}</small>
+      <i>{isActive ? (isSpecialTool ? "Werkzeug öffnen" : children.length ? "Öffnen" : "Aufgabe öffnen") : "Inaktiv"}</i>
     </button>;
   }
 

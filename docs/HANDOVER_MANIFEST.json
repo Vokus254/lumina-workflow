@@ -1,0 +1,25 @@
+{
+  "project": "LUMINA Workflow",
+  "repository": "Vokus254/lumina-workflow",
+  "handover_branch": "ux/kai-kira-v9",
+  "handover_date": "2026-08-14",
+  "main_last_known_commit": "331e3b66551019d23da902c757aab8fbc8f94e9f",
+  "active_supabase_project_last_known": "pmdpjftonhlvcdvxmnky",
+  "critical_files": [
+    "public/legacy/lumina.html",
+    "src/app/workflow/workflow-shell.tsx",
+    "src/app/workflow/legacy-dashboard.tsx",
+    "src/app/api/ai/day-sparring/route.ts"
+  ],
+  "prohibited_commands": [
+    "scripts/prepare-legacy-dashboard.mjs",
+    "npm audit fix (without separate review)"
+  ],
+  "special_tool_steps": [
+    "2.1",
+    "2.2",
+    "2.4",
+    "3.17",
+    "4.4"
+  ]
+}

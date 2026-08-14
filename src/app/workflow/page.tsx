@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectHub, type ProjectHubContext } from "./project-hub";
 import { requireLuminaAdmin } from "@/lib/lumina-admin";
+import { isSpecialToolStep } from "./special-tools";
 import {
   WorkflowShell,
   type ShellDocument,
@@ -192,6 +193,23 @@ export default async function WorkflowPage({
   const personallyAssignedRawTasks = isSuperAdmin ? rawTasks : rawTasks.filter((task) => Boolean(task.responsibility_role_id && assignedRoleIds.has(task.responsibility_role_id)));
   for (const task of personallyAssignedRawTasks) {
     let current = task.process_step_id ? stepById.get(task.process_step_id) : undefined;
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      relevantStepIds.add(current.id);
+      current = current.parent_id ? stepById.get(current.parent_id) : undefined;
+    }
+  }
+  // V9-Abnahme Risiko T1: die projektweiten Spezialwerkzeuge (2.1/2.2/2.4/3.17/4.4) sind fuer
+  // jeden Nutzer erreichbar, der ueberhaupt Zugriff auf dieses Projekt hat - unabhaengig davon,
+  // ob ihm persoenlich eine Aufgabe darunter zugewiesen ist. Ohne dies blieb bereits die
+  // uebergeordnete Hauptkachel (z. B. "3") inaktiv und die Werkzeugkachel war gar nicht erst
+  // anklickbar. Es wird bewusst nur die Erreichbarkeit der Kachelkette geoeffnet; welche
+  // Werkzeuginhalte tatsaechlich angezeigt werden, entscheidet weiterhin ausschliesslich die
+  // RLS-gesicherte Projekt-Datenladung in public/legacy/lumina.html selbst.
+  for (const step of steps) {
+    if (!isSpecialToolStep(step.code)) continue;
+    let current: ProcessStepRow | undefined = step;
     const seen = new Set<string>();
     while (current && !seen.has(current.id)) {
       seen.add(current.id);

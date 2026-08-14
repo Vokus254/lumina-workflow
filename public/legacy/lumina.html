@@ -1247,9 +1247,26 @@ function toolSubTitle(m,subIndex,sub){
   const code=toolSubCode(m,subIndex);
   return LUMINA_TOOL_TITLES[code]||sub?.text||"Werkzeug";
 }
-function openRequestedTool(toolCode){
+// V9-Abnahme T2/T3: die Shell adressiert Werkzeuge ueber process_steps.code (z. B. "3.17"),
+// das gespeicherte Projekt-Textfeld traegt die Nummer nur als Titel-Praefix des Measure-Titels.
+// Weichen beide Quellen voneinander ab, wird zusaetzlich ueber den mitgesendeten Kachelnamen
+// gesucht (Fallback). Schlaegt auch das fehl, wird das dem Shell-Elternfenster ausdruecklich
+// per postMessage gemeldet, statt dass der Werkzeugbereich kommentarlos leer bleibt.
+function normalizeToolLabel(value){
+  return String(value||"").toLocaleLowerCase("de-DE").replace(/[^a-z0-9äöüß]+/g," ").trim();
+}
+function notifyToolResult(ok,code,title,approximate){
+  if(window.parent===window)return;
+  window.parent.postMessage(ok
+    ? {type:"lumina-tool-opened",code:String(code||""),title:String(title||""),approximate:!!approximate}
+    : {type:"lumina-tool-not-found",code:String(code||"")},
+    location.origin);
+}
+function openRequestedTool(toolCode,toolName){
   const wanted=String(toolCode||"").trim();
-  if(!wanted)return false;
+  if(!wanted){notifyToolResult(false,wanted);return false;}
+  const wantedName=normalizeToolLabel(toolName);
+  let nameMatch=null;
   for(let i=0;i<stations.length;i++){
     const measures=stations[i].measures||[];
     for(let j=0;j<measures.length;j++){
@@ -1258,6 +1275,7 @@ function openRequestedTool(toolCode){
       if(wanted===mCode){
         view={level:"subitems",station:i,measure:j};
         render();
+        notifyToolResult(true,wanted,m.title,false);
         return true;
       }
       for(let k=0;k<(m.subitems||[]).length;k++){
@@ -1265,11 +1283,22 @@ function openRequestedTool(toolCode){
           const target=subitemViewLevel(m.subitems[k]);
           view={level:target||"subitems",station:i,measure:j,sub:k};
           render();
+          notifyToolResult(true,wanted,toolSubTitle(m,k,m.subitems[k]),false);
           return true;
         }
       }
+      if(!nameMatch&&wantedName&&normalizeToolLabel(m.title).includes(wantedName)){
+        nameMatch={station:i,measure:j,title:m.title};
+      }
     }
   }
+  if(nameMatch){
+    view={level:"subitems",station:nameMatch.station,measure:nameMatch.measure};
+    render();
+    notifyToolResult(true,wanted,nameMatch.title,true);
+    return true;
+  }
+  notifyToolResult(false,wanted);
   return false;
 }
 // Anleitungen aus public.process_step_guidance, geschlüsselt nach Prozessschritt-Code ("3.12").
@@ -14107,10 +14136,16 @@ async function startLuminaForSession(session){
   document.body.classList.add('lumina-authenticated');
   render();
   await refreshInboxCount();
-  const requestedParams=new URLSearchParams(location.search),requestedTask=requestedParams.get('task'),requestedTab=requestedParams.get('tab'),requestedTool=requestedParams.get('tool');
+  const requestedParams=new URLSearchParams(location.search),requestedTask=requestedParams.get('task'),requestedTab=requestedParams.get('tab'),requestedTool=requestedParams.get('tool'),requestedToolName=requestedParams.get('toolName');
   if(requestedTool){
     document.body.classList.add('lumina-tool-mode');
-    openRequestedTool(requestedTool);
+    try{
+      openRequestedTool(requestedTool,requestedToolName);
+    }catch(toolError){
+      // V9-Abnahme T3: ein unerwarteter Skriptfehler beim Oeffnen des Werkzeugs darf nicht dazu
+      // fuehren, dass die Shell stillschweigend auf eine leere Seite wartet.
+      notifyToolResult(false,requestedTool);
+    }
   } else if(requestedTask){
     const pbc=luminaPbcRows(),ri=pbc?.rows.findIndex((row,index)=>String(row[0])===requestedTask||ensureTaskState(pbc.sub.data,row,index).remoteTaskId===requestedTask),validTab=AUFGABEN_REITER.some(([key])=>key===requestedTab)?requestedTab:'room';
     if(pbc&&ri>=0)openTaskModal(pbc.sub,ri,validTab);

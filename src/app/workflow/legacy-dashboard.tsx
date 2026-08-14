@@ -36,6 +36,12 @@ export function LegacyDashboard({
   const closeObserverRef = useRef<MutationObserver | null>(null);
   const readyTimerRef = useRef<number | null>(null);
   const tabListenerCleanupRef = useRef<(() => void) | null>(null);
+  // V9-Abnahme T3/T4: Werkzeugbereich meldet sein Ergebnis aktiv per postMessage
+  // (lumina-tool-opened / lumina-tool-not-found) statt dass die Shell nach einer festen
+  // Wartezeit blind "fertig" annimmt. toolResolvedRef verhindert doppelte Reaktionen,
+  // falls sowohl eine Nachricht als auch der Sicherheits-Timeout eintreffen.
+  const toolTimeoutRef = useRef<number | null>(null);
+  const toolResolvedRef = useRef(false);
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
@@ -65,6 +71,21 @@ export function LegacyDashboard({
         return;
       }
       if (event.data?.type === "lumina-task-closed") { onTaskClose?.(); return; }
+      if (event.data?.type === "lumina-tool-opened") {
+        if (toolTimeoutRef.current) { window.clearTimeout(toolTimeoutRef.current); toolTimeoutRef.current = null; }
+        toolResolvedRef.current = true;
+        setFrameReady(true);
+        onReady?.();
+        return;
+      }
+      if (event.data?.type === "lumina-tool-not-found") {
+        if (toolTimeoutRef.current) { window.clearTimeout(toolTimeoutRef.current); toolTimeoutRef.current = null; }
+        toolResolvedRef.current = true;
+        setError("Dieses Werkzeug wurde in den gespeicherten Projektdaten nicht gefunden. Bitte Administration/Support informieren.");
+        setFrameReady(true);
+        onReady?.();
+        return;
+      }
       if (event.data?.type !== "lumina-signout") return;
       const supabase = createClient();
       await supabase.auth.signOut();
@@ -73,7 +94,7 @@ export function LegacyDashboard({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [router, sendSession, onTaskSaved, onTaskClose]);
+  }, [router, sendSession, onTaskSaved, onTaskClose, onReady]);
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
@@ -87,10 +108,14 @@ export function LegacyDashboard({
 
   useEffect(() => {
     setFrameReady(false);
+    setError("");
     closeObserverRef.current?.disconnect();
     closeObserverRef.current = null;
     if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
     readyTimerRef.current = null;
+    if (toolTimeoutRef.current) window.clearTimeout(toolTimeoutRef.current);
+    toolTimeoutRef.current = null;
+    toolResolvedRef.current = false;
     tabListenerCleanupRef.current?.();
     tabListenerCleanupRef.current = null;
   }, [frameSource, initialTab]);
@@ -99,6 +124,7 @@ export function LegacyDashboard({
     closeObserverRef.current?.disconnect();
     tabListenerCleanupRef.current?.();
     if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
+    if (toolTimeoutRef.current) window.clearTimeout(toolTimeoutRef.current);
   }, []);
 
   useEffect(() => {
@@ -138,10 +164,20 @@ export function LegacyDashboard({
       return;
     }
     if (toolMode) {
-      window.setTimeout(() => {
+      // Das eingebettete Werkzeug meldet sein Ergebnis aktiv per postMessage
+      // (siehe handleMessage: lumina-tool-opened / lumina-tool-not-found), sobald
+      // openRequestedTool() in public/legacy/lumina.html gelaufen ist. Der Timeout ist
+      // ausschliesslich ein Sicherheitsnetz, falls diese Nachricht z. B. wegen eines
+      // Skriptfehlers vor Erreichen von openRequestedTool() nie eintrifft.
+      toolResolvedRef.current = false;
+      if (toolTimeoutRef.current) window.clearTimeout(toolTimeoutRef.current);
+      toolTimeoutRef.current = window.setTimeout(() => {
+        if (toolResolvedRef.current) return;
+        toolResolvedRef.current = true;
+        setError("Der Werkzeugbereich konnte nicht vollständig geladen werden. Bitte erneut versuchen.");
         setFrameReady(true);
         onReady?.();
-      }, 120);
+      }, 8000);
       return;
     }
 

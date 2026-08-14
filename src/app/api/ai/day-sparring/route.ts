@@ -206,7 +206,10 @@ export async function POST(request: Request) {
     };
   }).filter((row: any) => row.date || row.label).slice(0, 80);
 
-  const scheduleRows = scheduleMatrixResult.error ? [] : (scheduleMatrixResult.data || []);
+  // V9-Abnahme Priorität 2: ein RPC-Fehler darf dem Modell nicht als "keine Termine vorhanden"
+  // erscheinen, sondern muss ausdrücklich als "Datenquelle nicht verfügbar" erkennbar bleiben.
+  const scheduleMatrixAvailable = !scheduleMatrixResult.error;
+  const scheduleRows = scheduleMatrixAvailable ? (scheduleMatrixResult.data || []) : [];
   const scheduleResponsibilityMatrix = scheduleRows.map((row: any) => [
     row.schedule_type, row.due_date, row.process_step_code, row.label, row.responsibility_role, row.responsible_person, row.responsible_email, row.status, row.source,
   ]);
@@ -246,10 +249,14 @@ export async function POST(request: Request) {
       note: requestedPageContext.taskId && !currentTask ? "Die angeforderte Aufgabe ist im autorisierten Kontext nicht sichtbar und wurde deshalb nicht an die KI übergeben." : null,
     },
     projectControl: {
-      scheduleResponsibilityMatrix: {
+      // Die vollständigen Zeilen der Termin-/Verantwortlichkeitsmatrix werden bewusst NICHT hier
+      // eingebettet: dieser gesamte serverContext unterliegt weiter unten boundedJson() und könnte
+      // bei großen Projekten mitten in den Daten gekappt werden. Die Matrix wird stattdessen separat
+      // und ungekürzt vor diesem Kontextblock in den Prompt aufgenommen (siehe scheduleMatrixBlock).
+      scheduleResponsibilityMatrixMeta: {
         columns: ["type","date","processStep","label","role","person","email","status","source"],
-        rows: scheduleResponsibilityMatrix,
-        completeForAuthorizedProject: !scheduleMatrixResult.error,
+        rowCount: scheduleResponsibilityMatrix.length,
+        available: scheduleMatrixAvailable,
       },
       explicitMilestones: explicitMilestones.map((row: any) => ({ label: row.label, date: row.milestone_date, status: row.status, notes: row.notes, source: row.source_type, key: Boolean(row.is_key_milestone) })),
       visibleResponsibilities: visibleRoles.map((role: any) => ({ key: role.role_key, name: role.display_name, contact: [role.first_name, role.last_name].filter(Boolean).join(" ") || null, email: role.email || null, assignedToCurrentUser: roleIds.has(String(role.id)) })),
@@ -268,6 +275,18 @@ export async function POST(request: Request) {
     persistentMemory: relevantMemories.map((memory) => ({ id: memory.id, type: memory.memory_type, title: memory.title, content: memory.content, taskId: memory.task_id, updatedAt: memory.updated_at })),
   };
 
+  // V9-Abnahme Priorität 2: die projektweite Termin-/Verantwortlichkeitsmatrix hat bei der
+  // Kontextübertragung Vorrang vor allen anderen Kontextteilen und wird deshalb außerhalb von
+  // boundedJson(serverContext) übertragen. Sie erhält ein eigenes, großzügiges Limit (statt des
+  // 42.000-Zeichen-Budgets für den restlichen Kontext), damit sie bei jeder in der Praxis
+  // vorkommenden Projektgröße vollständig ankommt; nur ein tatsächlich pathologischer Datenstand
+  // würde dieses Limit überhaupt erreichen, und selbst dann bleibt die Kürzung für das Modell
+  // sichtbar markiert statt mitten in validem JSON abzureißen. Ein RPC-Fehler wird nicht als leere
+  // Matrix (= "keine Termine") dargestellt, sondern ausdrücklich als nicht verfügbare Datenquelle.
+  const scheduleMatrixBlock = scheduleMatrixAvailable
+    ? `Vollständige projektweite Termin-/Verantwortlichkeitsmatrix (Vorrang vor allen anderen Kontextteilen, nicht durch das allgemeine Kontextlimit gekürzt; Spalten: type,date,processStep,label,role,person,email,status,source):\n${boundedJson(scheduleResponsibilityMatrix, 120000)}`
+    : `PROJEKTWEITE TERMIN-/VERANTWORTLICHKEITSMATRIX IST AKTUELL NICHT VERFÜGBAR (Fehler beim serverseitigen Laden der Datenquelle). Behandle dies ausdrücklich als "Datenquelle derzeit nicht verfügbar" und NICHT als "keine Termine vorhanden". Erfinde und errate in diesem Fall keine Termine oder Zuständigkeiten als Ersatz; sage dem Nutzer, dass die Matrix gerade nicht geladen werden konnte.`;
+
   const history = cleanHistory(body.history);
   const historyText = history.length
     ? `\n\nBisheriger Dialog (nur Kurzzeitgedächtnis, nicht automatisch Projektfakt):\n${history.map((item) => `${item.role === "assistant" ? item.assistant : "NUTZER"}: ${item.content}`).join("\n")}`
@@ -277,13 +296,13 @@ export async function POST(request: Request) {
     ? `Du bist KIRA, die kritische KI-Reviewpartnerin in LUMINA. Du sparrst mit einem erfahrenen Finance-Anwender auf professionellem Niveau. Prüfe Vollständigkeit, Nachweise, Plausibilität, Abschlussrisiken, Review-Stau und Widersprüche. Sei klar und knapp. Allgemeines HGB-/Abschlusswissen ist erlaubt, aber Projektfakten, Erinnerungen, Fachwissen und Empfehlungen müssen sauber getrennt bleiben. Du änderst niemals Daten, Status oder Freigaben.`
     : `Du bist KAI, der operative KI-Sparringspartner in LUMINA. Du arbeitest mit einem erfahrenen Finance-Anwender auf Augenhöhe. Nutze aktuelle LUMINA-Fakten, Rollen, Aufgaben, Termine, Meilensteine, Zuständigkeiten, Nachweise, Kommunikation und passende gespeicherte Erinnerungen. Wenn Hauptbuchhaltung erkennbar ist, antworte wie ein erfahrener Hauptbuch-Sparringspartner und nicht wie ein Lehrbuch. Du änderst niemals Daten, Status oder Freigaben.`;
 
-  const factRule = `WICHTIGE QUELLENREGEL: Wenn der Nutzer nach Terminen, Status, Meilensteinen, Projektplan oder Zuständigkeiten fragt, nutze zuerst die vollständige scheduleResponsibilityMatrix im LUMINA-Kontext. KAI/KIRA sollen alle im autorisierten Projektkontext vorhandenen Task-Termine, Prozess-Termine und Meilensteine kennen und die jeweils hinterlegte Rolle/Person nennen. Wenn für einen Termin keine Zuständigkeit hinterlegt ist, sage ausdrücklich "keine Zuständigkeit in LUMINA hinterlegt". Nicht raten. Eigene Termine oder Maßnahmen erst danach klar als Empfehlung/Vorschlag kennzeichnen.`;
+  const factRule = `WICHTIGE QUELLENREGEL: Wenn der Nutzer nach Terminen, Status, Meilensteinen, Projektplan oder Zuständigkeiten fragt, nutze zuerst die vollständige, weiter unten separat und ungekürzt bereitgestellte Termin-/Verantwortlichkeitsmatrix. KAI/KIRA sollen alle im autorisierten Projektkontext vorhandenen Task-Termine, Prozess-Termine und Meilensteine kennen und die jeweils hinterlegte Rolle/Person nennen. Wenn für einen Termin keine Zuständigkeit hinterlegt ist, sage ausdrücklich "keine Zuständigkeit in LUMINA hinterlegt". Wenn die Matrix ausdrücklich als nicht verfügbar markiert ist, sage das dem Nutzer klar und weiche nicht auf Vermutungen aus. Nicht raten. Eigene Termine oder Maßnahmen erst danach klar als Empfehlung/Vorschlag kennzeichnen.`;
   const outputRule = mode === "assessment"
     ? `Dies ist die automatische Tagesbeurteilung. Antworte in höchstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2–3 konkrete Prioritäten und höchstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
     : `Antworte auf Deutsch, konkret und standardmäßig kurz (meist 3–7 Punkte oder wenige Absätze). Wenn mehr Details sinnvoll wären, biete am Ende knapp "Mehr Details" an. Erfinde keine Projektfakten.`;
   const memoryRule = `DAUERHAFTES ARBEITSGEDÄCHTNIS: Am Ende deiner Antwort MUSST du genau eine maschinenlesbare Zeile ergänzen: ${MEMORY_START}{"items":[]}${MEMORY_END}. Sie wird dem Nutzer nicht angezeigt. Maximal 3 Items. Erlaubte Typen: decision, commitment, open_point, preference, escalation, result. Speichere nur tatsächlich neue, projektbezogene Entscheidungen, Zusagen, offene Punkte, Arbeitspräferenzen, Eskalationen oder Ergebnisse. Speichere niemals bloße Höflichkeit, allgemeines Fachwissen oder deine eigene Empfehlung, solange der Nutzer sie nicht übernommen/bestätigt hat. Für neue Einträge: {"action":"add","type":"commitment","title":"kurzer Titel","content":"präziser Fakt","taskId":"optional aktuelle Task-ID"}. Wenn eine bestehende Erinnerung eindeutig erledigt wurde, darfst du {"action":"resolve","id":"ID aus persistentMemory"} ausgeben.`;
 
-  const input = `${persona}\n\n${factRule}\n\nServerseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
+  const input = `${persona}\n\n${factRule}\n\n${scheduleMatrixBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "KI-Konfiguration fehlt: OPENAI_API_KEY ist auf dem Server nicht gesetzt." }, { status: 503 });
 
