@@ -327,3 +327,8 @@
 .sparringDrawerTop small b{color:var(--lumina-primary-dark)}
 @media(max-width:900px){.sparringGlobalButton{right:16px;bottom:16px;min-width:auto}.sparringGlobalButton b{display:none}.sparringProgressBox{max-width:94%}.sparringProgressHead{align-items:flex-start;flex-direction:column;gap:3px}.sparringProgressHead span{white-space:normal}}
 .sparringDrawerBackdrop{z-index:90}
+
+/* KAI/KIRA V8 – sichtbarer Status des dauerhaften Arbeitsgedächtnisses */
+.sparringMemoryBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:7px 20px;border-top:1px solid var(--lumina-line);background:color-mix(in srgb,var(--lumina-primary-soft) 38%,#fff);font-size:9.75px;color:var(--lumina-ink-3)}
+.sparringMemoryBar b{color:var(--lumina-primary-dark)}
+.sparringMemoryBar span:not(:first-child){padding:2px 6px;border-radius:999px;background:#fff;border:1px solid var(--lumina-line)}
