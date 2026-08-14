@@ -15,6 +15,7 @@ export function LegacyDashboard({
   onReady,
   onTaskSaved,
   onTaskClose,
+  onTabChange,
   skin = "lumina",
 }: {
   query: string;
@@ -25,6 +26,7 @@ export function LegacyDashboard({
   onReady?: () => void;
   onTaskSaved?: (update: { taskId: string; workStatus?: string; reviewStatus?: string; dueDate?: string | null; hasDocument?: boolean }) => void;
   onTaskClose?: () => void;
+  onTabChange?: (tab: string) => void;
   skin?: "lumina" | "blue" | "light" | "yellow";
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -33,6 +35,7 @@ export function LegacyDashboard({
   const [frameReady, setFrameReady] = useState(false);
   const closeObserverRef = useRef<MutationObserver | null>(null);
   const readyTimerRef = useRef<number | null>(null);
+  const tabListenerCleanupRef = useRef<(() => void) | null>(null);
 
   const sendSession = useCallback(async () => {
     const supabase = createClient();
@@ -87,10 +90,13 @@ export function LegacyDashboard({
     closeObserverRef.current = null;
     if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
     readyTimerRef.current = null;
+    tabListenerCleanupRef.current?.();
+    tabListenerCleanupRef.current = null;
   }, [frameSource, initialTab]);
 
   useEffect(() => () => {
     closeObserverRef.current?.disconnect();
+    tabListenerCleanupRef.current?.();
     if (readyTimerRef.current) window.clearInterval(readyTimerRef.current);
   }, []);
 
@@ -200,6 +206,24 @@ export function LegacyDashboard({
           doc.head.appendChild(style);
         }
 
+        if (doc && onTabChange) {
+          tabListenerCleanupRef.current?.();
+          const notifyTab = () => {
+            const active = doc.querySelector<HTMLButtonElement>(".task-tab.active");
+            const tab = active?.dataset.tab;
+            if (tab) onTabChange(tab);
+          };
+          const handleTabClick = (event: Event) => {
+            const target = event.target as HTMLElement | null;
+            const button = target?.closest<HTMLButtonElement>(".task-tab");
+            if (!button?.dataset.tab) return;
+            window.setTimeout(() => onTabChange(button.dataset.tab || "room"), 0);
+          };
+          doc.addEventListener("click", handleTabClick, true);
+          tabListenerCleanupRef.current = () => doc.removeEventListener("click", handleTabClick, true);
+          notifyTab();
+        }
+
         const modalBackdrop = doc?.getElementById("task-modal-backdrop");
         closeObserverRef.current?.disconnect();
         if (modalBackdrop && onTaskClose) {
@@ -218,7 +242,7 @@ export function LegacyDashboard({
     }
     await sendSession();
     markReadyWhenWorkspaceIsOpen();
-  }, [embedded, sendSession, onTaskClose, markReadyWhenWorkspaceIsOpen]);
+  }, [embedded, sendSession, onTaskClose, onTabChange, markReadyWhenWorkspaceIsOpen]);
 
   if (embedded) {
     return <main style={{ width: "100%", height: "100%", minHeight: 0, overflow: "hidden", background: "transparent", position: "relative" }}>

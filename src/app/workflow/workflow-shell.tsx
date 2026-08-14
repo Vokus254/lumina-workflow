@@ -71,6 +71,7 @@ type ShellView = "start" | "process" | "messages" | "status" | "admin";
 type MyDaySort = "due" | "number" | "process";
 type SparringAssistant = "KAI" | "KIRA";
 type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string };
+type SparringUsage = { inputTokens: number; outputTokens: number; totalTokens: number; estimatedEur: number | null; model: string; exchangeRate?: number | null };
 
 type AdminUser = {
   id: string;
@@ -192,6 +193,7 @@ export function WorkflowShell({
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
   const [activeTaskTab, setActiveTaskTab] = useState<string | null>(null);
+  const [activeTaskContextTab, setActiveTaskContextTab] = useState<string | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [taskOverrides, setTaskOverrides] = useState<Record<string, Partial<Pick<ShellTask, "workStatus" | "reviewStatus" | "dueDate" | "hasDocument">>>>({});
   const returnScreenRef = useRef<{ view: ShellView; expandedStepId: string | null } | null>(null);
@@ -206,12 +208,18 @@ export function WorkflowShell({
   const [sparringLoading, setSparringLoading] = useState(false);
   const [sparringError, setSparringError] = useState("");
   const [sparringOpen, setSparringOpen] = useState(false);
+  const [sparringUsage, setSparringUsage] = useState<SparringUsage | null>(null);
+  const [sparringSessionUsage, setSparringSessionUsage] = useState({ tokens: 0, eur: 0 });
+  const [sparringStartedAt, setSparringStartedAt] = useState<number | null>(null);
+  const [sparringLastLatencyMs, setSparringLastLatencyMs] = useState<number | null>(null);
+  const [sparringProgressTick, setSparringProgressTick] = useState(0);
   const sparringAutoRef = useRef<string>("");
 
   useEffect(() => {
     setView(initialView);
     setActiveTaskId(selectedTaskId || null);
     setActiveTaskTab(null);
+    setActiveTaskContextTab(null);
     setWorkspaceReady(false);
   }, [initialView, selectedTaskId]);
 
@@ -331,20 +339,51 @@ export function WorkflowShell({
   const kaiTarget = personalReviewIssues[0] || personalOverdue[0] || personalToday[0] || personalThisWeek[0] || sortedWork[0] || null;
   const kaiTargetTab = kaiTarget && (kaiTarget.reviewStatus === "changes_required" || kaiTarget.reviewStatus === "question") ? "review" : null;
 
+  const activeTask = activeTaskId ? taskById.get(activeTaskId) || null : null;
+  const contextProcessStep = expandedStepId ? processSteps.find((step) => step.id === expandedStepId) || null : null;
+  const tabLabels: Record<string, string> = { details: "Anleitung", previous: "Vorjahr", room: "Arbeitsbereich", notes: "Notizen", email: "E-Mail", communication: "Kommunikation", review: "Prüfung" };
+  const viewLabels: Record<ShellView, string> = { start: "Mein Tag", process: "Abschlussprozess", messages: "Kommunikation", status: "Statusbericht", admin: "Administration" };
+  const currentContext = activeTask ? {
+    view: "task",
+    taskId: activeTask.id,
+    tab: activeTaskContextTab || activeTaskTab || "room",
+    processStepId: activeTask.processStepId || null,
+    processStepCode: activeTask.processStepCode || null,
+    processStepName: activeTask.processStepName || null,
+  } : {
+    view,
+    taskId: null,
+    tab: null,
+    processStepId: contextProcessStep?.id || null,
+    processStepCode: contextProcessStep?.code || null,
+    processStepName: contextProcessStep?.name || null,
+  };
+  const contextTitle = activeTask
+    ? `${taskNumber(activeTask)} · ${activeTask.title}`
+    : contextProcessStep
+      ? `${contextProcessStep.code} · ${contextProcessStep.name}`
+      : viewLabels[view];
+  const contextDetail = activeTask
+    ? `${tabLabels[activeTaskContextTab || activeTaskTab || "room"] || activeTaskContextTab || activeTaskTab || "Aufgabe"} · ${workLabel(activeTask.workStatus)} · ${reviewLabel(activeTask.reviewStatus)} · ${activeTask.hasDocument ? "Nachweis vorhanden" : "kein Nachweis"}`
+    : `${projectName} · ${visibleRoleLabel}`;
+
   const sparringStorageKey = `lumina-sparring:${activeProjectId}:${userEmail}:${todayIso}`;
   async function askSparring(assistant: SparringAssistant, question: string, mode: "assessment" | "chat" = "chat") {
     const text = question.trim();
     if (!text || sparringLoading) return;
+    const startedAt = Date.now();
     setSparringAssistant(assistant);
     setSparringError("");
     setSparringLoading(true);
+    setSparringStartedAt(startedAt);
+    setSparringProgressTick(0);
     const history = sparringMessages.slice(-8);
     if (mode === "chat") setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
     try {
       const response = await fetch("/api/ai/day-sparring", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history }),
+        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history, pageContext: currentContext }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "KI-Sparring ist derzeit nicht erreichbar.");
@@ -354,12 +393,39 @@ export function WorkflowShell({
         try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
         return next;
       });
+      const latency = Number(payload.elapsedMs || Date.now() - startedAt);
+      if (Number.isFinite(latency) && latency > 0) setSparringLastLatencyMs(latency);
+      if (payload.usage) {
+        const usage: SparringUsage = {
+          inputTokens: Number(payload.usage.inputTokens || 0),
+          outputTokens: Number(payload.usage.outputTokens || 0),
+          totalTokens: Number(payload.usage.totalTokens || 0),
+          estimatedEur: typeof payload.usage.estimatedEur === "number" ? payload.usage.estimatedEur : null,
+          model: String(payload.model || ""),
+          exchangeRate: typeof payload.usage.exchangeRate === "number" ? payload.usage.exchangeRate : null,
+        };
+        setSparringUsage(usage);
+        setSparringSessionUsage((current) => ({ tokens: current.tokens + usage.totalTokens, eur: current.eur + (usage.estimatedEur || 0) }));
+      }
     } catch (error) {
       setSparringError(error instanceof Error ? error.message : "KI-Sparring ist derzeit nicht erreichbar.");
     } finally {
       setSparringLoading(false);
+      setSparringStartedAt(null);
     }
   }
+
+  useEffect(() => {
+    if (!sparringLoading || !sparringStartedAt) return;
+    const timer = window.setInterval(() => setSparringProgressTick((value) => value + 1), 250);
+    return () => window.clearInterval(timer);
+  }, [sparringLoading, sparringStartedAt]);
+
+  const sparringExpectedMs = Math.max(6000, Math.min(30000, sparringLastLatencyMs ? Math.round(sparringLastLatencyMs * 1.15) : 12000));
+  const sparringElapsedMs = sparringStartedAt ? Math.max(0, Date.now() - sparringStartedAt + sparringProgressTick * 0) : 0;
+  const sparringProgress = sparringLoading ? Math.min(92, Math.max(8, Math.round(8 + (sparringElapsedMs / sparringExpectedMs) * 84))) : 100;
+  const sparringRemainingSeconds = sparringLoading ? Math.max(1, Math.ceil((sparringExpectedMs - sparringElapsedMs) / 1000)) : 0;
+  const sparringProgressLabel = sparringProgress < 28 ? "Kontext wird sicher geladen …" : sparringProgress < 62 ? `${sparringAssistant} analysiert den aktuellen Kontext …` : `${sparringAssistant} formuliert die Antwort …`;
 
   useEffect(() => {
     if (view !== "start" || roleView === "cfo") return;
@@ -462,6 +528,7 @@ export function WorkflowShell({
   function openTask(taskId: string, initialTab: string | null = null) {
     returnScreenRef.current = { view, expandedStepId };
     setActiveTaskTab(initialTab);
+    setActiveTaskContextTab(initialTab || "room");
     setWorkspaceReady(false);
     setActiveTaskId(taskId);
     // Die bisherige Shell-Sicht bleibt stehen, bis der Arbeitsraum samt Zielreiter tatsächlich bereit ist.
@@ -479,6 +546,7 @@ export function WorkflowShell({
     returnScreenRef.current = null;
     setActiveTaskId(null);
     setActiveTaskTab(null);
+    setActiveTaskContextTab(null);
     setWorkspaceReady(false);
     setExpandedStepId(null);
     setView("process");
@@ -489,6 +557,7 @@ export function WorkflowShell({
     returnScreenRef.current = null;
     setActiveTaskId(null);
     setActiveTaskTab(null);
+    setActiveTaskContextTab(null);
     setWorkspaceReady(false);
     setExpandedStepId(null);
     if (target !== "admin") setAdminSection(null);
@@ -503,6 +572,7 @@ export function WorkflowShell({
     }
     setActiveTaskId(null);
     setActiveTaskTab(null);
+    setActiveTaskContextTab(null);
     setWorkspaceReady(false);
     setExpandedStepId(rootStep.id);
     setView("process");
@@ -512,6 +582,7 @@ export function WorkflowShell({
   function closeTaskWorkspace() {
     setActiveTaskId(null);
     setActiveTaskTab(null);
+    setActiveTaskContextTab(null);
     setWorkspaceReady(false);
     const previous = returnScreenRef.current;
     returnScreenRef.current = null;
@@ -635,7 +706,6 @@ export function WorkflowShell({
               <div className={styles.sparringCompactActions}><button type="button" className={styles.sparringOpenButton} onClick={() => setSparringOpen(true)}>Mit {sparringAssistant} sprechen</button><small>Großer Chat öffnet sich unten im Arbeitsbereich.</small></div>
             </section></div>
         </div>
-        {sparringOpen ? <div className={styles.sparringDrawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={styles.sparringDrawer} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Persönliches Tages-Sparring</span><h2>KAI & KIRA</h2><small>{projectName} · {visibleRoleLabel}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p></div>) : <div className={styles.sparringEmpty}>{sparringLoading ? "KAI beurteilt Ihre aktuelle Situation …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading && sparringMessages.length ? <div className={styles.sparringTyping}>{sparringAssistant} denkt …</div> : null}</div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{(sparringAssistant === "KAI" ? ["Was hat heute Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich für den Prüfer vorbereiten?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"]).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über Ihren Abschluss sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringDisclaimer}>KI-Sparring · fachliche Empfehlungen bitte prüfen · keine automatische Status- oder Datenänderung.</div></div></section></div> : null}
       </section> : null}
 
       {(view === "start" && roleView === "cfo") || view === "status" ? <section>
@@ -695,6 +765,12 @@ export function WorkflowShell({
       </section> : null}
     </main>
 
+    <button type="button" className={styles.sparringGlobalButton} onClick={() => setSparringOpen(true)} aria-label="KAI oder KIRA zum aktuellen Kontext öffnen">
+      <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : viewLabels[view]}</b>
+    </button>
+
+    {sparringOpen ? <div className={styles.sparringDrawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={styles.sparringDrawer} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p></div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}</div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{(activeTask ? (sparringAssistant === "KAI" ? ["Was ist bei dieser Aufgabe jetzt konkret zu tun?", "Welche Unterlagen fehlen hier?", "Wo liegt bei dieser Aufgabe das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte auf Basis der gemeldeten Token und hinterlegten Modellpreise.</div></div></section></div> : null}
+
     {activeTaskId ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
       <LegacyDashboard
         query={activeLegacyQuery}
@@ -705,6 +781,7 @@ export function WorkflowShell({
         onReady={() => setWorkspaceReady(true)}
         onTaskSaved={applyTaskUpdate}
         onTaskClose={closeTaskWorkspace}
+        onTabChange={(tab) => setActiveTaskContextTab(tab)}
         skin={skin}
       />
     </div> : null}

@@ -314,3 +314,16 @@
 .sparringDrawer .sparringDisclaimer{padding:0 20px 10px;font-size:9.5px}
 @media(max-width:1000px){.sparringDrawerBackdrop{padding-left:24px}.sparringDrawer{width:94vw;height:68vh}.sparringDrawer .sparringBubble{max-width:86%}}
 @media(max-width:680px){.sparringDrawerBackdrop{padding:10px 8px}.sparringDrawer{width:100%;height:78vh;min-height:360px;border-radius:14px 14px 8px 8px}.sparringDrawerTop{align-items:flex-start}.sparringDrawerControls{align-items:flex-start}.sparringDrawer .sparringBubble{max-width:94%}.sparringDrawer .sparringComposer{grid-template-columns:1fr}.sparringDrawer .sparringComposer button{justify-self:end}}
+
+/* KAI/KIRA V7 – globaler kontextsensitiver Zugriff, Fortschritt und Verbrauch */
+.sparringGlobalButton{position:fixed;right:24px;bottom:22px;z-index:79;display:grid;gap:1px;min-width:126px;border:0;border-radius:999px;padding:10px 16px;background:var(--lumina-primary);color:#fff;box-shadow:0 10px 30px rgba(14,140,109,.30);cursor:pointer;text-align:left;font:inherit}
+.sparringGlobalButton:hover{filter:brightness(.96);transform:translateY(-1px)}
+.sparringGlobalButton span{font-size:11px;font-weight:900;letter-spacing:.03em}.sparringGlobalButton b{font-size:9.5px;font-weight:650;opacity:.82;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sparringProgressBox{margin:2px 0 4px;max-width:82%;padding:11px 13px;border:1px solid var(--lumina-line);border-radius:12px;background:var(--lumina-primary-soft);display:grid;gap:7px}
+.sparringProgressHead{display:flex;align-items:center;justify-content:space-between;gap:16px}.sparringProgressHead b{font-size:11.5px;color:var(--lumina-primary-dark)}.sparringProgressHead span{font-size:10.5px;color:var(--lumina-ink-3);white-space:nowrap}
+.sparringProgressBox>i{display:block;height:6px;border-radius:999px;background:color-mix(in srgb,var(--lumina-primary) 14%,#fff);overflow:hidden}.sparringProgressBox>i>b{display:block;height:100%;border-radius:999px;background:var(--lumina-primary);transition:width .28s ease}.sparringProgressBox>small{font-size:9.5px;color:var(--lumina-ink-3)}
+.sparringUsageBar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:7px 20px 8px;border-top:1px solid var(--lumina-line);background:#fbfcfb;font-size:9.75px;color:var(--lumina-ink-3)}
+.sparringUsageBar span:first-child{font-weight:700;color:var(--lumina-ink-2)}
+.sparringDrawerTop small b{color:var(--lumina-primary-dark)}
+@media(max-width:900px){.sparringGlobalButton{right:16px;bottom:16px;min-width:auto}.sparringGlobalButton b{display:none}.sparringProgressBox{max-width:94%}.sparringProgressHead{align-items:flex-start;flex-direction:column;gap:3px}.sparringProgressHead span{white-space:normal}}
+.sparringDrawerBackdrop{z-index:90}

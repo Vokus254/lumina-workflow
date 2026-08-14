@@ -1,8 +1,9 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 type Assistant = "KAI" | "KIRA";
 type HistoryItem = { role?: "user" | "assistant"; content?: string; assistant?: Assistant };
+type PageContext = { view?: string; taskId?: string | null; tab?: string | null; processStepId?: string | null; processStepCode?: string | null; processStepName?: string | null };
 
 function extractOutputText(payload: any): string {
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
@@ -17,7 +18,7 @@ function extractOutputText(payload: any): string {
 
 function boundedJson(value: unknown, maxLength = 15000) {
   const json = JSON.stringify(value, null, 2);
-  return json.length <= maxLength ? json : `${json.slice(0, maxLength)}\nâ€¦ [Kontext gekÃ¼rzt]`;
+  return json.length <= maxLength ? json : `${json.slice(0, maxLength)}\n… [Kontext gekürzt]`;
 }
 
 function cleanHistory(value: unknown): HistoryItem[] {
@@ -35,15 +36,24 @@ export async function POST(request: Request) {
   const claims = claimsData?.claims;
   if (claimsError || !claims?.sub) return NextResponse.json({ error: "Anmeldung erforderlich." }, { status: 401 });
 
-  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string };
-  try { body = await request.json(); } catch { return NextResponse.json({ error: "UngÃ¼ltige Anfrage." }, { status: 400 }); }
+  const startedAt = Date.now();
+  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string; pageContext?: PageContext };
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Ungültige Anfrage." }, { status: 400 }); }
 
   const assistant: Assistant = body.assistant === "KIRA" ? "KIRA" : "KAI";
   const projectId = String(body.projectId || "").trim();
   const prompt = String(body.prompt || "").trim();
   const mode = body.mode === "assessment" ? "assessment" : "chat";
+  const requestedPageContext: PageContext = {
+    view: String(body.pageContext?.view || "").slice(0, 40),
+    taskId: body.pageContext?.taskId ? String(body.pageContext.taskId).slice(0, 80) : null,
+    tab: body.pageContext?.tab ? String(body.pageContext.tab).slice(0, 40) : null,
+    processStepId: body.pageContext?.processStepId ? String(body.pageContext.processStepId).slice(0, 80) : null,
+    processStepCode: body.pageContext?.processStepCode ? String(body.pageContext.processStepCode).slice(0, 60) : null,
+    processStepName: body.pageContext?.processStepName ? String(body.pageContext.processStepName).slice(0, 200) : null,
+  };
   if (!projectId || !prompt) return NextResponse.json({ error: "Projekt oder Frage fehlt." }, { status: 400 });
-  if (prompt.length > 4000) return NextResponse.json({ error: "Die Frage ist zu lang. Bitte auf maximal 4.000 Zeichen kÃ¼rzen." }, { status: 400 });
+  if (prompt.length > 4000) return NextResponse.json({ error: "Die Frage ist zu lang. Bitte auf maximal 4.000 Zeichen kürzen." }, { status: 400 });
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -70,7 +80,7 @@ export async function POST(request: Request) {
   if (projectRoleIds.size) taskQuery = taskQuery.in("responsibility_role_id", [...projectRoleIds]);
   else taskQuery = taskQuery.eq("responsibility_role_id", "00000000-0000-0000-0000-000000000000");
   const { data: tasks, error: taskError } = await taskQuery;
-  if (taskError) return NextResponse.json({ error: "Der persÃ¶nliche Aufgabenkontext konnte nicht geladen werden." }, { status: 500 });
+  if (taskError) return NextResponse.json({ error: "Der persönliche Aufgabenkontext konnte nicht geladen werden." }, { status: 500 });
 
   const taskRows = tasks || [];
   const taskIds = taskRows.map((task: any) => String(task.id));
@@ -98,7 +108,7 @@ export async function POST(request: Request) {
       id: task.id,
       number: task.source_number,
       title: task.title,
-      processStep: step ? `${step.code} Â· ${step.name}` : null,
+      processStep: step ? `${step.code} · ${step.name}` : null,
       dueDate,
       overdue: Boolean(dueDate && dueDate < today && task.work_status !== "completed"),
       workStatus: task.work_status,
@@ -111,6 +121,12 @@ export async function POST(request: Request) {
   }).sort((a: any, b: any) => String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")));
 
   const openTasks = normalizedTasks.filter((task: any) => task.workStatus !== "completed");
+  const currentTask = requestedPageContext.taskId
+    ? normalizedTasks.find((task: any) => String(task.id) === String(requestedPageContext.taskId)) || null
+    : null;
+  const tabLabels: Record<string, string> = { details: "Anleitung", previous: "Vorjahr", room: "Arbeitsbereich", notes: "Notizen", email: "E-Mail", communication: "Kommunikation", review: "Prüfung" };
+  const currentTaskMessages = currentTask ? (messagesResult.data || []).filter((message: any) => String(message.task_id) === String(currentTask.id)).slice(0, 8) : [];
+  const currentTaskDocuments = currentTask ? (documentsResult.data || []).filter((document: any) => String(document.task_id) === String(currentTask.id)).slice(0, 12) : [];
   const reviewIssues = openTasks.filter((task: any) => task.reviewStatus === "question" || task.reviewStatus === "changes_required");
   const overdue = openTasks.filter((task: any) => task.overdue);
   const missingEvidence = openTasks.filter((task: any) => String(task.requiredDocuments || "").trim() && task.documentCount === 0);
@@ -129,6 +145,15 @@ export async function POST(request: Request) {
       responsibilityRoles: (roles || []).map((role: any) => ({ key: role.role_key, name: role.display_name })),
     },
     project,
+    currentPage: {
+      view: requestedPageContext.view || "unknown",
+      tab: requestedPageContext.tab ? (tabLabels[requestedPageContext.tab] || requestedPageContext.tab) : null,
+      processStep: requestedPageContext.processStepCode || requestedPageContext.processStepName ? { code: requestedPageContext.processStepCode, name: requestedPageContext.processStepName } : null,
+      currentTask,
+      currentTaskDocuments: currentTaskDocuments.map((document: any) => ({ displayName: document.display_name, status: document.document_status, createdAt: document.created_at })),
+      currentTaskMessages: currentTaskMessages.map((message: any) => ({ subject: message.subject, body: String(message.body_text || "").slice(0, 500), status: message.status, createdAt: message.created_at })),
+      note: requestedPageContext.taskId && !currentTask ? "Die angeforderte Aufgabe ist im autorisierten persönlichen Kontext nicht sichtbar und wurde deshalb nicht an die KI übergeben." : null,
+    },
     situation: {
       assignedTasks: normalizedTasks.length,
       openTasks: openTasks.length,
@@ -148,18 +173,21 @@ export async function POST(request: Request) {
 
   const history = cleanHistory(body.history);
   const historyText = history.length
-    ? `\n\nBisheriger Dialog (nur als GesprÃ¤chskontext):\n${history.map((item) => `${item.role === "assistant" ? item.assistant : "NUTZER"}: ${item.content}`).join("\n")}`
+    ? `\n\nBisheriger Dialog (nur als Gesprächskontext):\n${history.map((item) => `${item.role === "assistant" ? item.assistant : "NUTZER"}: ${item.content}`).join("\n")}`
     : "";
 
   const persona = assistant === "KIRA"
-    ? `Du bist KIRA, die kritische KI-Reviewpartnerin in LUMINA. Du sparrst mit einem erfahrenen Finance-Anwender auf professionellem Niveau. PrÃ¼fe die aktuelle Arbeitssituation auf VollstÃ¤ndigkeit, Nachweise, PlausibilitÃ¤t, Abschlussrisiken, Review-Stau und WidersprÃ¼che. Sei klar und knapp. Du darfst allgemeines HGB-/Abschlusswissen ergÃ¤nzen, musst aber Projektfakten strikt vom allgemeinen Fachhinweis trennen. Du Ã¤nderst niemals Daten, Status oder Freigaben und behauptest keine rechtsverbindliche PrÃ¼fung.`
-    : `Du bist KAI, der operative KI-Sparringspartner in LUMINA. Du arbeitest mit einem erfahrenen Finance-Anwender auf AugenhÃ¶he. Nutze seine tatsÃ¤chlichen Responsibility-Rollen und seine persÃ¶nlichen Aufgaben, Fristen, RÃ¼ckfragen, Dokumentlage und Nachrichten, um konkrete PrioritÃ¤ten und nÃ¤chste Schritte vorzuschlagen. Wenn die Rolle Hauptbuchhalter/Hauptbuchhaltung erkennbar ist, antworte wie ein erfahrener Sparringspartner fÃ¼r das Hauptbuch und nicht wie ein Lehrbuch. Du darfst allgemeines HGB-/Abschlusswissen ergÃ¤nzen, musst aber Projektfakten strikt vom allgemeinen Fachhinweis trennen. Du Ã¤nderst niemals Daten, Status oder Freigaben.`;
+    ? `Du bist KIRA, die kritische KI-Reviewpartnerin in LUMINA. Du sparrst mit einem erfahrenen Finance-Anwender auf professionellem Niveau. Prüfe die aktuelle Arbeitssituation auf Vollständigkeit, Nachweise, Plausibilität, Abschlussrisiken, Review-Stau und Widersprüche. Sei klar und knapp. Du darfst allgemeines HGB-/Abschlusswissen ergänzen, musst aber Projektfakten strikt vom allgemeinen Fachhinweis trennen. Du änderst niemals Daten, Status oder Freigaben und behauptest keine rechtsverbindliche Prüfung.`
+    : `Du bist KAI, der operative KI-Sparringspartner in LUMINA. Du arbeitest mit einem erfahrenen Finance-Anwender auf Augenhöhe. Nutze seine tatsächlichen Responsibility-Rollen und seine persönlichen Aufgaben, Fristen, Rückfragen, Dokumentlage und Nachrichten, um konkrete Prioritäten und nächste Schritte vorzuschlagen. Wenn die Rolle Hauptbuchhalter/Hauptbuchhaltung erkennbar ist, antworte wie ein erfahrener Sparringspartner für das Hauptbuch und nicht wie ein Lehrbuch. Du darfst allgemeines HGB-/Abschlusswissen ergänzen, musst aber Projektfakten strikt vom allgemeinen Fachhinweis trennen. Du änderst niemals Daten, Status oder Freigaben.`;
 
   const outputRule = mode === "assessment"
-    ? `Dies ist die automatische Tagesbeurteilung. Antworte in hÃ¶chstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2â€“3 konkrete PrioritÃ¤ten und hÃ¶chstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
+    ? `Dies ist die automatische Tagesbeurteilung. Antworte in höchstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2–3 konkrete Prioritäten und höchstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
     : `Antworte auf Deutsch, konkret und praxisnah. Beziehe die Antwort sichtbar auf Rolle, Projekt und aktuelle Aufgaben, sofern relevant. Bei einer einfachen Frage kurz antworten; bei komplexen Fragen strukturiert. Erfinde keine Projektfakten.`;
+  const contextRule = currentTask
+    ? `WICHTIG: Der Nutzer befindet sich gerade in der Aufgabe ${currentTask.number || ""} ${currentTask.title || ""} im Reiter ${requestedPageContext.tab ? (tabLabels[requestedPageContext.tab] || requestedPageContext.tab) : "Aufgabe"}. Beziehe die Antwort primär auf genau diesen aktuellen Arbeitskontext. Nutze nur die serverseitig bestätigten Daten zu Aufgabe, Dokumenten und Nachrichten.`
+    : `WICHTIG: Beziehe dich primär auf den aktuell geöffneten LUMINA-Bereich ${requestedPageContext.view || "Projekt"}${requestedPageContext.processStepCode ? ` / Prozessschritt ${requestedPageContext.processStepCode}` : ""}.`;
 
-  const input = `${persona}\n\nServerseitig autorisierter persÃ¶nlicher LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}`;
+  const input = `${persona}\n\nServerseitig autorisierter persönlicher LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}`;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "KI-Konfiguration fehlt: OPENAI_API_KEY ist auf dem Server nicht gesetzt." }, { status: 503 });
 
@@ -176,12 +204,32 @@ export async function POST(request: Request) {
     if (!aiResponse.ok) return NextResponse.json({ error: payload?.error?.message || "KI-Dienst nicht erreichbar." }, { status: 502 });
     const response = extractOutputText(payload);
     if (!response) return NextResponse.json({ error: "Der KI-Dienst hat keine Textantwort geliefert." }, { status: 502 });
-    return NextResponse.json({ response, model: payload?.model || process.env.LUMINA_AI_MODEL || "gpt-5-mini", context: { roles: serverContext.user.responsibilityRoles, situation: serverContext.situation } });
+    const model = String(payload?.model || process.env.LUMINA_AI_MODEL || "gpt-5-mini");
+    const inputTokens = Number(payload?.usage?.input_tokens || 0);
+    const outputTokens = Number(payload?.usage?.output_tokens || 0);
+    const totalTokens = Number(payload?.usage?.total_tokens || inputTokens + outputTokens);
+    const cachedInputTokens = Number(payload?.usage?.input_tokens_details?.cached_tokens || 0);
+    const defaultMiniPricing = model === "gpt-5-mini" || model.startsWith("gpt-5-mini-");
+    const inputUsdPerM = Number(process.env.LUMINA_AI_INPUT_USD_PER_M || (defaultMiniPricing ? "0.25" : "NaN"));
+    const cachedInputUsdPerM = Number(process.env.LUMINA_AI_CACHED_INPUT_USD_PER_M || (defaultMiniPricing ? "0.025" : "NaN"));
+    const outputUsdPerM = Number(process.env.LUMINA_AI_OUTPUT_USD_PER_M || (defaultMiniPricing ? "2.00" : "NaN"));
+    const usdToEur = Number(process.env.LUMINA_USD_TO_EUR || "0.879");
+    const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+    const estimatedUsd = [inputUsdPerM, cachedInputUsdPerM, outputUsdPerM, usdToEur].every(Number.isFinite)
+      ? (uncachedInputTokens * inputUsdPerM + cachedInputTokens * cachedInputUsdPerM + outputTokens * outputUsdPerM) / 1_000_000
+      : null;
+    const estimatedEur = estimatedUsd === null ? null : estimatedUsd * usdToEur;
+    return NextResponse.json({
+      response,
+      model,
+      elapsedMs: Date.now() - startedAt,
+      usage: { inputTokens, cachedInputTokens, outputTokens, totalTokens, estimatedEur, exchangeRate: Number.isFinite(usdToEur) ? usdToEur : null },
+      context: { roles: serverContext.user.responsibilityRoles, situation: serverContext.situation, currentPage: serverContext.currentPage },
+    });
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") return NextResponse.json({ error: "Die KI-Anfrage hat das Zeitlimit Ã¼berschritten. Bitte erneut versuchen." }, { status: 504 });
+    if (error instanceof Error && error.name === "AbortError") return NextResponse.json({ error: "Die KI-Anfrage hat das Zeitlimit überschritten. Bitte erneut versuchen." }, { status: 504 });
     return NextResponse.json({ error: "KI-Dienst nicht erreichbar." }, { status: 502 });
   } finally {
     clearTimeout(timeout);
   }
 }
-
