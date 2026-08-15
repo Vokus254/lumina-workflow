@@ -29,7 +29,8 @@ export type WorkspaceCard =
   | { type: "documents"; taskId: string; documents: WorkspaceDocument[] }
   | { type: "communication"; taskId: string; messages: WorkspaceMessage[] }
   | { type: "search"; query: string; results: WorkspaceSearchResult[] }
-  | { type: "denied"; reason: string };
+  | { type: "denied"; reason: string }
+  | { type: "notFound"; message: string; suggestions: WorkspaceSearchResult[] };
 
 function formatGermanDate(value?: string | null) {
   if (!value) return "–";
@@ -50,7 +51,14 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
   onChip: (action: string) => void;
 }) {
-  if (card.type === "start") return <div className={styles.workspaceChips}>{card.chips.map((chip) => <button key={chip.action} type="button" className={styles.workspaceChip} onClick={() => onChip(chip.action)}>{chip.label}{typeof chip.count === "number" ? <b>{chip.count}</b> : null}</button>)}</div>;
+  if (card.type === "start") return <div className={styles.workspaceCard}><b className={styles.workspaceCardTitle}>{card.greeting}</b><div className={styles.workspaceChips}>{card.chips.map((chip) => <button key={chip.action} type="button" className={styles.workspaceChip} onClick={() => onChip(chip.action)}>{chip.label}{typeof chip.count === "number" ? <b>{chip.count}</b> : null}</button>)}</div></div>;
+
+  if (card.type === "notFound") return <div className={styles.workspaceCard}>
+    <p className={styles.workspaceEmptyNote}>{card.message}</p>
+    {card.suggestions.length ? <div className={styles.workspaceTaskRows}>{card.suggestions.map((result, index) => <button key={`${result.kind}-${result.ref}-${index}`} type="button" className={styles.workspaceTaskRow} onClick={() => onOpenMeasure(result.kind === "task" ? "task" : "step", result.ref)}>
+      <span className={styles.workspaceTaskNumber}>{result.ref}</span><span className={styles.workspaceTaskTitle}>{result.label}</span>
+    </button>)}</div> : null}
+  </div>;
 
   if (card.type === "taskList") return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>{card.title}</b>

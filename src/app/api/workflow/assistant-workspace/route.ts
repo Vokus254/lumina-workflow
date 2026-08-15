@@ -136,24 +136,43 @@ export async function POST(request: Request) {
     }
 
     if (action === "measure") {
-      const taskNumber = params.taskNumber ? String(params.taskNumber) : null;
-      const stepCode = params.stepCode ? String(params.stepCode) : null;
+      // "ref" ist ein generischer, vom Nutzer getippter Bezug (z. B. aus "gehe zu Kachel 1.7"
+      // oder "zeige Aufgabe 29") und wird - anders als die schon bekannten taskNumber/stepCode aus
+      // Kachel-/Listenklicks - versuchsweise gegen BEIDE Interpretationen geprüft, statt zu raten.
+      const ref = params.ref ? String(params.ref).trim() : null;
+      const taskNumber = params.taskNumber ? String(params.taskNumber) : ref;
+      const stepCodeCandidate = params.stepCode ? String(params.stepCode) : ref;
       let task: any = null;
       if (taskNumber) {
         const { data } = await supabase.from("tasks").select("id,source_number,title,process_step_id,due_date,due_date_override,work_status,review_status,required_documents_text,expected_format,responsibility_role_id").eq("project_id", projectId).eq("source_number", taskNumber).maybeSingle();
         task = data;
       }
-      const resolvedStepCode = stepCode || specialToolParentCode(stepCode || "") || null;
       let step: any = null;
       if (task?.process_step_id) {
         const { data } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("id", task.process_step_id).maybeSingle();
         step = data;
-      } else if (stepCode) {
-        const parentToolCode = specialToolParentCode(stepCode) || stepCode;
+      } else if (stepCodeCandidate) {
+        const parentToolCode = specialToolParentCode(stepCodeCandidate) || stepCodeCandidate;
         const { data } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", parentToolCode).maybeSingle();
         step = data;
       }
-      if (!task && !step) return NextResponse.json({ card: { type: "denied", reason: "Diese Maßnahme wurde nicht gefunden oder ist für dich nicht verfügbar." } });
+      const stepCode = step?.code || stepCodeCandidate;
+
+      if (!task && !step) {
+        // V12-Nachschärfung: nicht existierende Kachel/Aufgabe wird deterministisch beantwortet,
+        // inkl. naheliegender Treffer - kein LLM, keine lange Erklärung.
+        const lookupRef = ref || taskNumber || stepCodeCandidate || "";
+        const phasePrefix = lookupRef.includes(".") ? lookupRef.split(".")[0] : null;
+        const [siblingResult, taskGuessResult] = await Promise.all([
+          phasePrefix ? supabase.from("process_steps").select("code,name").eq("project_id", projectId).ilike("code", `${phasePrefix}.%`).order("code", { ascending: true }).limit(8) : Promise.resolve({ data: [] as any[] }),
+          lookupRef ? supabase.from("tasks").select("source_number,title").eq("project_id", projectId).or(`source_number.ilike.%${lookupRef}%,title.ilike.%${lookupRef}%`).limit(5) : Promise.resolve({ data: [] as any[] }),
+        ]);
+        const suggestions = [
+          ...((siblingResult.data || []).map((row: any) => ({ kind: "step" as const, ref: row.code, label: `${row.code} · ${row.name}`, status: null, dueDate: null }))),
+          ...((taskGuessResult.data || []).map((row: any) => ({ kind: "task" as const, ref: row.source_number, label: `${row.source_number} · ${row.title}`, status: null, dueDate: null }))),
+        ].slice(0, 10);
+        return NextResponse.json({ card: { type: "notFound", message: `„${lookupRef}“ gibt es in diesem Abschlussprozess nicht.`, suggestions } });
+      }
 
       const [guidanceResult, roleResult] = await Promise.all([
         step?.id ? supabase.from("process_step_guidance").select("ziel,was_ist_zu_tun,benoetigte_unterlagen,liefergegenstand,typische_fehler,erledigt_wenn,arbeitshilfe_name").eq("process_step_id", step.id).maybeSingle() : Promise.resolve({ data: null }),

@@ -268,6 +268,22 @@ export async function POST(request: Request) {
   const focusTask = focusTaskNumber ? normalizedTasks.find((task: any) => task.number === focusTaskNumber) || null : null;
   const focusStep: any = focusTask?.processStepId ? stepById.get(String(focusTask.processStepId)) || null : (focusStepCodeInput ? stepByCode.get(focusStepCodeInput) || null : null);
   const compactMode = Boolean(focusTask || focusStep);
+  // V12-Nachschärfung: ein vom Client mitgeschickter, aber nicht auflösbarer focusContext darf
+  // NICHT still auf den vollen Projektkontext (Terminmatrix + 202-Maßnahmen-Verzeichnis) zurückfallen
+  // - das war eine Ursache unnötig großer Prompt-Größen. Stattdessen sofort und ohne LLM-Aufruf
+  // antworten; echte projektweite Fragen erkennt man daran, dass gar kein focusContext gesetzt ist.
+  const focusContextProvided = Boolean(focusTaskNumber || focusStepCodeInput);
+  if (focusContextProvided && !compactMode) {
+    return NextResponse.json({
+      response: "Diese Maßnahme/Kachel konnte nicht eindeutig gefunden werden. Bitte über die Suche oder die Prozessnavigation im Workspace erneut auswählen.",
+      model: "none",
+      durationMs: Date.now() - startedAt,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, estimatedUsd: 0, estimatedEur: 0, exchangeRate: null },
+      context: { roles: [], situation: null, currentPage: null, milestones: 0, scheduledDates: 0 },
+      memory: { active: (memoryResult.data || []).length, used: 0, added: 0, resolved: 0, persistent: !memoryResult.error },
+      entityReferences: [],
+    });
+  }
   const { data: focusGuidance } = focusStep?.id
     ? await supabase.from("process_step_guidance").select("ziel,was_ist_zu_tun,benoetigte_unterlagen,liefergegenstand,typische_fehler,erledigt_wenn,arbeitshilfe_name").eq("process_step_id", focusStep.id).maybeSingle()
     : { data: null };

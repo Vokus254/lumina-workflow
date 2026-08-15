@@ -114,6 +114,26 @@ const FULL_MATRIX_PATTERNS: RegExp[] = [
 function isFullMatrixRequest(text: string) {
   return FULL_MATRIX_PATTERNS.some((pattern) => pattern.test(text));
 }
+// V12-Nachschärfung: deterministischer Intent-Router. Läuft VOR jedem askSparring-Aufruf und
+// erkennt eindeutige Navigations-/Suchbefehle per Regex gegen bereits bekannte Muster - keine
+// KI-Klassifikation. Nur wenn nichts davon passt, geht die Frage überhaupt an das LLM (SPARRING/
+// ANALYSIS/REVIEW/EXPLANATION/FORMULATION). "ref" wird nicht selbst in Aufgabe/Kachel
+// unterschieden - das übernimmt serverseitig assistant-workspace (versucht beide, keine Annahme
+// auf Client-Seite, kein Raten).
+const NAV_VERB = "(?:gehe?\\s+zu|geh\\s+zu|öffne|zeig(?:e)?(?:\\s+mir)?|wo\\s+ist)";
+const NAV_REF_PATTERN = new RegExp(`^${NAV_VERB}\\s+(?:die\\s+|den\\s+)?(?:kachel|maßnahme|aufgabe|schritt)?\\s*([\\d][\\d.]*)\\b`, "i");
+const NAV_SEARCH_PATTERN = new RegExp(`^${NAV_VERB}\\s+(?:die\\s+|den\\s+)?(.+)$`, "i");
+type RoutedIntent = { kind: "fullSchedule" } | { kind: "measure"; ref: string } | { kind: "search"; query: string };
+function routeIntent(text: string): RoutedIntent | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (isFullMatrixRequest(trimmed)) return { kind: "fullSchedule" };
+  const refMatch = trimmed.match(NAV_REF_PATTERN);
+  if (refMatch) return { kind: "measure", ref: refMatch[1] };
+  const searchMatch = trimmed.match(NAV_SEARCH_PATTERN);
+  if (searchMatch && searchMatch[1].trim().length >= 2) return { kind: "search", query: searchMatch[1].trim() };
+  return null;
+}
 const MATRIX_TYPE_LABELS: Record<string, string> = { task: "Aufgabe", process_date: "Prozess-Termin", milestone: "Meilenstein" };
 function formatGermanDate(value?: string | null) {
   if (!value) return "–";
@@ -130,7 +150,7 @@ function csvCell(value: string) {
 // KI-Fließtext: keine 329 Zeilen im LLM-Prompt/-Output, kein Zeitlimit, kein Tokenverbrauch für
 // die Zeilen selbst. Eigene Komponente, damit Filter-/CSV-Zustand pro Nachricht isoliert bleibt
 // (Hooks dürfen nicht direkt in der .map()-Schleife der Nachrichtenliste stehen).
-function ScheduleMatrixTable({ rows }: { rows: ScheduleMatrixRow[] }) {
+function ScheduleMatrixTable({ rows, onOpenMeasure }: { rows: ScheduleMatrixRow[]; onOpenMeasure: (kind: "task" | "step", ref: string) => void }) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [personFilter, setPersonFilter] = useState("");
@@ -193,13 +213,24 @@ function ScheduleMatrixTable({ rows }: { rows: ScheduleMatrixRow[] }) {
     <div className={styles.matrixTableScroll}>
       <table className={styles.matrixTable}>
         <thead><tr><th>Datum</th><th>Typ</th><th>Prozess/Aufgabe</th><th>Zuständig</th><th>Status</th></tr></thead>
-        <tbody>{filtered.map((row, index) => <tr key={`${row.source}-${row.type}-${index}`}>
-          <td>{formatGermanDate(row.date)}</td>
-          <td>{MATRIX_TYPE_LABELS[row.type] || row.type}</td>
-          <td>{row.processStep ? <><b>{row.processStep}</b> {row.label}</> : row.label}</td>
-          <td>{row.role || row.person ? [row.role, row.person].filter(Boolean).join(" · ") : "keine Zuständigkeit hinterlegt"}</td>
-          <td>{row.status || "–"}</td>
-        </tr>)}</tbody>
+        <tbody>{filtered.map((row, index) => {
+          // V12-Nachschärfung: Aufgaben klar als "Nummer · Titel" zeigen statt vom Prozesscode
+          // überlagert (die RPC liefert das label für Aufgaben bereits fertig als "Nummer · Titel").
+          // Kleiner Inline-Link statt großem Button; Meilensteine bleiben unverlinkt, da es kein
+          // eindeutiges Arbeitsobjekt gibt.
+          const taskNumber = row.type === "task" ? row.label?.split(" · ")[0] || null : null;
+          return <tr key={`${row.source}-${row.type}-${index}`}>
+            <td>{formatGermanDate(row.date)}</td>
+            <td>{MATRIX_TYPE_LABELS[row.type] || row.type}</td>
+            <td>{row.type === "task"
+              ? (taskNumber ? <button type="button" className={styles.matrixInlineLink} onClick={() => onOpenMeasure("task", taskNumber)}>{row.label}</button> : row.label)
+              : row.type === "process_date"
+                ? (row.processStep ? <button type="button" className={styles.matrixInlineLink} onClick={() => onOpenMeasure("step", row.processStep!)}><b>{row.processStep}</b> {row.label}</button> : row.label)
+                : row.label}</td>
+            <td>{row.role || row.person ? [row.role, row.person].filter(Boolean).join(" · ") : "keine Zuständigkeit hinterlegt"}</td>
+            <td>{row.status || "–"}</td>
+          </tr>;
+        })}</tbody>
       </table>
     </div>
     <small className={styles.matrixTableFootnote}>{filtered.length} von {rows.length} Einträgen · direkt aus LUMINA, nicht durch KI erzeugt</small>
@@ -346,6 +377,10 @@ export function WorkflowShell({
   const [workspaceBreadcrumb, setWorkspaceBreadcrumb] = useState<WorkspaceBreadcrumbEntry[]>([]);
   const [workspaceFocus, setWorkspaceFocus] = useState<WorkspaceFocus | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  // V12-Nachschärfung: "letzte Aktion" (0 Token bei Workspace-Klicks) getrennt von "letzte
+  // KI-Abfrage" (immer die zuletzt tatsächlich verbrauchten LLM-Tokens) anzeigen, damit ein
+  // 0-Token-Klick nicht so wirkt, als hätte er die Tokenzahl der letzten echten LLM-Antwort gekostet.
+  const [lastActionKind, setLastActionKind] = useState<"lumina" | "llm" | null>(null);
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const workspaceAutoRef = useRef<string>("");
   const [sparringUsage, setSparringUsage] = useState<SparringUsage | null>(null);
@@ -563,6 +598,7 @@ export function WorkflowShell({
         try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
         return next;
       });
+      setLastActionKind("lumina");
     } catch (error) {
       setSparringError(error instanceof Error ? error.message : "Terminmatrix konnte nicht geladen werden.");
     } finally {
@@ -593,6 +629,7 @@ export function WorkflowShell({
       });
       if (card.type === "measure") setWorkspaceFocus(card.task ? { taskNumber: card.task.number } : card.step ? { stepCode: card.step.code } : null);
       else if (card.type !== "documents" && card.type !== "communication") setWorkspaceFocus(null);
+      setLastActionKind("lumina");
     } catch (error) {
       setSparringError(error instanceof Error ? error.message : "Workspace-Daten konnten nicht geladen werden.");
     } finally {
@@ -671,9 +708,18 @@ export function WorkflowShell({
     setSparringProgressTick(0);
     const history = sparringMessages.slice(-8);
     if (mode === "chat") setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
-    if (mode === "chat" && isFullMatrixRequest(text)) {
-      await loadFullScheduleMatrix(assistant);
-      return;
+    // V12: deterministischer Router VOR jedem LLM-Aufruf. "gehe zu Kachel 1.7" o. Ä. lief bisher
+    // ungebremst in KIRA und verbrauchte den vollen Projektkontext (~42.000 Token) für eine reine
+    // Navigationsanfrage. Erkennt der Router eine eindeutige Navigation/Suche, wird ausschließlich
+    // assistant-workspace (bzw. die bestehende Terminmatrix-RPC) angesprochen - 0 LLM-Tokens.
+    if (mode === "chat") {
+      const intent = routeIntent(text);
+      if (intent) {
+        setSparringLoading(false);
+        if (intent.kind === "fullSchedule") { await loadFullScheduleMatrix(assistant); return; }
+        if (intent.kind === "measure") { await loadWorkspaceAction("measure", { ref: intent.ref }); return; }
+        if (intent.kind === "search") { await loadWorkspaceAction("search", { query: intent.query }); return; }
+      }
     }
     try {
       const response = await fetch("/api/ai/day-sparring", {
@@ -690,6 +736,7 @@ export function WorkflowShell({
         try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
         return next;
       });
+      setLastActionKind("llm");
       const latency = Number(payload.durationMs || Date.now() - startedAt);
       if (Number.isFinite(latency) && latency > 0) setSparringLastLatencyMs(latency);
       if (payload.usage) {
@@ -1123,7 +1170,7 @@ export function WorkflowShell({
       <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : activeToolCode || viewLabels[view]}</b>
     </button>
 
-    {sparringOpen ? <div className={`${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={`${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.workspaceNav}><div className={styles.workspaceBreadcrumb}><button type="button" onClick={handleWorkspaceHome}>Mein Tag</button>{workspaceBreadcrumb.map((entry, index) => <span key={`${entry.action}-${index}`}>›<button type="button" onClick={() => handleWorkspaceBreadcrumbClick(index)}>{entry.label}</button></span>)}</div><div className={styles.workspaceNavActions}><button type="button" onClick={() => handleWorkspaceChip("processTree")}>Prozess</button><button type="button" onClick={() => handleWorkspaceChip("myOpenTasks")}>Meine Aufgaben</button><button type="button" onClick={() => handleWorkspaceChip("schedule")}>Termine</button><button type="button" onClick={handleWorkspaceHome}>Zurück</button></div><form className={styles.workspaceSearch} onSubmit={(event) => { event.preventDefault(); handleWorkspaceSearchSubmit(); }}><input value={workspaceSearch} onChange={(event) => setWorkspaceSearch(event.target.value)} placeholder="Maßnahme, Aufgabe oder Nummer suchen" aria-label="Maßnahme, Aufgabe oder Dokument suchen"/><button type="submit">Suchen</button></form></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix || message.card ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b>{message.content ? <p>{message.content}</p> : null}{message.matrix ? <ScheduleMatrixTable rows={message.matrix}/> : null}{message.card ? <><WorkspaceCardView card={message.card} onOpenMeasure={handleOpenMeasure} onOpenStep={handleOpenProcessStep} onLoadDocuments={handleLoadDocuments} onLoadCommunication={handleLoadCommunication} onOpenEntity={handleOpenEntityFromWorkspace} onChip={handleWorkspaceChip}/><small className={styles.workspaceZeroToken}>Direkt aus LUMINA · keine KI-Abfrage</small></> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : workspaceLoading ? "LUMINA-Daten werden geladen …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
+    {sparringOpen ? <div className={`${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={`${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.workspaceNav}><div className={styles.workspaceBreadcrumb}><button type="button" onClick={handleWorkspaceHome}>Mein Tag</button>{workspaceBreadcrumb.map((entry, index) => <span key={`${entry.action}-${index}`}>›<button type="button" onClick={() => handleWorkspaceBreadcrumbClick(index)}>{entry.label}</button></span>)}</div><div className={styles.workspaceNavActions}><button type="button" onClick={() => handleWorkspaceChip("processTree")}>Prozess</button><button type="button" onClick={() => handleWorkspaceChip("myOpenTasks")}>Meine Aufgaben</button><button type="button" onClick={() => handleWorkspaceChip("schedule")}>Termine</button><button type="button" onClick={handleWorkspaceHome}>Zurück</button></div><form className={styles.workspaceSearch} onSubmit={(event) => { event.preventDefault(); handleWorkspaceSearchSubmit(); }}><input value={workspaceSearch} onChange={(event) => setWorkspaceSearch(event.target.value)} placeholder="Maßnahme, Aufgabe oder Nummer suchen" aria-label="Maßnahme, Aufgabe oder Dokument suchen"/><button type="submit">Suchen</button></form></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix || message.card ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b>{message.content ? <p>{message.content}</p> : null}{message.matrix ? <ScheduleMatrixTable rows={message.matrix} onOpenMeasure={handleOpenMeasure}/> : null}{message.card ? <><WorkspaceCardView card={message.card} onOpenMeasure={handleOpenMeasure} onOpenStep={handleOpenProcessStep} onLoadDocuments={handleLoadDocuments} onLoadCommunication={handleLoadCommunication} onOpenEntity={handleOpenEntityFromWorkspace} onChip={handleWorkspaceChip}/><small className={styles.workspaceZeroToken}>Direkt aus LUMINA · keine KI-Abfrage</small></> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : workspaceLoading ? "LUMINA-Daten werden geladen …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span><b>Letzte Aktion:</b> {lastActionKind === "lumina" ? "Direkt aus LUMINA · 0 KI-Tokens" : lastActionKind === "llm" ? `KI-Abfrage · ${(sparringUsage?.totalTokens ?? 0).toLocaleString("de-DE")} Token` : "–"}</span><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten echten KI-Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
 
     {(activeTaskId || activeToolCode) ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
       {activeToolCode ? <button type="button" className={styles.toolWorkspaceClose} onClick={closeTaskWorkspace} aria-label="Werkzeug schließen">×</button> : null}
