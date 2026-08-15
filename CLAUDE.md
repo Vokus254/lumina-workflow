@@ -51,6 +51,10 @@ This repository is the LUMINA Workflow application. Before making code changes, 
     Project steering data can be available through controlled server-side/RLS mechanisms, but document/comment/task detail access must remain authorized.
 16. **This project's Next.js version may differ from training-data assumptions.**
     Per `AGENTS.md`: treat Next.js APIs/conventions as potentially changed from what you already know, consult `node_modules/next/dist/docs/` before relying on remembered Next.js behavior, and heed deprecation notices.
+17. **Supabase access is via the project-scoped MCP server only.**
+    `.mcp.json` points at `https://mcp.supabase.com/mcp?project_ref=pmdpjftonhlvcdvxmnky&features=database,debugging,development,docs` — the single active project. Never point it at another/old project ref. Authentication is OAuth in the browser; never store a service-role key or personal access token in `.mcp.json`, other project files, git, or chat output. Default to read-only exploration (`list_tables`, `list_migrations`, read-only `execute_sql`). Schema/data changes only when the task requires them, via proper migrations, briefly justified beforehand — never spontaneous manual production changes.
+18. **A build passing is not the same as "tested."**
+    Before reporting a change as done, run the automatable acceptance checks for that change yourself (code trace at minimum, executed tests where they exist, live Supabase/preview checks where the MCP connection and environment allow). Fix failures found this way yourself and re-test before commit/push, without stopping to ask after each failure — unless the fix would require a new RLS policy, a schema/migration change, a product/domain decision, or touches data that could be destructively modified; then stop and report first. See `docs/WORKFLOW_RULES.md` for the full workflow and reporting format.
 
 ## Current development baseline
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS } from "@/app/workflow/special-tools";
+import { needsExplicitFocus, isExplicitProjectRequest } from "@/lib/intent-router";
 
 type Assistant = "KAI" | "KIRA";
 type HistoryItem = { role?: "user" | "assistant"; content?: string; assistant?: Assistant };
@@ -7,10 +9,21 @@ type PageContext = { view?: string; taskId?: string | null; tab?: string | null;
 type MemoryType = "decision" | "commitment" | "open_point" | "preference" | "escalation" | "result";
 type MemoryRow = { id: string; task_id?: string | null; memory_type: MemoryType; title: string; content: string; status: string; updated_at?: string | null };
 type MemoryAction = { action?: "add" | "resolve"; id?: string; type?: MemoryType; title?: string; content?: string; taskId?: string | null };
+// V11: entityReferences. "ref" ist immer eine bereits im Navigationsverzeichnis vorhandene
+// menschenlesbare Kennung (Aufgabennummer oder Prozess-/Werkzeugcode), niemals eine vom Modell
+// erfundene ID/URL. Der Server loest "ref" gegen das Verzeichnis auf; nur Treffer werden
+// zurueckgegeben.
+type RawRefItem = { kind?: string; ref?: string };
+type EntityReference =
+  | { kind: "task"; id: string; label: string }
+  | { kind: "tool"; code: string; label: string }
+  | { kind: "step"; id: string; code: string; label: string };
 
 const MEMORY_TYPES = new Set<MemoryType>(["decision", "commitment", "open_point", "preference", "escalation", "result"]);
 const MEMORY_START = "<LUMINA_MEMORY>";
 const MEMORY_END = "</LUMINA_MEMORY>";
+const REFS_START = "<LUMINA_REFS>";
+const REFS_END = "</LUMINA_REFS>";
 
 function extractOutputText(payload: any): string {
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
@@ -55,6 +68,18 @@ function selectRelevantMemories(rows: MemoryRow[], prompt: string, taskId?: stri
     .map(({ memory }) => memory);
 }
 
+// Generischer Envelope-Extraktor fuer maschinenlesbare Anhaenge am Antwortende (z. B.
+// <LUMINA_REFS>...</LUMINA_REFS>). Entfernt den Block vollstaendig aus dem Text, der dem Nutzer
+// angezeigt wird, und liefert den restlichen Text separat zurueck - splitMemoryEnvelope arbeitet
+// danach unveraendert auf diesem bereits bereinigten Rest weiter.
+function splitEnvelope(raw: string, startTag: string, endTag: string) {
+  const start = raw.lastIndexOf(startTag);
+  const end = raw.lastIndexOf(endTag);
+  if (start < 0 || end < start) return { rest: raw, jsonText: null as string | null };
+  const rest = (raw.slice(0, start) + raw.slice(end + endTag.length)).trim();
+  return { rest, jsonText: raw.slice(start + startTag.length, end).trim() };
+}
+
 function splitMemoryEnvelope(raw: string) {
   const start = raw.lastIndexOf(MEMORY_START);
   const end = raw.lastIndexOf(MEMORY_END);
@@ -95,8 +120,16 @@ export async function POST(request: Request) {
   if (claimsError || !claims?.sub) return NextResponse.json({ error: "Anmeldung erforderlich." }, { status: 401 });
 
   const startedAt = Date.now();
-  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string; pageContext?: PageContext };
+  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string; pageContext?: PageContext; focusContext?: { taskNumber?: string; stepCode?: string } };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Ungültige Anfrage." }, { status: 400 }); }
+
+  // V12-Präzisierung 3: focusContext ist AUSSCHLIESSLICH eine Kennung (Aufgabennummer oder
+  // Prozessschrittcode), niemals Fachinhalt. Die Strings hier sind nur ein Lookup-Schlüssel in
+  // bereits RLS-autorisierte Daten weiter unten (normalizedTasks/stepByCode) - finden sie keine
+  // Entsprechung, bleibt der Fokus einfach leer und es wird ganz normal im Vollkontext geantwortet.
+  // Der Client kann über dieses Feld keinen eigenen Fachtext als "LUMINA-Fakt" einschleusen.
+  const focusTaskNumber = body.focusContext?.taskNumber ? String(body.focusContext.taskNumber).slice(0, 40) : null;
+  const focusStepCodeInput = body.focusContext?.stepCode ? String(body.focusContext.stepCode).slice(0, 20) : null;
 
   const assistant: Assistant = body.assistant === "KIRA" ? "KIRA" : "KAI";
   const projectId = String(body.projectId || "").trim();
@@ -145,6 +178,7 @@ export async function POST(request: Request) {
   const taskRows = taskResult.data || [];
   const stepRows = stepsResult.data || [];
   const stepById = new Map(stepRows.map((step: any) => [String(step.id), step]));
+  const stepByCode = new Map(stepRows.map((step: any) => [String(step.code), step]));
   const taskIds = taskRows.map((task: any) => String(task.id));
   const roleById = new Map(visibleRoles.map((role: any) => [String(role.id), role]));
 
@@ -164,6 +198,7 @@ export async function POST(request: Request) {
       id: task.id,
       number: task.source_number,
       title: task.title,
+      processStepId: task.process_step_id || null,
       responsibilityRoleId: task.responsibility_role_id,
       responsibility: task.responsibility_role_id ? (() => {
         const role: any = roleById.get(String(task.responsibility_role_id));
@@ -184,6 +219,40 @@ export async function POST(request: Request) {
     };
   }).sort((a: any, b: any) => String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")));
 
+  // V11: autoritatives Navigationsverzeichnis fuer entityReferences. Ausschliesslich bereits
+  // durch RLS autorisierte, echte Kennungen (Aufgabennummer/-id, Prozessschrittcode, Werkzeugcode)
+  // - keine Volltexte. Das Modell darf spaeter nur "ref"-Werte nennen, die hier woertlich
+  // vorkommen; alles andere wird serverseitig verworfen (siehe resolveEntityReference weiter unten).
+  const taskDirectory = normalizedTasks.map((task: any) => ({ id: String(task.id), number: String(task.number || ""), title: String(task.title || ""), processStepCode: task.processStepCode || null }));
+  const taskDirectoryByNumber = new Map(taskDirectory.filter((row) => row.number).map((row) => [row.number, row]));
+  const taskDirectoryById = new Map(taskDirectory.map((row) => [row.id, row]));
+  const stepDirectory = stepRows.map((step: any) => ({ id: String(step.id), code: String(step.code || ""), name: String(step.name || "") })).filter((row) => row.code);
+  const stepDirectoryByCode = new Map(stepDirectory.map((row) => [row.code, row]));
+  const toolCodeSet = new Set<string>([...SPECIAL_TOOL_STEP_CODES, ...Object.keys(SPECIAL_TOOL_SUBITEMS)]);
+  const toolDirectory = Array.from(toolCodeSet).sort().map((code) => ({ code, title: SPECIAL_TOOL_SUBITEMS[code] || null }));
+
+  function resolveEntityReference(item: RawRefItem): EntityReference | null {
+    const kind = String(item?.kind || "");
+    const ref = String(item?.ref || "").trim();
+    if (!ref) return null;
+    if (kind === "task") {
+      const row = taskDirectoryByNumber.get(ref) || taskDirectoryById.get(ref);
+      if (!row) return null;
+      return { kind: "task", id: row.id, label: `${row.number ? row.number + " · " : ""}${row.title}`.trim() || "Aufgabe öffnen" };
+    }
+    if (kind === "tool") {
+      if (!toolCodeSet.has(ref)) return null;
+      const title = SPECIAL_TOOL_SUBITEMS[ref];
+      return { kind: "tool", code: ref, label: title ? `${ref} · ${title}` : `Werkzeug ${ref} öffnen` };
+    }
+    if (kind === "step") {
+      const row = stepDirectoryByCode.get(ref);
+      if (!row) return null;
+      return { kind: "step", id: row.id, code: row.code, label: `${row.code} · ${row.name}` };
+    }
+    return null;
+  }
+
   const currentTask = requestedPageContext.taskId ? normalizedTasks.find((task: any) => String(task.id) === String(requestedPageContext.taskId)) || null : null;
   const personalTasks = normalizedTasks.filter((task: any) => task.assignedToCurrentUser);
   const openPersonalTasks = personalTasks.filter((task: any) => task.workStatus !== "completed");
@@ -194,6 +263,47 @@ export async function POST(request: Request) {
   const tabLabels: Record<string, string> = { details: "Anleitung", previous: "Vorjahr", room: "Arbeitsbereich", notes: "Notizen", email: "E-Mail", communication: "Kommunikation", review: "Prüfung" };
   const currentTaskMessages = currentTask ? (messagesResult.data || []).filter((message: any) => String(message.task_id) === String(currentTask.id)).slice(0, 8) : [];
   const currentTaskDocuments = currentTask ? (documentsResult.data || []).filter((document: any) => String(document.task_id) === String(currentTask.id)).slice(0, 12) : [];
+
+  // V12: focusTask/focusStep sind ausschließlich Lookups gegen bereits RLS-autorisierte, oben
+  // geladene Daten (normalizedTasks/stepByCode) - kein zusätzlicher, vom Client vertrauter Inhalt.
+  const focusTask = focusTaskNumber ? normalizedTasks.find((task: any) => task.number === focusTaskNumber) || null : null;
+  const focusStep: any = focusTask?.processStepId ? stepById.get(String(focusTask.processStepId)) || null : (focusStepCodeInput ? stepByCode.get(focusStepCodeInput) || null : null);
+  const compactMode = Boolean(focusTask || focusStep);
+  // V12-Nachschärfung: ein vom Client mitgeschickter, aber nicht auflösbarer focusContext darf
+  // NICHT still auf den vollen Projektkontext (Terminmatrix + 202-Maßnahmen-Verzeichnis) zurückfallen
+  // - das war eine Ursache unnötig großer Prompt-Größen. Stattdessen sofort und ohne LLM-Aufruf
+  // antworten; echte projektweite Fragen erkennt man daran, dass gar kein focusContext gesetzt ist.
+  const focusContextProvided = Boolean(focusTaskNumber || focusStepCodeInput);
+  if (focusContextProvided && !compactMode) {
+    return NextResponse.json({
+      response: "Diese Maßnahme/Kachel konnte nicht eindeutig gefunden werden. Bitte über die Suche oder die Prozessnavigation im Workspace erneut auswählen.",
+      model: "none",
+      durationMs: Date.now() - startedAt,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, estimatedUsd: 0, estimatedEur: 0, exchangeRate: null },
+      context: { roles: [], situation: null, currentPage: null, milestones: 0, scheduledDates: 0 },
+      memory: { active: (memoryResult.data || []).length, used: 0, added: 0, resolved: 0, persistent: !memoryResult.error },
+      entityReferences: [],
+    });
+  }
+  // V12-Nachschärfung: Sicherheitsnetz gegen den ~43.000-Token-Vollprompt bei Review-Fragen ohne
+  // Fokus (z. B. "Reicht das für den WP?"). Primär fängt das bereits der Client ab (0 Tokens,
+  // kein Request); dieser serverseitige Guard greift zusätzlich, falls doch ein Request ankommt.
+  if (!compactMode && !isExplicitProjectRequest(prompt) && needsExplicitFocus(prompt)) {
+    return NextResponse.json({
+      response: "Dafür brauche ich eine konkrete Maßnahme. Bitte zuerst eine Aufgabe im Workspace öffnen und dann erneut fragen.",
+      model: "none",
+      durationMs: Date.now() - startedAt,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, estimatedUsd: 0, estimatedEur: 0, exchangeRate: null },
+      context: { roles: [], situation: null, currentPage: null, milestones: 0, scheduledDates: 0 },
+      memory: { active: (memoryResult.data || []).length, used: 0, added: 0, resolved: 0, persistent: !memoryResult.error },
+      entityReferences: [],
+    });
+  }
+  const { data: focusGuidance } = focusStep?.id
+    ? await supabase.from("process_step_guidance").select("ziel,was_ist_zu_tun,benoetigte_unterlagen,liefergegenstand,typische_fehler,erledigt_wenn,arbeitshilfe_name").eq("process_step_id", focusStep.id).maybeSingle()
+    : { data: null };
+  const focusDocuments = focusTask ? (documentsResult.data || []).filter((document: any) => String(document.task_id) === String(focusTask.id)).slice(0, 12) : [];
+  const focusMessages = focusTask ? (messagesResult.data || []).filter((message: any) => String(message.task_id) === String(focusTask.id)).slice(0, 8) : [];
 
   const explicitMilestones = milestoneResult.error ? [] : (milestoneResult.data || []);
   const scheduledDates = (dueDatesResult.error ? [] : dueDatesResult.data || []).map((row: any) => {
@@ -215,7 +325,7 @@ export async function POST(request: Request) {
   ]);
 
   const activeMemories: MemoryRow[] = memoryResult.error ? [] : (memoryResult.data || []) as MemoryRow[];
-  const relevantMemories = selectRelevantMemories(activeMemories, prompt, currentTask?.id || null);
+  const relevantMemories = selectRelevantMemories(activeMemories, prompt, focusTask?.id || currentTask?.id || null);
 
   const userMetadata = (claims.user_metadata || {}) as Record<string, unknown>;
   const displayName = String(userMetadata.display_name || "").trim()
@@ -287,6 +397,11 @@ export async function POST(request: Request) {
     ? `Vollständige projektweite Termin-/Verantwortlichkeitsmatrix (Vorrang vor allen anderen Kontextteilen, nicht durch das allgemeine Kontextlimit gekürzt; Spalten: type,date,processStep,label,role,person,email,status,source):\n${boundedJson(scheduleResponsibilityMatrix, 120000)}`
     : `PROJEKTWEITE TERMIN-/VERANTWORTLICHKEITSMATRIX IST AKTUELL NICHT VERFÜGBAR (Fehler beim serverseitigen Laden der Datenquelle). Behandle dies ausdrücklich als "Datenquelle derzeit nicht verfügbar" und NICHT als "keine Termine vorhanden". Erfinde und errate in diesem Fall keine Termine oder Zuständigkeiten als Ersatz; sage dem Nutzer, dass die Matrix gerade nicht geladen werden konnte.`;
 
+  // V11: Navigationsverzeichnis wie die Terminmatrix ausserhalb des allgemeinen Kontextlimits
+  // uebertragen - bei 202 Massnahmen wuerde die 42.000-Zeichen-Kappung sonst genau die Aufgaben
+  // abschneiden, die fuer "welche Maßnahme/Kachel ist das" am wichtigsten sind.
+  const navigableEntitiesBlock = `Navigationsverzeichnis für entityReferences (NUR "ref"-Werte aus dieser Liste verwenden, nichts erfinden). Aufgaben/Maßnahmen [nummer,titel,prozessschrittcode]:\n${boundedJson(taskDirectory.map((row) => [row.number, row.title, row.processStepCode]), 90000)}\nSpezialwerkzeuge [code,titel]:\n${JSON.stringify(toolDirectory.map((row) => [row.code, row.title]))}\nKacheln/Prozessschritte [code,name]:\n${JSON.stringify(stepDirectory.map((row) => [row.code, row.name]))}`;
+
   const history = cleanHistory(body.history);
   const historyText = history.length
     ? `\n\nBisheriger Dialog (nur Kurzzeitgedächtnis, nicht automatisch Projektfakt):\n${history.map((item) => `${item.role === "assistant" ? item.assistant : "NUTZER"}: ${item.content}`).join("\n")}`
@@ -317,8 +432,34 @@ export async function POST(request: Request) {
     ? `Dies ist die automatische Tagesbeurteilung. Antworte in höchstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2–3 konkrete Prioritäten und höchstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
     : `Antworte auf Deutsch, konkret und standardmäßig kurz (meist 3–7 Punkte oder wenige Absätze). Wenn mehr Details sinnvoll wären, biete am Ende knapp "Mehr Details" an. Erfinde keine Projektfakten.`;
   const memoryRule = `DAUERHAFTES ARBEITSGEDÄCHTNIS: Am Ende deiner Antwort MUSST du genau eine maschinenlesbare Zeile ergänzen: ${MEMORY_START}{"items":[]}${MEMORY_END}. Sie wird dem Nutzer nicht angezeigt. Maximal 3 Items. Erlaubte Typen: decision, commitment, open_point, preference, escalation, result. Speichere nur tatsächlich neue, projektbezogene Entscheidungen, Zusagen, offene Punkte, Arbeitspräferenzen, Eskalationen oder Ergebnisse. Speichere niemals bloße Höflichkeit, allgemeines Fachwissen oder deine eigene Empfehlung, solange der Nutzer sie nicht übernommen/bestätigt hat. Für neue Einträge: {"action":"add","type":"commitment","title":"kurzer Titel","content":"präziser Fakt","taskId":"optional aktuelle Task-ID"}. Wenn eine bestehende Erinnerung eindeutig erledigt wurde, darfst du {"action":"resolve","id":"ID aus persistentMemory"} ausgeben.`;
+  // V11: entityReferences ersetzen keine Halluzination durch eine andere - "ref" muss wörtlich aus
+  // dem Navigationsverzeichnis stammen. Der Server verwirft jedes Item, das dort nicht vorkommt;
+  // das Weglassen eines unsicheren Items ist für das Modell also immer die sichere Wahl.
+  const entityRefsRule = `NAVIGATIONSVERWEISE: Wenn der Nutzer nach einer konkreten Maßnahme, Aufgabe, Kachel oder einem Spezialwerkzeug fragt, oder wenn eine Weiterleitung dorthin klar hilfreich ist, ergänze am Ende deiner Antwort GENAU EINE maschinenlesbare Zeile: ${REFS_START}{"items":[]}${REFS_END}. Sie wird dem Nutzer nicht angezeigt, sondern als anklickbarer Button dargestellt. Maximal 4 Items, Format {"kind":"task"|"tool"|"step","ref":"..."}. "ref" MUSS wortwörtlich einer Aufgabennummer, einem Werkzeugcode oder einem Kachelcode aus dem weiter unten bereitgestellten Navigationsverzeichnis entsprechen. Erfinde niemals eine eigene ID, URL oder einen Code - wenn du unsicher bist oder der passende Eintrag nicht im Verzeichnis steht, lasse das Item einfach weg statt zu raten. Für Fragen wie "Wo kann ich die Saldenliste/SuSa hochladen?" antworte primär mit dem Weg Abschlussprozess → 3.17 Erstellung Summen- und Saldenliste → 3.17.1 SuSa hochladen und referenziere {"kind":"tool","ref":"3.17.1"}.`;
 
-  const input = `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${scheduleMatrixBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
+  // V12 Stufe B/C: ist compactMode aktiv (Nutzer hat im Workspace bereits eine Maßnahme im Fokus,
+  // z. B. "KIRA, reicht das für den WP?" zu einer offenen Kachel), wird bewusst NICHT der volle
+  // Projektkontext (Terminmatrix, Navigationsverzeichnis mit allen Maßnahmen, komplette
+  // persönliche Aufgabenliste) gesendet, sondern ausschließlich die eine im Fokus stehende
+  // Maßnahme samt Anleitung, Dokumenten, Kommunikation und passenden Erinnerungen. Das reduziert
+  // die Prompt-Größe für diesen sehr häufigen Anwendungsfall erheblich, ohne die Sicherheit zu
+  // verändern - focusTask/focusStep sind bereits oben ausschließlich serverseitig aufgelöst.
+  const compactContext = {
+    contextPolicy: { sourcePriority: ["1_LUMINA_PROJECT_FACTS", "2_PERSISTENT_MEMORY", "3_GENERAL_EXPERT_KNOWLEDGE", "4_AI_RECOMMENDATION"], rule: "Projektfakten niemals aus Erinnerungen oder Empfehlungen ableiten." },
+    asOf: today,
+    user: { displayName, projectSecurityRole: projectMemberResult.data?.active === false ? "inactive" : projectMemberResult.data?.security_role || null },
+    focusTask: focusTask ? { number: focusTask.number, title: focusTask.title, dueDate: focusTask.dueDate, workStatus: focusTask.workStatus, reviewStatus: focusTask.reviewStatus, requiredDocuments: focusTask.requiredDocuments, expectedFormat: focusTask.expectedFormat, responsibility: focusTask.responsibility } : null,
+    focusStep: focusStep ? { code: focusStep.code, name: focusStep.name } : null,
+    guidance: focusGuidance || null,
+    documents: focusDocuments.map((document: any) => ({ displayName: document.display_name, status: document.document_status, createdAt: document.created_at })),
+    messages: focusMessages.map((message: any) => ({ subject: message.subject, body: String(message.body_text || "").slice(0, 500), status: message.status, createdAt: message.created_at })),
+    persistentMemory: relevantMemories.map((memory) => ({ id: memory.id, type: memory.memory_type, title: memory.title, content: memory.content, updatedAt: memory.updated_at })),
+  };
+  const compactRule = `KOMPAKTER FOKUS-MODUS: Der Nutzer befindet sich im Workspace bereits auf der unten stehenden Maßnahme/Kachel. Beziehe dich ausschließlich auf diese eine Maßnahme und ihren Kontext. Erweitere den Fokus nicht eigenmächtig auf andere Aufgaben oder das gesamte Projekt.`;
+
+  const input = compactMode
+    ? `${persona}\n\n${factRule}\n\n${dateFormatRule}\n\n${capabilityRule}\n\n${compactRule}\n\nFokussierter LUMINA-Kontext:\n${boundedJson(compactContext, 20000)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`
+    : `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${entityRefsRule}\n\n${scheduleMatrixBlock}\n\n${navigableEntitiesBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "KI-Konfiguration fehlt: OPENAI_API_KEY ist auf dem Server nicht gesetzt." }, { status: 503 });
 
@@ -336,7 +477,22 @@ export async function POST(request: Request) {
     const rawResponse = extractOutputText(payload);
     if (!rawResponse) return NextResponse.json({ error: "Der KI-Dienst hat keine Textantwort geliefert." }, { status: 502 });
 
-    const { answer, actions } = splitMemoryEnvelope(rawResponse);
+    // V11: <LUMINA_REFS> zuerst herauslösen, danach splitMemoryEnvelope unverändert auf dem Rest
+    // weiterarbeiten lassen - beide Envelopes bleiben unabhängig voneinander funktionsfähig.
+    const refsSplit = splitEnvelope(rawResponse, REFS_START, REFS_END);
+    let rawRefItems: RawRefItem[] = [];
+    if (refsSplit.jsonText) {
+      try {
+        const parsedRefs = JSON.parse(refsSplit.jsonText);
+        rawRefItems = Array.isArray(parsedRefs?.items) ? parsedRefs.items.slice(0, 4) : [];
+      } catch { /* kein valides JSON - keine Referenzen */ }
+    }
+    const entityReferences = rawRefItems
+      .map((item) => resolveEntityReference(item))
+      .filter((ref): ref is EntityReference => Boolean(ref))
+      .slice(0, 4);
+
+    const { answer, actions } = splitMemoryEnvelope(refsSplit.rest);
     let added = 0;
     let resolved = 0;
     const validMemoryIds = new Set(activeMemories.map((memory) => memory.id));
@@ -377,6 +533,7 @@ export async function POST(request: Request) {
         scheduledDates: scheduleResponsibilityMatrix.length,
       },
       memory: { active: Math.max(0, activeMemories.length + added - resolved), used: relevantMemories.length, added, resolved, persistent: !memoryResult.error },
+      entityReferences,
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return NextResponse.json({ error: "Die KI-Anfrage hat das Zeitlimit überschritten. Bitte erneut versuchen." }, { status: 504 });

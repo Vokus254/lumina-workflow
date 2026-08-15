@@ -293,6 +293,9 @@
 .matrixTable th{position:sticky;top:0;background:#fff;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--lumina-ink-3);text-align:left;padding:6px 9px;border-bottom:1px solid var(--lumina-line)}
 .matrixTable td{padding:6px 9px;border-bottom:1px solid var(--lumina-line);vertical-align:top}
 .matrixTable tbody tr:last-child td{border-bottom:0}
+.matrixInlineLink{border:0;background:transparent;color:var(--lumina-primary-dark);font:inherit;font-size:inherit;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:2px;padding:0}
+.matrixInlineLink:hover{color:var(--lumina-primary)}
+.matrixLabelDisabled{color:var(--lumina-ink-3);cursor:default}
 .matrixTableFootnote{color:var(--lumina-ink-3);font-size:9.5px}
 .sparringError{margin:10px 14px 0;padding:8px 10px;border-radius:8px;background:#fff2f0;border:1px solid #efc8c3;color:#9b332c;font-size:10.75px}
 .sparringPrompts{display:flex;flex-wrap:wrap;gap:5px;padding:10px 14px 4px;border-top:1px solid var(--lumina-line);background:#fff}.sparringPrompts button{border:1px solid var(--lumina-line);border-radius:999px;background:#fff;color:var(--lumina-primary-dark);padding:5px 8px;font:inherit;font-size:9.75px;font-weight:750;cursor:pointer}.sparringPrompts button:hover{background:var(--lumina-primary-soft);border-color:var(--lumina-primary)}.sparringPrompts button:disabled{opacity:.5;cursor:default}
@@ -311,12 +314,23 @@
 .sparringOpenButton{width:100%;border:0;border-radius:9px;background:var(--lumina-primary);color:#fff;padding:10px 12px;font:inherit;font-size:11px;font-weight:850;cursor:pointer}
 .sparringOpenButton:hover{filter:brightness(.96)}
 .sparringDrawerBackdrop{position:fixed;inset:0;z-index:80;background:rgba(14,28,24,.20);display:flex;align-items:flex-end;justify-content:center;padding:18px 28px 20px 214px;backdrop-filter:blur(1px)}
-.sparringDrawer{width:min(1180px,86vw);height:min(620px,62vh);min-height:420px;display:grid;grid-template-rows:auto 1fr;border:1px solid var(--lumina-line);border-radius:16px 16px 12px 12px;background:#fff;box-shadow:0 24px 70px rgba(15,34,28,.28);overflow:hidden}
+.sparringDrawer{width:min(1180px,86vw);height:min(620px,62vh);min-height:420px;display:grid;grid-template-rows:auto auto 1fr;border:1px solid var(--lumina-line);border-radius:16px 16px 12px 12px;background:#fff;box-shadow:0 24px 70px rgba(15,34,28,.28);overflow:hidden}
 .sparringDrawerTop{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 16px;border-bottom:1px solid var(--lumina-line);background:linear-gradient(135deg,color-mix(in srgb,var(--lumina-primary-soft) 72%,#fff),#fff)}
 .sparringDrawerTop>div:first-child{display:grid;gap:2px}.sparringDrawerTop h2{margin:0;font-size:17px}.sparringDrawerTop small{font-size:10.5px;color:var(--lumina-ink-3)}
 .sparringDrawerControls{display:flex;align-items:center;gap:9px}
 .sparringClose{width:34px;height:34px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:22px;line-height:1;cursor:pointer}
 .sparringClose:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.sparringMaximize{width:34px;height:34px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.sparringMaximize:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+/* V11: Maximieren vergroessert nur den Rahmen; das bestehende Grid von .sparringDrawer
+   (Header/Body als eigene Zeilen, Body wiederum Konversation/Prompts/Composer/Statuszeilen als
+   eigene Zeilen) sorgt bereits dafuer, dass Header, Chatverlauf und Eingabe alle sichtbar bleiben -
+   es wird nur der Konversationsbereich (minmax(0,1fr)) groesser. */
+.sparringDrawerBackdropMaximized{padding:14px;align-items:center}
+.sparringDrawerMaximized{width:97vw;height:94vh;max-height:94vh}
+.sparringRefs{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.sparringRefButton{font-size:10.5px;padding:6px 10px;border:1px solid var(--lumina-primary);border-radius:999px;background:var(--lumina-primary-soft);color:var(--lumina-primary-dark);cursor:pointer;font-weight:650}
+.sparringRefButton:hover{background:var(--lumina-primary);color:#fff}
 .sparringDrawerBody{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto auto auto;background:#fff}
 .sparringDrawer .sparringConversation{max-height:none;min-height:0;padding:18px 22px;gap:12px}
 .sparringDrawer .sparringBubble{max-width:76%;padding:11px 13px;border-radius:12px}
@@ -347,3 +361,62 @@
 .sparringMemoryBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:7px 20px;border-top:1px solid var(--lumina-line);background:color-mix(in srgb,var(--lumina-primary-soft) 38%,#fff);font-size:9.75px;color:var(--lumina-ink-3)}
 .sparringMemoryBar b{color:var(--lumina-primary-dark)}
 .sparringMemoryBar span:not(:first-child){padding:2px 6px;border-radius:999px;background:#fff;border:1px solid var(--lumina-line)}
+
+/* V12: dauerhafter Prozessnavigator/Breadcrumb - bleibt sichtbar, auch bei langem Chatverlauf. */
+.workspaceNav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 20px;border-bottom:1px solid var(--lumina-line);background:color-mix(in srgb,var(--lumina-bg) 55%,#fff);font-size:11px}
+.workspaceBreadcrumb{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+.workspaceBreadcrumb button{border:0;background:transparent;color:var(--lumina-ink-2);font:inherit;font-size:11px;padding:2px 4px;cursor:pointer;border-radius:5px}
+.workspaceBreadcrumb button:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.workspaceBreadcrumb span{display:inline-flex;align-items:center;gap:4px;color:var(--lumina-ink-3)}
+.workspaceNavActions{display:flex;gap:5px;flex-wrap:wrap}
+.workspaceNavActions button{border:1px solid var(--lumina-line);background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:10.5px;padding:4px 9px;border-radius:999px;cursor:pointer}
+.workspaceNavActions button:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark)}
+.workspaceSearch{margin-left:auto;display:flex;gap:5px}
+.workspaceSearch input{font-size:10.5px;padding:5px 8px;border:1px solid var(--lumina-line);border-radius:7px;min-width:190px;background:#fff;color:var(--lumina-ink)}
+.workspaceSearch button{font-size:10.5px;padding:5px 10px;border:1px solid var(--lumina-primary);border-radius:7px;background:var(--lumina-primary);color:#fff;cursor:pointer}
+@media(max-width:1000px){.workspaceSearch{margin-left:0;width:100%}.workspaceSearch input{flex:1;min-width:0}}
+
+/* V12-Nachschärfung: deutlich kompakter - KAI/KIRA soll wie eine kleine Arbeitsfläche wirken,
+   nicht wie ein zweites Dashboard. Kleinere Typografie, weniger Padding, mehr Einträge pro Zeile. */
+.workspaceChips{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.workspaceChip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--lumina-line);background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:9.75px;padding:3px 8px;border-radius:999px;cursor:pointer;line-height:1.4}
+.workspaceChip:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark);background:var(--lumina-primary-soft)}
+.workspaceChip b{background:var(--lumina-primary);color:#fff;border-radius:999px;padding:0 5px;font-size:8.5px;line-height:14px}
+
+/* V12: Arbeitskarten (TaskListCard/ProcessStepsCard/MeasureCard/DocumentListCard/CommunicationCard/
+   SearchResultsCard) - reine UI, keine LLM-Ausgabe. Kachel-/Maßnahmenkarte (workspaceMeasureMeta/
+   workspaceTabs/workspaceTabBody) bleibt bewusst großzügiger, da dort echter Inhalt steht. */
+.workspaceCard{display:grid;gap:5px;margin-top:2px}
+.workspaceCard b.workspaceCardTitle{font-size:12.5px;text-transform:none;letter-spacing:normal;font-weight:650;color:var(--lumina-ink)}
+.workspaceCardSubTitle{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;color:var(--lumina-ink-3);margin-top:2px}
+.workspaceEmptyNote{margin:0;color:var(--lumina-ink-3);font-size:10px}
+/* V12-Nachschärfung: 47 zusammengequetschte Zeilen waren unlesbar. Eigener Scrollbereich mit
+   fester Höhe (~10 Zeilen sichtbar), Zeilenhöhe ~40px, Titel klar lesbar statt ellipsiert auf
+   Pixelbreite gequetscht. */
+.workspaceTaskRows{display:grid;gap:4px;max-height:400px;overflow:auto;padding-right:2px}
+.workspaceTaskRow{display:grid;grid-template-columns:42px minmax(0,1fr) 72px 82px;gap:10px;align-items:center;border:1px solid var(--lumina-line);border-radius:8px;background:#fff;padding:9px 11px;cursor:pointer;text-align:left;font:inherit;min-height:38px}
+.workspaceTaskRow:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft)}
+.workspaceTaskNumber{font-size:10.5px;color:var(--lumina-ink-3);font-weight:700}
+.workspaceTaskTitle{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--lumina-ink)}
+.workspaceTaskDue{font-size:10px;color:var(--lumina-ink-3);white-space:nowrap}
+.workspaceTaskChip{font-size:9px;padding:2px 8px;border-radius:999px;background:var(--lumina-primary-soft);color:var(--lumina-primary-dark);white-space:nowrap;justify-self:start}
+.workspaceStepGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:4px}
+.workspaceStepTile{display:grid;gap:1px;border:1px solid var(--lumina-line);border-radius:7px;background:#fff;padding:5px 7px;cursor:pointer;text-align:left;font:inherit;font-size:9.75px;line-height:1.25}
+.workspaceStepTile:hover{border-color:var(--lumina-primary);background:var(--lumina-primary-soft)}
+.workspaceStepTileInactive{opacity:.4;cursor:default;background:color-mix(in srgb,var(--lumina-bg) 60%,#fff)}
+.workspaceStepTileInactive:hover{border-color:var(--lumina-line);background:color-mix(in srgb,var(--lumina-bg) 60%,#fff)}
+.workspaceStepCode{font-size:8.5px;color:var(--lumina-ink-3);font-weight:700}
+.workspaceStepTile small{color:var(--lumina-ink-3);font-size:8px}
+.workspaceMeasureMeta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:10.75px;color:var(--lumina-ink-2)}
+.workspaceTabs{display:flex;flex-wrap:wrap;gap:5px}
+.workspaceTabs button{border:1px solid var(--lumina-line);background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:10.25px;padding:4px 9px;border-radius:999px;cursor:pointer}
+.workspaceTabs button:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark)}
+.workspaceTabActive{background:var(--lumina-primary)!important;border-color:var(--lumina-primary)!important;color:#fff!important}
+.workspaceTabBody{font-size:11px;line-height:1.5;display:grid;gap:5px}
+.workspaceTabBody ul{margin:0;padding-left:18px}
+.workspaceTabBody b{font-size:10.5px;color:var(--lumina-ink-2)}
+.workspaceList{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:240px;overflow:auto}
+.workspaceList li{border:1px solid var(--lumina-line);border-radius:8px;padding:7px 10px;font-size:11px}
+.workspaceList li small{display:block;color:var(--lumina-ink-3);font-size:9.5px;margin-top:1px}
+.workspaceList li p{margin:4px 0 0;font-size:10.75px;color:var(--lumina-ink-2)}
+.workspaceZeroToken{display:block;margin-top:2px;color:var(--lumina-ink-3);font-size:9px}
