@@ -7,6 +7,7 @@ import { LegacyDashboard } from "./legacy-dashboard";
 import AdminHub from "../admin/admin-hub";
 import type { ProjectHubContext } from "./project-hub";
 import { isSpecialToolStep } from "./special-tools";
+import { WorkspaceCardView, type WorkspaceCard } from "./kai-workspace";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -92,7 +93,12 @@ type EntityReference =
   | { kind: "task"; id: string; label: string }
   | { kind: "tool"; code: string; label: string }
   | { kind: "step"; id: string; code: string; label: string };
-type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string; matrix?: ScheduleMatrixRow[]; entityReferences?: EntityReference[] };
+type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string; matrix?: ScheduleMatrixRow[]; entityReferences?: EntityReference[]; card?: WorkspaceCard };
+// V12: Fokus einer gerade offenen Maßnahme/Kachel. Ausschließlich eine Kennung (Aufgabennummer
+// oder Prozessschrittcode), NIE Fachinhalt - day-sparring/route.ts löst daraus serverseitig über
+// RLS die tatsächlichen Daten auf. Der Client kann hierüber keinen Fachtext "unterschieben".
+type WorkspaceFocus = { taskNumber?: string; stepCode?: string };
+type WorkspaceBreadcrumbEntry = { label: string; action: string; params: Record<string, any> };
 
 type SparringUsage = { inputTokens: number; outputTokens: number; totalTokens: number; estimatedEur: number | null; model: string; exchangeRate?: number | null };
 type SparringMemoryInfo = { active: number; used: number; added: number; resolved: number; persistent: boolean };
@@ -337,6 +343,11 @@ export function WorkflowShell({
   const [sparringError, setSparringError] = useState("");
   const [sparringOpen, setSparringOpen] = useState(false);
   const [sparringMaximized, setSparringMaximized] = useState(false);
+  const [workspaceBreadcrumb, setWorkspaceBreadcrumb] = useState<WorkspaceBreadcrumbEntry[]>([]);
+  const [workspaceFocus, setWorkspaceFocus] = useState<WorkspaceFocus | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceSearch, setWorkspaceSearch] = useState("");
+  const workspaceAutoRef = useRef<string>("");
   const [sparringUsage, setSparringUsage] = useState<SparringUsage | null>(null);
   const [sparringMemory, setSparringMemory] = useState<SparringMemoryInfo | null>(null);
   const [sparringSessionUsage, setSparringSessionUsage] = useState({ tokens: 0, eur: 0 });
@@ -559,6 +570,96 @@ export function WorkflowShell({
     }
   }
 
+  // V12: 0-Token-Workspace-Aktionen. Läuft ausschließlich gegen /api/workflow/assistant-workspace
+  // (strukturierte, RLS-gebundene Daten) - niemals gegen day-sparring/route.ts, also kein
+  // LLM-Aufruf, keine Tokens, kein Zeitlimit-Risiko.
+  async function loadWorkspaceAction(action: string, params: Record<string, any> = {}) {
+    setWorkspaceLoading(true);
+    setSparringError("");
+    try {
+      const response = await fetch("/api/workflow/assistant-workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProjectId, action, params }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Workspace-Daten konnten nicht geladen werden.");
+      const card: WorkspaceCard | undefined = payload.card;
+      if (!card) return;
+      setSparringMessages((current) => {
+        const next = [...current, { role: "assistant" as const, assistant: sparringAssistant, content: "", card }];
+        try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
+        return next;
+      });
+      if (card.type === "measure") setWorkspaceFocus(card.task ? { taskNumber: card.task.number } : card.step ? { stepCode: card.step.code } : null);
+      else if (card.type !== "documents" && card.type !== "communication") setWorkspaceFocus(null);
+    } catch (error) {
+      setSparringError(error instanceof Error ? error.message : "Workspace-Daten konnten nicht geladen werden.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }
+
+  function handleWorkspaceChip(action: string) {
+    if (action === "schedule") { void loadFullScheduleMatrix(sparringAssistant); return; }
+    if (action === "switchKira") { setSparringAssistant("KIRA"); return; }
+    const labelByAction: Record<string, string> = { processTree: "Abschlussprozess", myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis" };
+    setWorkspaceBreadcrumb([{ label: labelByAction[action] || action, action, params: {} }]);
+    void loadWorkspaceAction(action, {});
+  }
+  function handleOpenProcessStep(stepCode: string) {
+    setWorkspaceBreadcrumb((current) => [...current, { label: stepCode, action: "processTree", params: { parentCode: stepCode } }]);
+    void loadWorkspaceAction("processTree", { parentCode: stepCode });
+  }
+  function handleOpenMeasure(kind: "task" | "step", ref: string) {
+    const params = kind === "task" ? { taskNumber: ref } : { stepCode: ref };
+    setWorkspaceBreadcrumb((current) => [...current, { label: ref, action: "measure", params }]);
+    void loadWorkspaceAction("measure", params);
+  }
+  function handleLoadDocuments(taskId: string) { void loadWorkspaceAction("documents", { taskId }); }
+  function handleLoadCommunication(taskId: string) { void loadWorkspaceAction("communication", { taskId }); }
+  function handleOpenEntityFromWorkspace(kind: "task" | "tool", idOrCode: string) {
+    if (kind === "task") openTask(idOrCode); else openTool(idOrCode);
+  }
+  function handleWorkspaceBreadcrumbClick(index: number) {
+    const entry = workspaceBreadcrumb[index];
+    if (!entry) return;
+    setWorkspaceBreadcrumb(workspaceBreadcrumb.slice(0, index + 1));
+    void loadWorkspaceAction(entry.action, entry.params);
+  }
+  function handleWorkspaceHome() {
+    setWorkspaceBreadcrumb([]);
+    setWorkspaceFocus(null);
+    void loadWorkspaceAction("start", {});
+  }
+  function handleWorkspaceSearchSubmit() {
+    const query = workspaceSearch.trim();
+    if (!query) return;
+    setWorkspaceBreadcrumb([{ label: `Suche „${query}“`, action: "search", params: { query } }]);
+    void loadWorkspaceAction("search", { query });
+  }
+
+  // V12-Präzisierung 1: das Öffnen des Workspace selbst löst NIE einen day-sparring-Aufruf aus.
+  // Ist bereits eine Aufgabe/ein Werkzeug im Fokus, wird direkt die passende Maßnahmenkarte
+  // geladen; sonst der 0-Token-Startbildschirm. Die vorhandene automatische Tagesbeurteilung
+  // (weiter unten, an view/roleView gebunden) bleibt unverändert bestehen.
+  useEffect(() => {
+    if (!sparringOpen || sparringMessages.length > 0) return;
+    const key = `${activeProjectId}:${userEmail}:${activeTaskId || activeToolCode || "start"}`;
+    if (workspaceAutoRef.current === key) return;
+    workspaceAutoRef.current = key;
+    if (activeTask) {
+      setWorkspaceBreadcrumb([{ label: taskNumber(activeTask), action: "measure", params: { taskNumber: activeTask.sourceNumber } }]);
+      void loadWorkspaceAction("measure", { taskNumber: activeTask.sourceNumber });
+    } else if (activeToolCode) {
+      setWorkspaceBreadcrumb([{ label: activeToolCode, action: "measure", params: { stepCode: activeToolCode } }]);
+      void loadWorkspaceAction("measure", { stepCode: activeToolCode });
+    } else {
+      setWorkspaceBreadcrumb([]);
+      void loadWorkspaceAction("start", {});
+    }
+  }, [sparringOpen, sparringMessages.length, activeTaskId, activeToolCode, activeProjectId, userEmail]);
+
   async function askSparring(assistant: SparringAssistant, question: string, mode: "assessment" | "chat" = "chat") {
     const text = question.trim();
     if (!text || sparringLoading) return;
@@ -578,7 +679,7 @@ export function WorkflowShell({
       const response = await fetch("/api/ai/day-sparring", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history, pageContext: currentContext }),
+        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history, pageContext: currentContext, focusContext: workspaceFocus || undefined }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "KI-Sparring ist derzeit nicht erreichbar.");
@@ -1022,7 +1123,7 @@ export function WorkflowShell({
       <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : activeToolCode || viewLabels[view]}</b>
     </button>
 
-    {sparringOpen ? <div className={`${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={`${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p>{message.matrix ? <ScheduleMatrixTable rows={message.matrix}/> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
+    {sparringOpen ? <div className={`${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={`${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.workspaceNav}><div className={styles.workspaceBreadcrumb}><button type="button" onClick={handleWorkspaceHome}>Mein Tag</button>{workspaceBreadcrumb.map((entry, index) => <span key={`${entry.action}-${index}`}>›<button type="button" onClick={() => handleWorkspaceBreadcrumbClick(index)}>{entry.label}</button></span>)}</div><div className={styles.workspaceNavActions}><button type="button" onClick={() => handleWorkspaceChip("processTree")}>Prozess</button><button type="button" onClick={() => handleWorkspaceChip("myOpenTasks")}>Meine Aufgaben</button><button type="button" onClick={() => handleWorkspaceChip("schedule")}>Termine</button><button type="button" onClick={handleWorkspaceHome}>Zurück</button></div><form className={styles.workspaceSearch} onSubmit={(event) => { event.preventDefault(); handleWorkspaceSearchSubmit(); }}><input value={workspaceSearch} onChange={(event) => setWorkspaceSearch(event.target.value)} placeholder="Maßnahme, Aufgabe oder Nummer suchen" aria-label="Maßnahme, Aufgabe oder Dokument suchen"/><button type="submit">Suchen</button></form></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix || message.card ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b>{message.content ? <p>{message.content}</p> : null}{message.matrix ? <ScheduleMatrixTable rows={message.matrix}/> : null}{message.card ? <><WorkspaceCardView card={message.card} onOpenMeasure={handleOpenMeasure} onOpenStep={handleOpenProcessStep} onLoadDocuments={handleLoadDocuments} onLoadCommunication={handleLoadCommunication} onOpenEntity={handleOpenEntityFromWorkspace} onChip={handleWorkspaceChip}/><small className={styles.workspaceZeroToken}>Direkt aus LUMINA · keine KI-Abfrage</small></> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : workspaceLoading ? "LUMINA-Daten werden geladen …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
 
     {(activeTaskId || activeToolCode) ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
       {activeToolCode ? <button type="button" className={styles.toolWorkspaceClose} onClick={closeTaskWorkspace} aria-label="Werkzeug schließen">×</button> : null}

@@ -119,8 +119,16 @@ export async function POST(request: Request) {
   if (claimsError || !claims?.sub) return NextResponse.json({ error: "Anmeldung erforderlich." }, { status: 401 });
 
   const startedAt = Date.now();
-  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string; pageContext?: PageContext };
+  let body: { assistant?: Assistant; projectId?: string; prompt?: string; history?: HistoryItem[]; mode?: string; pageContext?: PageContext; focusContext?: { taskNumber?: string; stepCode?: string } };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Ungültige Anfrage." }, { status: 400 }); }
+
+  // V12-Präzisierung 3: focusContext ist AUSSCHLIESSLICH eine Kennung (Aufgabennummer oder
+  // Prozessschrittcode), niemals Fachinhalt. Die Strings hier sind nur ein Lookup-Schlüssel in
+  // bereits RLS-autorisierte Daten weiter unten (normalizedTasks/stepByCode) - finden sie keine
+  // Entsprechung, bleibt der Fokus einfach leer und es wird ganz normal im Vollkontext geantwortet.
+  // Der Client kann über dieses Feld keinen eigenen Fachtext als "LUMINA-Fakt" einschleusen.
+  const focusTaskNumber = body.focusContext?.taskNumber ? String(body.focusContext.taskNumber).slice(0, 40) : null;
+  const focusStepCodeInput = body.focusContext?.stepCode ? String(body.focusContext.stepCode).slice(0, 20) : null;
 
   const assistant: Assistant = body.assistant === "KIRA" ? "KIRA" : "KAI";
   const projectId = String(body.projectId || "").trim();
@@ -169,6 +177,7 @@ export async function POST(request: Request) {
   const taskRows = taskResult.data || [];
   const stepRows = stepsResult.data || [];
   const stepById = new Map(stepRows.map((step: any) => [String(step.id), step]));
+  const stepByCode = new Map(stepRows.map((step: any) => [String(step.code), step]));
   const taskIds = taskRows.map((task: any) => String(task.id));
   const roleById = new Map(visibleRoles.map((role: any) => [String(role.id), role]));
 
@@ -188,6 +197,7 @@ export async function POST(request: Request) {
       id: task.id,
       number: task.source_number,
       title: task.title,
+      processStepId: task.process_step_id || null,
       responsibilityRoleId: task.responsibility_role_id,
       responsibility: task.responsibility_role_id ? (() => {
         const role: any = roleById.get(String(task.responsibility_role_id));
@@ -253,6 +263,17 @@ export async function POST(request: Request) {
   const currentTaskMessages = currentTask ? (messagesResult.data || []).filter((message: any) => String(message.task_id) === String(currentTask.id)).slice(0, 8) : [];
   const currentTaskDocuments = currentTask ? (documentsResult.data || []).filter((document: any) => String(document.task_id) === String(currentTask.id)).slice(0, 12) : [];
 
+  // V12: focusTask/focusStep sind ausschließlich Lookups gegen bereits RLS-autorisierte, oben
+  // geladene Daten (normalizedTasks/stepByCode) - kein zusätzlicher, vom Client vertrauter Inhalt.
+  const focusTask = focusTaskNumber ? normalizedTasks.find((task: any) => task.number === focusTaskNumber) || null : null;
+  const focusStep: any = focusTask?.processStepId ? stepById.get(String(focusTask.processStepId)) || null : (focusStepCodeInput ? stepByCode.get(focusStepCodeInput) || null : null);
+  const compactMode = Boolean(focusTask || focusStep);
+  const { data: focusGuidance } = focusStep?.id
+    ? await supabase.from("process_step_guidance").select("ziel,was_ist_zu_tun,benoetigte_unterlagen,liefergegenstand,typische_fehler,erledigt_wenn,arbeitshilfe_name").eq("process_step_id", focusStep.id).maybeSingle()
+    : { data: null };
+  const focusDocuments = focusTask ? (documentsResult.data || []).filter((document: any) => String(document.task_id) === String(focusTask.id)).slice(0, 12) : [];
+  const focusMessages = focusTask ? (messagesResult.data || []).filter((message: any) => String(message.task_id) === String(focusTask.id)).slice(0, 8) : [];
+
   const explicitMilestones = milestoneResult.error ? [] : (milestoneResult.data || []);
   const scheduledDates = (dueDatesResult.error ? [] : dueDatesResult.data || []).map((row: any) => {
     const step: any = stepById.get(String(row.process_step_id));
@@ -273,7 +294,7 @@ export async function POST(request: Request) {
   ]);
 
   const activeMemories: MemoryRow[] = memoryResult.error ? [] : (memoryResult.data || []) as MemoryRow[];
-  const relevantMemories = selectRelevantMemories(activeMemories, prompt, currentTask?.id || null);
+  const relevantMemories = selectRelevantMemories(activeMemories, prompt, focusTask?.id || currentTask?.id || null);
 
   const userMetadata = (claims.user_metadata || {}) as Record<string, unknown>;
   const displayName = String(userMetadata.display_name || "").trim()
@@ -385,7 +406,29 @@ export async function POST(request: Request) {
   // das Weglassen eines unsicheren Items ist für das Modell also immer die sichere Wahl.
   const entityRefsRule = `NAVIGATIONSVERWEISE: Wenn der Nutzer nach einer konkreten Maßnahme, Aufgabe, Kachel oder einem Spezialwerkzeug fragt, oder wenn eine Weiterleitung dorthin klar hilfreich ist, ergänze am Ende deiner Antwort GENAU EINE maschinenlesbare Zeile: ${REFS_START}{"items":[]}${REFS_END}. Sie wird dem Nutzer nicht angezeigt, sondern als anklickbarer Button dargestellt. Maximal 4 Items, Format {"kind":"task"|"tool"|"step","ref":"..."}. "ref" MUSS wortwörtlich einer Aufgabennummer, einem Werkzeugcode oder einem Kachelcode aus dem weiter unten bereitgestellten Navigationsverzeichnis entsprechen. Erfinde niemals eine eigene ID, URL oder einen Code - wenn du unsicher bist oder der passende Eintrag nicht im Verzeichnis steht, lasse das Item einfach weg statt zu raten. Für Fragen wie "Wo kann ich die Saldenliste/SuSa hochladen?" antworte primär mit dem Weg Abschlussprozess → 3.17 Erstellung Summen- und Saldenliste → 3.17.1 SuSa hochladen und referenziere {"kind":"tool","ref":"3.17.1"}.`;
 
-  const input = `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${entityRefsRule}\n\n${scheduleMatrixBlock}\n\n${navigableEntitiesBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
+  // V12 Stufe B/C: ist compactMode aktiv (Nutzer hat im Workspace bereits eine Maßnahme im Fokus,
+  // z. B. "KIRA, reicht das für den WP?" zu einer offenen Kachel), wird bewusst NICHT der volle
+  // Projektkontext (Terminmatrix, Navigationsverzeichnis mit allen Maßnahmen, komplette
+  // persönliche Aufgabenliste) gesendet, sondern ausschließlich die eine im Fokus stehende
+  // Maßnahme samt Anleitung, Dokumenten, Kommunikation und passenden Erinnerungen. Das reduziert
+  // die Prompt-Größe für diesen sehr häufigen Anwendungsfall erheblich, ohne die Sicherheit zu
+  // verändern - focusTask/focusStep sind bereits oben ausschließlich serverseitig aufgelöst.
+  const compactContext = {
+    contextPolicy: { sourcePriority: ["1_LUMINA_PROJECT_FACTS", "2_PERSISTENT_MEMORY", "3_GENERAL_EXPERT_KNOWLEDGE", "4_AI_RECOMMENDATION"], rule: "Projektfakten niemals aus Erinnerungen oder Empfehlungen ableiten." },
+    asOf: today,
+    user: { displayName, projectSecurityRole: projectMemberResult.data?.active === false ? "inactive" : projectMemberResult.data?.security_role || null },
+    focusTask: focusTask ? { number: focusTask.number, title: focusTask.title, dueDate: focusTask.dueDate, workStatus: focusTask.workStatus, reviewStatus: focusTask.reviewStatus, requiredDocuments: focusTask.requiredDocuments, expectedFormat: focusTask.expectedFormat, responsibility: focusTask.responsibility } : null,
+    focusStep: focusStep ? { code: focusStep.code, name: focusStep.name } : null,
+    guidance: focusGuidance || null,
+    documents: focusDocuments.map((document: any) => ({ displayName: document.display_name, status: document.document_status, createdAt: document.created_at })),
+    messages: focusMessages.map((message: any) => ({ subject: message.subject, body: String(message.body_text || "").slice(0, 500), status: message.status, createdAt: message.created_at })),
+    persistentMemory: relevantMemories.map((memory) => ({ id: memory.id, type: memory.memory_type, title: memory.title, content: memory.content, updatedAt: memory.updated_at })),
+  };
+  const compactRule = `KOMPAKTER FOKUS-MODUS: Der Nutzer befindet sich im Workspace bereits auf der unten stehenden Maßnahme/Kachel. Beziehe dich ausschließlich auf diese eine Maßnahme und ihren Kontext. Erweitere den Fokus nicht eigenmächtig auf andere Aufgaben oder das gesamte Projekt.`;
+
+  const input = compactMode
+    ? `${persona}\n\n${factRule}\n\n${dateFormatRule}\n\n${capabilityRule}\n\n${compactRule}\n\nFokussierter LUMINA-Kontext:\n${boundedJson(compactContext, 20000)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`
+    : `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${entityRefsRule}\n\n${scheduleMatrixBlock}\n\n${navigableEntitiesBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "KI-Konfiguration fehlt: OPENAI_API_KEY ist auf dem Server nicht gesetzt." }, { status: 503 });
 
