@@ -71,10 +71,126 @@ type Skin = "lumina" | "blue" | "light" | "yellow";
 type ShellView = "start" | "process" | "messages" | "status" | "admin";
 type MyDaySort = "due" | "number" | "process";
 type SparringAssistant = "KAI" | "KIRA";
-type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string };
+// Strukturierte Zeile aus get_project_schedule_responsibility. Wird bei "vollständig"/"alle
+// Termine"-Anfragen direkt per RPC geladen und als Tabelle gerendert - nicht durch das LLM erzeugt.
+type ScheduleMatrixRow = {
+  type: string;
+  date: string | null;
+  processStep: string | null;
+  label: string | null;
+  role: string | null;
+  person: string | null;
+  email: string | null;
+  status: string | null;
+  source: string;
+};
+type SparringMessage = { role: "user" | "assistant"; assistant: SparringAssistant; content: string; matrix?: ScheduleMatrixRow[] };
 
 type SparringUsage = { inputTokens: number; outputTokens: number; totalTokens: number; estimatedEur: number | null; model: string; exchangeRate?: number | null };
 type SparringMemoryInfo = { active: number; used: number; added: number; resolved: number; persistent: boolean };
+
+const FULL_MATRIX_PATTERNS: RegExp[] = [
+  /vollständig/i,
+  /gesamte?\s+terminmatrix/i,
+  /alle\s+termine/i,
+  /zeig(e|en)?\s+(mir\s+)?alle/i,
+  /komplette?\s+(liste|matrix|übersicht)/i,
+  /gesamte?\s+liste/i,
+];
+function isFullMatrixRequest(text: string) {
+  return FULL_MATRIX_PATTERNS.some((pattern) => pattern.test(text));
+}
+const MATRIX_TYPE_LABELS: Record<string, string> = { task: "Aufgabe", process_date: "Prozess-Termin", milestone: "Meilenstein" };
+function formatGermanDate(value?: string | null) {
+  if (!value) return "–";
+  const parts = String(value).slice(0, 10).split("-");
+  if (parts.length !== 3) return String(value);
+  const [y, m, d] = parts;
+  return `${d}.${m}.${y}`;
+}
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+// Rendert die vollständige Termin-/Verantwortlichkeitsmatrix als echte Tabelle statt als
+// KI-Fließtext: keine 329 Zeilen im LLM-Prompt/-Output, kein Zeitlimit, kein Tokenverbrauch für
+// die Zeilen selbst. Eigene Komponente, damit Filter-/CSV-Zustand pro Nachricht isoliert bleibt
+// (Hooks dürfen nicht direkt in der .map()-Schleife der Nachrichtenliste stehen).
+function ScheduleMatrixTable({ rows }: { rows: ScheduleMatrixRow[] }) {
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [personFilter, setPersonFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const statuses = useMemo(() => Array.from(new Set(rows.map((row) => row.status).filter((value): value is string => Boolean(value)))), [rows]);
+
+  const filtered = useMemo(() => rows.filter((row) => {
+    if (typeFilter !== "all" && row.type !== typeFilter) return false;
+    if (statusFilter !== "all" && row.status !== statusFilter) return false;
+    if (personFilter.trim()) {
+      const needle = personFilter.trim().toLocaleLowerCase("de-DE");
+      const haystack = `${row.role || ""} ${row.person || ""}`.toLocaleLowerCase("de-DE");
+      if (!haystack.includes(needle)) return false;
+    }
+    if (fromDate && (!row.date || row.date < fromDate)) return false;
+    if (toDate && (!row.date || row.date > toDate)) return false;
+    return true;
+  }), [rows, typeFilter, statusFilter, personFilter, fromDate, toDate]);
+
+  function downloadCsv() {
+    const header = ["Datum", "Typ", "Prozess/Aufgabe", "Zustaendig", "Status"];
+    const lines = filtered.map((row) => [
+      formatGermanDate(row.date),
+      MATRIX_TYPE_LABELS[row.type] || row.type,
+      [row.processStep, row.label].filter(Boolean).join(" "),
+      [row.role, row.person].filter(Boolean).join(" - ") || "keine Zustaendigkeit hinterlegt",
+      row.status || "",
+    ]);
+    const csv = [header, ...lines].map((cols) => cols.map(csvCell).join(";")).join("\r\n");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "lumina-terminmatrix.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  return <div className={styles.matrixTableWrap}>
+    <div className={styles.matrixFilters}>
+      <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Nach Typ filtern">
+        <option value="all">Alle Typen</option>
+        <option value="milestone">Meilenstein</option>
+        <option value="process_date">Prozess-Termin</option>
+        <option value="task">Aufgabe</option>
+      </select>
+      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Nach Status filtern">
+        <option value="all">Alle Status</option>
+        {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+      </select>
+      <input type="text" value={personFilter} onChange={(event) => setPersonFilter(event.target.value)} placeholder="Rolle/Person suchen" aria-label="Nach Rolle oder Person suchen"/>
+      <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="Zeitraum von"/>
+      <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="Zeitraum bis"/>
+      <button type="button" onClick={downloadCsv} disabled={!filtered.length}>CSV herunterladen</button>
+    </div>
+    <div className={styles.matrixTableScroll}>
+      <table className={styles.matrixTable}>
+        <thead><tr><th>Datum</th><th>Typ</th><th>Prozess/Aufgabe</th><th>Zuständig</th><th>Status</th></tr></thead>
+        <tbody>{filtered.map((row, index) => <tr key={`${row.source}-${row.type}-${index}`}>
+          <td>{formatGermanDate(row.date)}</td>
+          <td>{MATRIX_TYPE_LABELS[row.type] || row.type}</td>
+          <td>{row.processStep ? <><b>{row.processStep}</b> {row.label}</> : row.label}</td>
+          <td>{row.role || row.person ? [row.role, row.person].filter(Boolean).join(" · ") : "keine Zuständigkeit hinterlegt"}</td>
+          <td>{row.status || "–"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <small className={styles.matrixTableFootnote}>{filtered.length} von {rows.length} Einträgen · direkt aus LUMINA, nicht durch KI erzeugt</small>
+  </div>;
+}
 
 type AdminUser = {
   id: string;
@@ -401,6 +517,39 @@ export function WorkflowShell({
       : `${projectName} · ${visibleRoleLabel}`;
 
   const sparringStorageKey = `lumina-sparring:${activeProjectId}:${userEmail}:${todayIso}`;
+
+  // Lädt die vollständige Matrix direkt per RPC (dieselbe RLS-Zugriffsprüfung wie serverseitig,
+  // hier über die Session des angemeldeten Nutzers) und rendert sie als Tabelle. Kein LLM-Aufruf:
+  // keine 329 Zeilen im Prompt/Output, kein Zeitlimit, kein zusätzlicher Tokenverbrauch.
+  async function loadFullScheduleMatrix(assistant: SparringAssistant) {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("get_project_schedule_responsibility", { p_project_id: activeProjectId });
+      if (error) throw new Error(error.message || "Terminmatrix konnte nicht geladen werden.");
+      const rows: ScheduleMatrixRow[] = (data || []).map((row: any) => ({
+        type: String(row.schedule_type || ""),
+        date: row.due_date || null,
+        processStep: row.process_step_code || null,
+        label: row.label || null,
+        role: row.responsibility_role || null,
+        person: row.responsible_person || null,
+        email: row.responsible_email || null,
+        status: row.status || null,
+        source: String(row.source || ""),
+      }));
+      const assistantMessage: SparringMessage = { role: "assistant", assistant, content: "Hier ist die vollständige Terminmatrix aus LUMINA.", matrix: rows };
+      setSparringMessages((current) => {
+        const next = [...current, assistantMessage];
+        try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
+        return next;
+      });
+    } catch (error) {
+      setSparringError(error instanceof Error ? error.message : "Terminmatrix konnte nicht geladen werden.");
+    } finally {
+      setSparringLoading(false);
+    }
+  }
+
   async function askSparring(assistant: SparringAssistant, question: string, mode: "assessment" | "chat" = "chat") {
     const text = question.trim();
     if (!text || sparringLoading) return;
@@ -412,6 +561,10 @@ export function WorkflowShell({
     setSparringProgressTick(0);
     const history = sparringMessages.slice(-8);
     if (mode === "chat") setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
+    if (mode === "chat" && isFullMatrixRequest(text)) {
+      await loadFullScheduleMatrix(assistant);
+      return;
+    }
     try {
       const response = await fetch("/api/ai/day-sparring", {
         method: "POST",
@@ -842,7 +995,7 @@ export function WorkflowShell({
       <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : activeToolCode || viewLabels[view]}</b>
     </button>
 
-    {sparringOpen ? <div className={styles.sparringDrawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={styles.sparringDrawer} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p></div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
+    {sparringOpen ? <div className={styles.sparringDrawerBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={styles.sparringDrawer} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b><p>{message.content}</p>{message.matrix ? <ScheduleMatrixTable rows={message.matrix}/> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span>{sparringUsage ? `Letzte KI-Abfrage: ${sparringUsage.totalTokens.toLocaleString("de-DE")} Token${sparringUsage.estimatedEur !== null ? ` · ca. ${sparringUsage.estimatedEur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : ""}` : "Token- und Kostenschätzung erscheint nach der ersten Antwort."}</span>{sparringSessionUsage.tokens > 0 ? <span>Sitzung: {sparringSessionUsage.tokens.toLocaleString("de-DE")} Token · ca. {sparringSessionUsage.eur.toLocaleString("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
 
     {(activeTaskId || activeToolCode) ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
       {activeToolCode ? <button type="button" className={styles.toolWorkspaceClose} onClick={closeTaskWorkspace} aria-label="Werkzeug schließen">×</button> : null}
