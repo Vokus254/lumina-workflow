@@ -44,6 +44,19 @@ describe("resolveToolTitle", () => {
 
   it("bevorzugt den bekannten Unterwerkzeug-Titel vor dem Prozessschrittnamen", () => {
     expect(resolveToolTitle("3.17.1", "Erstellung Summen- und Saldenliste")).toBe("SuSa hochladen");
+    expect(resolveToolTitle("3.17.2", "Erstellung Summen- und Saldenliste")).toBe("Mapping");
+    expect(resolveToolTitle("3.17.3", "Erstellung Summen- und Saldenliste")).toBe("Berichtsstruktur");
+    expect(resolveToolTitle("4.4.1", "Erstellung Rohbilanz und Roh-GuV")).toBe("Bilanz & GuV");
+  });
+
+  it("liefert für alle bekannten 3.17/4.4-Unterwerkzeuge einen nicht-null Titel, auch ohne Schrittname", () => {
+    for (const code of ["3.17", "3.17.1", "3.17.2", "3.17.3", "4.4", "4.4.1", "4.4.2"]) {
+      // Ohne Schrittname liefern reine Unterwerkzeug-Codes trotzdem ihren festen Titel; nur die
+      // beiden Top-Level-Codes ("3.17"/"4.4") fallen ohne Schrittname auf null zurück - das ist
+      // der separat getestete "kein Schrittname vorhanden"-Fall weiter unten.
+      if (code === "3.17" || code === "4.4") continue;
+      expect(resolveToolTitle(code, null)).not.toBeNull();
+    }
   });
 
   it("liefert niemals null, wenn ein Schrittname vorhanden ist - kein '· null' im UI", () => {

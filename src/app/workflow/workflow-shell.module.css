@@ -295,6 +295,7 @@
 .matrixTable tbody tr:last-child td{border-bottom:0}
 .matrixInlineLink{border:0;background:transparent;color:var(--lumina-primary-dark);font:inherit;font-size:inherit;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:2px;padding:0}
 .matrixInlineLink:hover{color:var(--lumina-primary)}
+.matrixLabelDisabled{color:var(--lumina-ink-3);cursor:default}
 .matrixTableFootnote{color:var(--lumina-ink-3);font-size:9.5px}
 .sparringError{margin:10px 14px 0;padding:8px 10px;border-radius:8px;background:#fff2f0;border:1px solid #efc8c3;color:#9b332c;font-size:10.75px}
 .sparringPrompts{display:flex;flex-wrap:wrap;gap:5px;padding:10px 14px 4px;border-top:1px solid var(--lumina-line);background:#fff}.sparringPrompts button{border:1px solid var(--lumina-line);border-radius:999px;background:#fff;color:var(--lumina-primary-dark);padding:5px 8px;font:inherit;font-size:9.75px;font-weight:750;cursor:pointer}.sparringPrompts button:hover{background:var(--lumina-primary-soft);border-color:var(--lumina-primary)}.sparringPrompts button:disabled{opacity:.5;cursor:default}
