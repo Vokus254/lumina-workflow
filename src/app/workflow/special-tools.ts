@@ -35,3 +35,15 @@ export function specialToolParentCode(subCode: string): string | null {
   const match = subCode.match(/^(\d+(?:\.\d+)*)\.\d+$/);
   return match ? match[1] : null;
 }
+
+// V12-Regressionsfix, jetzt als reine, testbare Entscheidung: welcher Code soll zuerst EXAKT
+// gegen process_steps geprüft werden, und wann darf überhaupt auf den Elternschritt eines
+// Unterwerkzeug-Codes ausgewichen werden? Vorher wurde specialToolParentCode() ungeprüft auf
+// JEDEN mehrteiligen Code angewendet, wodurch z. B. "1.7" fälschlich zu "1" und "3.17" fälschlich
+// zu "3" verkürzt wurde, bevor ein exakter Treffer überhaupt versucht war. Die Regel jetzt: exakt
+// zuerst; der Elterncode wird ausschließlich dann als Fallback vorgeschlagen, wenn der angefragte
+// Code selbst ein bekannter Unterwerkzeug-Schlüssel aus SPECIAL_TOOL_SUBITEMS ist (z. B. "3.17.1").
+export function resolveStepLookupPlan(ref: string): { exactCode: string; parentFallbackCode: string | null } {
+  const parent = SPECIAL_TOOL_SUBITEMS[ref] ? specialToolParentCode(ref) : null;
+  return { exactCode: ref, parentFallbackCode: parent };
+}

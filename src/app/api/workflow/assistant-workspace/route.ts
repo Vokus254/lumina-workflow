@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, specialToolParentCode } from "@/app/workflow/special-tools";
+import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan } from "@/app/workflow/special-tools";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -147,23 +147,21 @@ export async function POST(request: Request) {
         const { data } = await supabase.from("tasks").select("id,source_number,title,process_step_id,due_date,due_date_override,work_status,review_status,required_documents_text,expected_format,responsibility_role_id").eq("project_id", projectId).eq("source_number", taskNumber).maybeSingle();
         task = data;
       }
-      // V12-Nachschärfung (kritischer Fix): exakter Code hat IMMER Vorrang. specialToolParentCode
-      // darf ausschließlich angewendet werden, wenn der Code selbst ein bekannter
-      // Unterwerkzeug-Code ist (z. B. "3.17.1" -> Elternschritt "3.17"). Vorher wurde die Funktion
-      // auf JEDEN mehrteiligen Code angewendet und hat z. B. "1.7" fälschlich zu "1" und "3.17"
-      // fälschlich zu "3" verkürzt - "gehe zu Kachel 1.7" öffnete dadurch Phase 1 statt "nicht
-      // gefunden" zu melden, und "öffne 3.17" öffnete Phase 3 statt exakt 3.17.
+      // Exakter Code hat IMMER Vorrang; resolveStepLookupPlan() (special-tools.ts, unit-getestet)
+      // liefert den Elterncode nur, wenn der angefragte Code selbst ein bekannter
+      // Unterwerkzeug-Schlüssel ist (z. B. "3.17.1" -> "3.17"). Das ist der V12-Regressionsfix für
+      // "1.7"/"3.17", jetzt als eigenständige, testbare Funktion statt Inline-Logik.
       let step: any = null;
       if (task?.process_step_id) {
         const { data } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("id", task.process_step_id).maybeSingle();
         step = data;
       } else if (stepCodeCandidate) {
-        const { data: exact } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", stepCodeCandidate).maybeSingle();
+        const lookupPlan = resolveStepLookupPlan(stepCodeCandidate);
+        const { data: exact } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", lookupPlan.exactCode).maybeSingle();
         if (exact) {
           step = exact;
-        } else if (SPECIAL_TOOL_SUBITEMS[stepCodeCandidate]) {
-          const parentToolCode = specialToolParentCode(stepCodeCandidate) || stepCodeCandidate;
-          const { data: parent } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", parentToolCode).maybeSingle();
+        } else if (lookupPlan.parentFallbackCode) {
+          const { data: parent } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", lookupPlan.parentFallbackCode).maybeSingle();
           step = parent;
         }
       }

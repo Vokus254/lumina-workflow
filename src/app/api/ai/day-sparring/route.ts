@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS } from "@/app/workflow/special-tools";
+import { needsExplicitFocus, isExplicitProjectRequest } from "@/lib/intent-router";
 
 type Assistant = "KAI" | "KIRA";
 type HistoryItem = { role?: "user" | "assistant"; content?: string; assistant?: Assistant };
@@ -17,32 +18,6 @@ type EntityReference =
   | { kind: "task"; id: string; label: string }
   | { kind: "tool"; code: string; label: string }
   | { kind: "step"; id: string; code: string; label: string };
-
-// V12-Nachschärfung: serverseitiges Sicherheitsnetz, falls die clientseitige Fokusabfrage aus
-// irgendeinem Grund nicht greift (z. B. veralteter Client) - eine Review-Frage ohne Fokus und
-// ohne ausdrücklich projektweite Formulierung darf niemals den vollen Projektkontext auslösen.
-const NEEDS_FOCUS_PATTERNS: RegExp[] = [
-  /reicht\s+(das|es|dies)/i,
-  /ist\s+(das|es|dies)\s+vollständig/i,
-  /was\s+fehlt(\s+noch)?\s*\??\s*$/i,
-  /genügt\s+(das|es|dies)/i,
-  /ausreichend\s+dokumentiert/i,
-];
-function needsExplicitFocus(text: string) {
-  return NEEDS_FOCUS_PATTERNS.some((pattern) => pattern.test(text));
-}
-const PROJECT_WIDE_PATTERNS: RegExp[] = [
-  /gesamten?\s+jahresabschluss/i,
-  /gesamtbeurteilung/i,
-  /gesamtes?\s+projekt/i,
-  /gesamtprojekt/i,
-  /größten?\s+risiken?.*projekt/i,
-  /projektweite/i,
-  /komplett(e|en)?\s+abschluss/i,
-];
-function isExplicitProjectRequest(text: string) {
-  return PROJECT_WIDE_PATTERNS.some((pattern) => pattern.test(text));
-}
 
 const MEMORY_TYPES = new Set<MemoryType>(["decision", "commitment", "open_point", "preference", "escalation", "result"]);
 const MEMORY_START = "<LUMINA_MEMORY>";

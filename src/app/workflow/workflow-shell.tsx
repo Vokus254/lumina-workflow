@@ -8,6 +8,7 @@ import AdminHub from "../admin/admin-hub";
 import type { ProjectHubContext } from "./project-hub";
 import { isSpecialToolStep } from "./special-tools";
 import { WorkspaceCardView, type WorkspaceCard, type WorkspaceTaskRow } from "./kai-workspace";
+import { isFullMatrixRequest, routeIntent, needsExplicitFocus, isExplicitProjectRequest } from "@/lib/intent-router";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -103,65 +104,6 @@ type WorkspaceBreadcrumbEntry = { label: string; action: string; params: Record<
 type SparringUsage = { inputTokens: number; outputTokens: number; totalTokens: number; estimatedEur: number | null; model: string; exchangeRate?: number | null };
 type SparringMemoryInfo = { active: number; used: number; added: number; resolved: number; persistent: boolean };
 
-const FULL_MATRIX_PATTERNS: RegExp[] = [
-  /vollständig/i,
-  /gesamte?\s+terminmatrix/i,
-  /alle\s+termine/i,
-  /zeig(e|en)?\s+(mir\s+)?alle/i,
-  /komplette?\s+(liste|matrix|übersicht)/i,
-  /gesamte?\s+liste/i,
-];
-function isFullMatrixRequest(text: string) {
-  return FULL_MATRIX_PATTERNS.some((pattern) => pattern.test(text));
-}
-// V12-Nachschärfung: deterministischer Intent-Router. Läuft VOR jedem askSparring-Aufruf und
-// erkennt eindeutige Navigations-/Suchbefehle per Regex gegen bereits bekannte Muster - keine
-// KI-Klassifikation. Nur wenn nichts davon passt, geht die Frage überhaupt an das LLM (SPARRING/
-// ANALYSIS/REVIEW/EXPLANATION/FORMULATION). "ref" wird nicht selbst in Aufgabe/Kachel
-// unterschieden - das übernimmt serverseitig assistant-workspace (versucht beide, keine Annahme
-// auf Client-Seite, kein Raten).
-const NAV_VERB = "(?:gehe?\\s+zu|geh\\s+zu|öffne|zeig(?:e)?(?:\\s+mir)?|wo\\s+ist)";
-const NAV_REF_PATTERN = new RegExp(`^${NAV_VERB}\\s+(?:die\\s+|den\\s+)?(?:kachel|maßnahme|aufgabe|schritt)?\\s*([\\d][\\d.]*)\\b`, "i");
-const NAV_SEARCH_PATTERN = new RegExp(`^${NAV_VERB}\\s+(?:die\\s+|den\\s+)?(.+)$`, "i");
-type RoutedIntent = { kind: "fullSchedule" } | { kind: "measure"; ref: string } | { kind: "search"; query: string };
-function routeIntent(text: string): RoutedIntent | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (isFullMatrixRequest(trimmed)) return { kind: "fullSchedule" };
-  const refMatch = trimmed.match(NAV_REF_PATTERN);
-  if (refMatch) return { kind: "measure", ref: refMatch[1] };
-  const searchMatch = trimmed.match(NAV_SEARCH_PATTERN);
-  if (searchMatch && searchMatch[1].trim().length >= 2) return { kind: "search", query: searchMatch[1].trim() };
-  return null;
-}
-// V12-Nachschärfung: "Reicht das für den WP?" ohne offene Maßnahme lief bisher unverändert in den
-// vollen Projektkontext (~43.000 Token). Solche Fragen beziehen sich grammatikalisch auf ein "das"/
-// "es", das ohne eine konkret offene Maßnahme gar nicht existiert - deterministisch abfangen statt
-// zu raten, welche Aufgabe gemeint sein könnte.
-const NEEDS_FOCUS_PATTERNS: RegExp[] = [
-  /reicht\s+(das|es|dies)/i,
-  /ist\s+(das|es|dies)\s+vollständig/i,
-  /was\s+fehlt(\s+noch)?\s*\??\s*$/i,
-  /genügt\s+(das|es|dies)/i,
-  /ausreichend\s+dokumentiert/i,
-];
-function needsExplicitFocus(text: string) {
-  return NEEDS_FOCUS_PATTERNS.some((pattern) => pattern.test(text));
-}
-// Nur bei ausdrücklich projektweiten Fragen darf der große Projektkontext (Matrix + vollständiges
-// Navigationsverzeichnis) überhaupt geladen werden.
-const PROJECT_WIDE_PATTERNS: RegExp[] = [
-  /gesamten?\s+jahresabschluss/i,
-  /gesamtbeurteilung/i,
-  /gesamtes?\s+projekt/i,
-  /gesamtprojekt/i,
-  /größten?\s+risiken?.*projekt/i,
-  /projektweite/i,
-  /komplett(e|en)?\s+abschluss/i,
-];
-function isExplicitProjectRequest(text: string) {
-  return PROJECT_WIDE_PATTERNS.some((pattern) => pattern.test(text));
-}
 const MATRIX_TYPE_LABELS: Record<string, string> = { task: "Aufgabe", process_date: "Prozess-Termin", milestone: "Meilenstein" };
 function formatGermanDate(value?: string | null) {
   if (!value) return "–";
