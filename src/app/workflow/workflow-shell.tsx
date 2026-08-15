@@ -375,7 +375,6 @@ export function WorkflowShell({
   const [sparringStartedAt, setSparringStartedAt] = useState<number | null>(null);
   const [sparringLastLatencyMs, setSparringLastLatencyMs] = useState<number | null>(null);
   const [sparringProgressTick, setSparringProgressTick] = useState(0);
-  const sparringAutoRef = useRef<string>("");
   const sparringEndRef = useRef<HTMLDivElement | null>(null);
 
   // Scrollt den Chat-Scrollcontainer (.sparringConversation) zur neuesten Nachricht: beim
@@ -698,7 +697,12 @@ export function WorkflowShell({
     }
   }, [sparringOpen, sparringMessages.length, activeTaskId, activeToolCode, activeProjectId, userEmail]);
 
-  async function askSparring(assistant: SparringAssistant, question: string, mode: "assessment" | "chat" = "chat") {
+  // V12-Nachschärfung: askSparring läuft ausschließlich noch als direkte Folge einer expliziten
+  // Nutzergeste (Schnellprompt-Button, Enter im Composer, Senden-Button) - der frühere
+  // "assessment"-Modus für eine automatische, effect-getriebene Tagesbeurteilung wurde entfernt
+  // (siehe kai-kira-no-auto-llm.test.ts). Kein Aufrufer läuft mehr ungebunden von einer
+  // Nutzeraktion, daher entfällt der Moduswechsel.
+  async function askSparring(assistant: SparringAssistant, question: string) {
     const text = question.trim();
     if (!text || sparringLoading) return;
     const startedAt = Date.now();
@@ -708,25 +712,23 @@ export function WorkflowShell({
     setSparringStartedAt(startedAt);
     setSparringProgressTick(0);
     const history = sparringMessages.slice(-8);
-    if (mode === "chat") setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
+    setSparringMessages((current) => [...current, { role: "user", assistant, content: text }]);
     // V12: deterministischer Router VOR jedem LLM-Aufruf. "gehe zu Kachel 1.7" o. Ä. lief bisher
     // ungebremst in KIRA und verbrauchte den vollen Projektkontext (~42.000 Token) für eine reine
     // Navigationsanfrage. Erkennt der Router eine eindeutige Navigation/Suche, wird ausschließlich
     // assistant-workspace (bzw. die bestehende Terminmatrix-RPC) angesprochen - 0 LLM-Tokens.
-    if (mode === "chat") {
-      const intent = routeIntent(text);
-      if (intent) {
-        setSparringLoading(false);
-        if (intent.kind === "fullSchedule") { await loadFullScheduleMatrix(assistant); return; }
-        if (intent.kind === "measure") { await loadWorkspaceAction("measure", { ref: intent.ref }); return; }
-        if (intent.kind === "search") { await loadWorkspaceAction("search", { query: intent.query }); return; }
-      }
+    const intent = routeIntent(text);
+    if (intent) {
+      setSparringLoading(false);
+      if (intent.kind === "fullSchedule") { await loadFullScheduleMatrix(assistant); return; }
+      if (intent.kind === "measure") { await loadWorkspaceAction("measure", { ref: intent.ref }); return; }
+      if (intent.kind === "search") { await loadWorkspaceAction("search", { query: intent.query }); return; }
     }
     // V12-Nachschärfung: eine Review-Frage ("Reicht das für den WP?") ohne offene Maßnahme und
     // ohne ausdrücklich projektweite Formulierung führt NICHT mehr automatisch zum vollen
     // Projektkontext, sondern zu einer deterministischen, 0-Token-Fokusauswahl aus den eigenen
     // offenen Aufgaben (bereits clientseitig geladen, kein zusätzlicher Fetch nötig).
-    if (mode === "chat" && !workspaceFocus && needsExplicitFocus(text) && !isExplicitProjectRequest(text)) {
+    if (!workspaceFocus && needsExplicitFocus(text) && !isExplicitProjectRequest(text)) {
       setSparringLoading(false);
       const candidateTasks: WorkspaceTaskRow[] = personalOpenTasks.slice(0, 10).map((task) => ({ id: task.id, number: task.sourceNumber, title: task.title, processStepCode: task.processStepCode || null, dueDate: task.dueDate || null, workStatus: task.workStatus, reviewStatus: task.reviewStatus }));
       const focusCard: WorkspaceCard = { type: "taskList", title: "Welche Aufgabe möchtest du prüfen lassen?", tasks: candidateTasks };
@@ -742,7 +744,7 @@ export function WorkflowShell({
       const response = await fetch("/api/ai/day-sparring", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode, history, pageContext: currentContext, focusContext: workspaceFocus || undefined }),
+        body: JSON.stringify({ assistant, projectId: activeProjectId, prompt: text, mode: "chat", history, pageContext: currentContext, focusContext: workspaceFocus || undefined }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "KI-Sparring ist derzeit nicht erreichbar.");
@@ -808,13 +810,13 @@ export function WorkflowShell({
     } catch {}
   }, [sparringStorageKey, view, roleView]);
 
-  useEffect(() => {
-    if (view !== "start" || roleView === "cfo" || personalOpenTasks.length === 0 || sparringMessages.length > 0 || sparringLoading) return;
-    const key = `${activeProjectId}:${userEmail}:${todayIso}`;
-    if (sparringAutoRef.current === key) return;
-    sparringAutoRef.current = key;
-    void askSparring("KAI", "Beurteile meine heutige Arbeitssituation und sage mir in wenigen Worten, worauf ich mich jetzt konzentrieren sollte.", "assessment");
-  }, [view, roleView, personalOpenTasks.length, activeProjectId, userEmail, todayIso, sparringMessages.length, sparringLoading]);
+  // V12-Nachschärfung: die frühere automatische Tagesbeurteilung ("Beurteile meine heutige
+  // Arbeitssituation …") rief bei jedem Aufruf der "Mein Tag"-Ansicht ohne bestehenden
+  // Chatverlauf selbststaendig day-sparring/route.ts auf - unabhaengig davon, ob der
+  // KAI/KIRA-Drawer ueberhaupt geoeffnet war. Das widerspricht der Anforderung "KAI/KIRA oeffnen
+  // = 0 KI-Tokens, LLM nur nach expliziter Nutzeraktion" und wurde deshalb ersatzlos entfernt.
+  // Der 0-Token-Startbildschirm (loadWorkspaceAction("start", {})) bleibt der einzige Automatismus
+  // beim Oeffnen.
 
   // Der Statusbericht ist bewusst persönlich: dieselbe Aufgabenmenge wie "Mein Tag" und die aktiven Prozesskacheln.
   const taskTotal = personalTasks.length;
