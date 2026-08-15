@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS } from "@/app/workflow/special-tools";
 
 type Assistant = "KAI" | "KIRA";
 type HistoryItem = { role?: "user" | "assistant"; content?: string; assistant?: Assistant };
@@ -7,10 +8,21 @@ type PageContext = { view?: string; taskId?: string | null; tab?: string | null;
 type MemoryType = "decision" | "commitment" | "open_point" | "preference" | "escalation" | "result";
 type MemoryRow = { id: string; task_id?: string | null; memory_type: MemoryType; title: string; content: string; status: string; updated_at?: string | null };
 type MemoryAction = { action?: "add" | "resolve"; id?: string; type?: MemoryType; title?: string; content?: string; taskId?: string | null };
+// V11: entityReferences. "ref" ist immer eine bereits im Navigationsverzeichnis vorhandene
+// menschenlesbare Kennung (Aufgabennummer oder Prozess-/Werkzeugcode), niemals eine vom Modell
+// erfundene ID/URL. Der Server loest "ref" gegen das Verzeichnis auf; nur Treffer werden
+// zurueckgegeben.
+type RawRefItem = { kind?: string; ref?: string };
+type EntityReference =
+  | { kind: "task"; id: string; label: string }
+  | { kind: "tool"; code: string; label: string }
+  | { kind: "step"; id: string; code: string; label: string };
 
 const MEMORY_TYPES = new Set<MemoryType>(["decision", "commitment", "open_point", "preference", "escalation", "result"]);
 const MEMORY_START = "<LUMINA_MEMORY>";
 const MEMORY_END = "</LUMINA_MEMORY>";
+const REFS_START = "<LUMINA_REFS>";
+const REFS_END = "</LUMINA_REFS>";
 
 function extractOutputText(payload: any): string {
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
@@ -53,6 +65,18 @@ function selectRelevantMemories(rows: MemoryRow[], prompt: string, taskId?: stri
   }).sort((a, b) => b.score - a.score || String(b.memory.updated_at || "").localeCompare(String(a.memory.updated_at || "")))
     .slice(0, 12)
     .map(({ memory }) => memory);
+}
+
+// Generischer Envelope-Extraktor fuer maschinenlesbare Anhaenge am Antwortende (z. B.
+// <LUMINA_REFS>...</LUMINA_REFS>). Entfernt den Block vollstaendig aus dem Text, der dem Nutzer
+// angezeigt wird, und liefert den restlichen Text separat zurueck - splitMemoryEnvelope arbeitet
+// danach unveraendert auf diesem bereits bereinigten Rest weiter.
+function splitEnvelope(raw: string, startTag: string, endTag: string) {
+  const start = raw.lastIndexOf(startTag);
+  const end = raw.lastIndexOf(endTag);
+  if (start < 0 || end < start) return { rest: raw, jsonText: null as string | null };
+  const rest = (raw.slice(0, start) + raw.slice(end + endTag.length)).trim();
+  return { rest, jsonText: raw.slice(start + startTag.length, end).trim() };
 }
 
 function splitMemoryEnvelope(raw: string) {
@@ -184,6 +208,40 @@ export async function POST(request: Request) {
     };
   }).sort((a: any, b: any) => String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")));
 
+  // V11: autoritatives Navigationsverzeichnis fuer entityReferences. Ausschliesslich bereits
+  // durch RLS autorisierte, echte Kennungen (Aufgabennummer/-id, Prozessschrittcode, Werkzeugcode)
+  // - keine Volltexte. Das Modell darf spaeter nur "ref"-Werte nennen, die hier woertlich
+  // vorkommen; alles andere wird serverseitig verworfen (siehe resolveEntityReference weiter unten).
+  const taskDirectory = normalizedTasks.map((task: any) => ({ id: String(task.id), number: String(task.number || ""), title: String(task.title || ""), processStepCode: task.processStepCode || null }));
+  const taskDirectoryByNumber = new Map(taskDirectory.filter((row) => row.number).map((row) => [row.number, row]));
+  const taskDirectoryById = new Map(taskDirectory.map((row) => [row.id, row]));
+  const stepDirectory = stepRows.map((step: any) => ({ id: String(step.id), code: String(step.code || ""), name: String(step.name || "") })).filter((row) => row.code);
+  const stepDirectoryByCode = new Map(stepDirectory.map((row) => [row.code, row]));
+  const toolCodeSet = new Set<string>([...SPECIAL_TOOL_STEP_CODES, ...Object.keys(SPECIAL_TOOL_SUBITEMS)]);
+  const toolDirectory = Array.from(toolCodeSet).sort().map((code) => ({ code, title: SPECIAL_TOOL_SUBITEMS[code] || null }));
+
+  function resolveEntityReference(item: RawRefItem): EntityReference | null {
+    const kind = String(item?.kind || "");
+    const ref = String(item?.ref || "").trim();
+    if (!ref) return null;
+    if (kind === "task") {
+      const row = taskDirectoryByNumber.get(ref) || taskDirectoryById.get(ref);
+      if (!row) return null;
+      return { kind: "task", id: row.id, label: `${row.number ? row.number + " · " : ""}${row.title}`.trim() || "Aufgabe öffnen" };
+    }
+    if (kind === "tool") {
+      if (!toolCodeSet.has(ref)) return null;
+      const title = SPECIAL_TOOL_SUBITEMS[ref];
+      return { kind: "tool", code: ref, label: title ? `${ref} · ${title}` : `Werkzeug ${ref} öffnen` };
+    }
+    if (kind === "step") {
+      const row = stepDirectoryByCode.get(ref);
+      if (!row) return null;
+      return { kind: "step", id: row.id, code: row.code, label: `${row.code} · ${row.name}` };
+    }
+    return null;
+  }
+
   const currentTask = requestedPageContext.taskId ? normalizedTasks.find((task: any) => String(task.id) === String(requestedPageContext.taskId)) || null : null;
   const personalTasks = normalizedTasks.filter((task: any) => task.assignedToCurrentUser);
   const openPersonalTasks = personalTasks.filter((task: any) => task.workStatus !== "completed");
@@ -287,6 +345,11 @@ export async function POST(request: Request) {
     ? `Vollständige projektweite Termin-/Verantwortlichkeitsmatrix (Vorrang vor allen anderen Kontextteilen, nicht durch das allgemeine Kontextlimit gekürzt; Spalten: type,date,processStep,label,role,person,email,status,source):\n${boundedJson(scheduleResponsibilityMatrix, 120000)}`
     : `PROJEKTWEITE TERMIN-/VERANTWORTLICHKEITSMATRIX IST AKTUELL NICHT VERFÜGBAR (Fehler beim serverseitigen Laden der Datenquelle). Behandle dies ausdrücklich als "Datenquelle derzeit nicht verfügbar" und NICHT als "keine Termine vorhanden". Erfinde und errate in diesem Fall keine Termine oder Zuständigkeiten als Ersatz; sage dem Nutzer, dass die Matrix gerade nicht geladen werden konnte.`;
 
+  // V11: Navigationsverzeichnis wie die Terminmatrix ausserhalb des allgemeinen Kontextlimits
+  // uebertragen - bei 202 Massnahmen wuerde die 42.000-Zeichen-Kappung sonst genau die Aufgaben
+  // abschneiden, die fuer "welche Maßnahme/Kachel ist das" am wichtigsten sind.
+  const navigableEntitiesBlock = `Navigationsverzeichnis für entityReferences (NUR "ref"-Werte aus dieser Liste verwenden, nichts erfinden). Aufgaben/Maßnahmen [nummer,titel,prozessschrittcode]:\n${boundedJson(taskDirectory.map((row) => [row.number, row.title, row.processStepCode]), 90000)}\nSpezialwerkzeuge [code,titel]:\n${JSON.stringify(toolDirectory.map((row) => [row.code, row.title]))}\nKacheln/Prozessschritte [code,name]:\n${JSON.stringify(stepDirectory.map((row) => [row.code, row.name]))}`;
+
   const history = cleanHistory(body.history);
   const historyText = history.length
     ? `\n\nBisheriger Dialog (nur Kurzzeitgedächtnis, nicht automatisch Projektfakt):\n${history.map((item) => `${item.role === "assistant" ? item.assistant : "NUTZER"}: ${item.content}`).join("\n")}`
@@ -317,8 +380,12 @@ export async function POST(request: Request) {
     ? `Dies ist die automatische Tagesbeurteilung. Antworte in höchstens 5 kurzen Punkten. Beginne direkt mit der wichtigsten Beobachtung. Nenne 2–3 konkrete Prioritäten und höchstens ein wesentliches Risiko. Keine Einleitung und keine Floskeln.`
     : `Antworte auf Deutsch, konkret und standardmäßig kurz (meist 3–7 Punkte oder wenige Absätze). Wenn mehr Details sinnvoll wären, biete am Ende knapp "Mehr Details" an. Erfinde keine Projektfakten.`;
   const memoryRule = `DAUERHAFTES ARBEITSGEDÄCHTNIS: Am Ende deiner Antwort MUSST du genau eine maschinenlesbare Zeile ergänzen: ${MEMORY_START}{"items":[]}${MEMORY_END}. Sie wird dem Nutzer nicht angezeigt. Maximal 3 Items. Erlaubte Typen: decision, commitment, open_point, preference, escalation, result. Speichere nur tatsächlich neue, projektbezogene Entscheidungen, Zusagen, offene Punkte, Arbeitspräferenzen, Eskalationen oder Ergebnisse. Speichere niemals bloße Höflichkeit, allgemeines Fachwissen oder deine eigene Empfehlung, solange der Nutzer sie nicht übernommen/bestätigt hat. Für neue Einträge: {"action":"add","type":"commitment","title":"kurzer Titel","content":"präziser Fakt","taskId":"optional aktuelle Task-ID"}. Wenn eine bestehende Erinnerung eindeutig erledigt wurde, darfst du {"action":"resolve","id":"ID aus persistentMemory"} ausgeben.`;
+  // V11: entityReferences ersetzen keine Halluzination durch eine andere - "ref" muss wörtlich aus
+  // dem Navigationsverzeichnis stammen. Der Server verwirft jedes Item, das dort nicht vorkommt;
+  // das Weglassen eines unsicheren Items ist für das Modell also immer die sichere Wahl.
+  const entityRefsRule = `NAVIGATIONSVERWEISE: Wenn der Nutzer nach einer konkreten Maßnahme, Aufgabe, Kachel oder einem Spezialwerkzeug fragt, oder wenn eine Weiterleitung dorthin klar hilfreich ist, ergänze am Ende deiner Antwort GENAU EINE maschinenlesbare Zeile: ${REFS_START}{"items":[]}${REFS_END}. Sie wird dem Nutzer nicht angezeigt, sondern als anklickbarer Button dargestellt. Maximal 4 Items, Format {"kind":"task"|"tool"|"step","ref":"..."}. "ref" MUSS wortwörtlich einer Aufgabennummer, einem Werkzeugcode oder einem Kachelcode aus dem weiter unten bereitgestellten Navigationsverzeichnis entsprechen. Erfinde niemals eine eigene ID, URL oder einen Code - wenn du unsicher bist oder der passende Eintrag nicht im Verzeichnis steht, lasse das Item einfach weg statt zu raten. Für Fragen wie "Wo kann ich die Saldenliste/SuSa hochladen?" antworte primär mit dem Weg Abschlussprozess → 3.17 Erstellung Summen- und Saldenliste → 3.17.1 SuSa hochladen und referenziere {"kind":"tool","ref":"3.17.1"}.`;
 
-  const input = `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${scheduleMatrixBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
+  const input = `${persona}\n\n${factRule}\n\n${matrixFormatRule}\n\n${dateFormatRule}\n\n${summaryFirstRule}\n\n${capabilityRule}\n\n${entityRefsRule}\n\n${scheduleMatrixBlock}\n\n${navigableEntitiesBlock}\n\nWeiterer serverseitig autorisierter LUMINA-Kontext:\n${boundedJson(serverContext)}${historyText}\n\nAktuelle Frage/Auftrag:\n${prompt}\n\n${outputRule}\n\n${memoryRule}`;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "KI-Konfiguration fehlt: OPENAI_API_KEY ist auf dem Server nicht gesetzt." }, { status: 503 });
 
@@ -336,7 +403,22 @@ export async function POST(request: Request) {
     const rawResponse = extractOutputText(payload);
     if (!rawResponse) return NextResponse.json({ error: "Der KI-Dienst hat keine Textantwort geliefert." }, { status: 502 });
 
-    const { answer, actions } = splitMemoryEnvelope(rawResponse);
+    // V11: <LUMINA_REFS> zuerst herauslösen, danach splitMemoryEnvelope unverändert auf dem Rest
+    // weiterarbeiten lassen - beide Envelopes bleiben unabhängig voneinander funktionsfähig.
+    const refsSplit = splitEnvelope(rawResponse, REFS_START, REFS_END);
+    let rawRefItems: RawRefItem[] = [];
+    if (refsSplit.jsonText) {
+      try {
+        const parsedRefs = JSON.parse(refsSplit.jsonText);
+        rawRefItems = Array.isArray(parsedRefs?.items) ? parsedRefs.items.slice(0, 4) : [];
+      } catch { /* kein valides JSON - keine Referenzen */ }
+    }
+    const entityReferences = rawRefItems
+      .map((item) => resolveEntityReference(item))
+      .filter((ref): ref is EntityReference => Boolean(ref))
+      .slice(0, 4);
+
+    const { answer, actions } = splitMemoryEnvelope(refsSplit.rest);
     let added = 0;
     let resolved = 0;
     const validMemoryIds = new Set(activeMemories.map((memory) => memory.id));
@@ -377,6 +459,7 @@ export async function POST(request: Request) {
         scheduledDates: scheduleResponsibilityMatrix.length,
       },
       memory: { active: Math.max(0, activeMemories.length + added - resolved), used: relevantMemories.length, added, resolved, persistent: !memoryResult.error },
+      entityReferences,
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return NextResponse.json({ error: "Die KI-Anfrage hat das Zeitlimit überschritten. Bitte erneut versuchen." }, { status: 504 });

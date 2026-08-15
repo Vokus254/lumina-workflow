@@ -317,6 +317,17 @@
 .sparringDrawerControls{display:flex;align-items:center;gap:9px}
 .sparringClose{width:34px;height:34px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:22px;line-height:1;cursor:pointer}
 .sparringClose:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+.sparringMaximize{width:34px;height:34px;border:1px solid var(--lumina-line);border-radius:9px;background:#fff;color:var(--lumina-ink-2);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.sparringMaximize:hover{background:var(--lumina-primary-soft);color:var(--lumina-primary-dark)}
+/* V11: Maximieren vergroessert nur den Rahmen; das bestehende Grid von .sparringDrawer
+   (Header/Body als eigene Zeilen, Body wiederum Konversation/Prompts/Composer/Statuszeilen als
+   eigene Zeilen) sorgt bereits dafuer, dass Header, Chatverlauf und Eingabe alle sichtbar bleiben -
+   es wird nur der Konversationsbereich (minmax(0,1fr)) groesser. */
+.sparringDrawerBackdropMaximized{padding:14px;align-items:center}
+.sparringDrawerMaximized{width:97vw;height:94vh;max-height:94vh}
+.sparringRefs{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.sparringRefButton{font-size:10.5px;padding:6px 10px;border:1px solid var(--lumina-primary);border-radius:999px;background:var(--lumina-primary-soft);color:var(--lumina-primary-dark);cursor:pointer;font-weight:650}
+.sparringRefButton:hover{background:var(--lumina-primary);color:#fff}
 .sparringDrawerBody{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto auto auto;background:#fff}
 .sparringDrawer .sparringConversation{max-height:none;min-height:0;padding:18px 22px;gap:12px}
 .sparringDrawer .sparringBubble{max-width:76%;padding:11px 13px;border-radius:12px}
