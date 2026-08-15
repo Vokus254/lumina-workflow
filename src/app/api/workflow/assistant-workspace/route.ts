@@ -147,14 +147,25 @@ export async function POST(request: Request) {
         const { data } = await supabase.from("tasks").select("id,source_number,title,process_step_id,due_date,due_date_override,work_status,review_status,required_documents_text,expected_format,responsibility_role_id").eq("project_id", projectId).eq("source_number", taskNumber).maybeSingle();
         task = data;
       }
+      // V12-Nachschärfung (kritischer Fix): exakter Code hat IMMER Vorrang. specialToolParentCode
+      // darf ausschließlich angewendet werden, wenn der Code selbst ein bekannter
+      // Unterwerkzeug-Code ist (z. B. "3.17.1" -> Elternschritt "3.17"). Vorher wurde die Funktion
+      // auf JEDEN mehrteiligen Code angewendet und hat z. B. "1.7" fälschlich zu "1" und "3.17"
+      // fälschlich zu "3" verkürzt - "gehe zu Kachel 1.7" öffnete dadurch Phase 1 statt "nicht
+      // gefunden" zu melden, und "öffne 3.17" öffnete Phase 3 statt exakt 3.17.
       let step: any = null;
       if (task?.process_step_id) {
         const { data } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("id", task.process_step_id).maybeSingle();
         step = data;
       } else if (stepCodeCandidate) {
-        const parentToolCode = specialToolParentCode(stepCodeCandidate) || stepCodeCandidate;
-        const { data } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", parentToolCode).maybeSingle();
-        step = data;
+        const { data: exact } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", stepCodeCandidate).maybeSingle();
+        if (exact) {
+          step = exact;
+        } else if (SPECIAL_TOOL_SUBITEMS[stepCodeCandidate]) {
+          const parentToolCode = specialToolParentCode(stepCodeCandidate) || stepCodeCandidate;
+          const { data: parent } = await supabase.from("process_steps").select("id,code,name,parent_id").eq("project_id", projectId).eq("code", parentToolCode).maybeSingle();
+          step = parent;
+        }
       }
       const stepCode = step?.code || stepCodeCandidate;
 
@@ -179,7 +190,9 @@ export async function POST(request: Request) {
         task?.responsibility_role_id ? supabase.from("responsibility_roles").select("display_name,role_key,first_name,last_name,email").eq("id", task.responsibility_role_id).maybeSingle() : Promise.resolve({ data: null }),
       ]);
       const role: any = roleResult.data;
-      const toolCode = stepCode && SPECIAL_TOOL_SUBITEMS[stepCode] ? stepCode : (step?.code && SPECIAL_TOOL_STEP_CODES.has(step.code) ? step.code : null);
+      // Der ursprünglich angefragte Code hat Vorrang vor dem (evtl. nur zur Guidance-Auflösung
+      // verwendeten) Elternschritt - "3.17.1" muss als 3.17.1 zurückgegeben werden, nicht als 3.17.
+      const toolCode = SPECIAL_TOOL_SUBITEMS[stepCodeCandidate || ""] ? stepCodeCandidate : (step?.code && SPECIAL_TOOL_STEP_CODES.has(step.code) ? step.code : null);
 
       return NextResponse.json({
         card: {

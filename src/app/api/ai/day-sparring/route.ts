@@ -18,6 +18,32 @@ type EntityReference =
   | { kind: "tool"; code: string; label: string }
   | { kind: "step"; id: string; code: string; label: string };
 
+// V12-Nachschärfung: serverseitiges Sicherheitsnetz, falls die clientseitige Fokusabfrage aus
+// irgendeinem Grund nicht greift (z. B. veralteter Client) - eine Review-Frage ohne Fokus und
+// ohne ausdrücklich projektweite Formulierung darf niemals den vollen Projektkontext auslösen.
+const NEEDS_FOCUS_PATTERNS: RegExp[] = [
+  /reicht\s+(das|es|dies)/i,
+  /ist\s+(das|es|dies)\s+vollständig/i,
+  /was\s+fehlt(\s+noch)?\s*\??\s*$/i,
+  /genügt\s+(das|es|dies)/i,
+  /ausreichend\s+dokumentiert/i,
+];
+function needsExplicitFocus(text: string) {
+  return NEEDS_FOCUS_PATTERNS.some((pattern) => pattern.test(text));
+}
+const PROJECT_WIDE_PATTERNS: RegExp[] = [
+  /gesamten?\s+jahresabschluss/i,
+  /gesamtbeurteilung/i,
+  /gesamtes?\s+projekt/i,
+  /gesamtprojekt/i,
+  /größten?\s+risiken?.*projekt/i,
+  /projektweite/i,
+  /komplett(e|en)?\s+abschluss/i,
+];
+function isExplicitProjectRequest(text: string) {
+  return PROJECT_WIDE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 const MEMORY_TYPES = new Set<MemoryType>(["decision", "commitment", "open_point", "preference", "escalation", "result"]);
 const MEMORY_START = "<LUMINA_MEMORY>";
 const MEMORY_END = "</LUMINA_MEMORY>";
@@ -276,6 +302,20 @@ export async function POST(request: Request) {
   if (focusContextProvided && !compactMode) {
     return NextResponse.json({
       response: "Diese Maßnahme/Kachel konnte nicht eindeutig gefunden werden. Bitte über die Suche oder die Prozessnavigation im Workspace erneut auswählen.",
+      model: "none",
+      durationMs: Date.now() - startedAt,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, estimatedUsd: 0, estimatedEur: 0, exchangeRate: null },
+      context: { roles: [], situation: null, currentPage: null, milestones: 0, scheduledDates: 0 },
+      memory: { active: (memoryResult.data || []).length, used: 0, added: 0, resolved: 0, persistent: !memoryResult.error },
+      entityReferences: [],
+    });
+  }
+  // V12-Nachschärfung: Sicherheitsnetz gegen den ~43.000-Token-Vollprompt bei Review-Fragen ohne
+  // Fokus (z. B. "Reicht das für den WP?"). Primär fängt das bereits der Client ab (0 Tokens,
+  // kein Request); dieser serverseitige Guard greift zusätzlich, falls doch ein Request ankommt.
+  if (!compactMode && !isExplicitProjectRequest(prompt) && needsExplicitFocus(prompt)) {
+    return NextResponse.json({
+      response: "Dafür brauche ich eine konkrete Maßnahme. Bitte zuerst eine Aufgabe im Workspace öffnen und dann erneut fragen.",
       model: "none",
       durationMs: Date.now() - startedAt,
       usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, estimatedUsd: 0, estimatedEur: 0, exchangeRate: null },

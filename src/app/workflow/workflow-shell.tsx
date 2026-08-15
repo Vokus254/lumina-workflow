@@ -7,7 +7,7 @@ import { LegacyDashboard } from "./legacy-dashboard";
 import AdminHub from "../admin/admin-hub";
 import type { ProjectHubContext } from "./project-hub";
 import { isSpecialToolStep } from "./special-tools";
-import { WorkspaceCardView, type WorkspaceCard } from "./kai-workspace";
+import { WorkspaceCardView, type WorkspaceCard, type WorkspaceTaskRow } from "./kai-workspace";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -133,6 +133,34 @@ function routeIntent(text: string): RoutedIntent | null {
   const searchMatch = trimmed.match(NAV_SEARCH_PATTERN);
   if (searchMatch && searchMatch[1].trim().length >= 2) return { kind: "search", query: searchMatch[1].trim() };
   return null;
+}
+// V12-Nachschärfung: "Reicht das für den WP?" ohne offene Maßnahme lief bisher unverändert in den
+// vollen Projektkontext (~43.000 Token). Solche Fragen beziehen sich grammatikalisch auf ein "das"/
+// "es", das ohne eine konkret offene Maßnahme gar nicht existiert - deterministisch abfangen statt
+// zu raten, welche Aufgabe gemeint sein könnte.
+const NEEDS_FOCUS_PATTERNS: RegExp[] = [
+  /reicht\s+(das|es|dies)/i,
+  /ist\s+(das|es|dies)\s+vollständig/i,
+  /was\s+fehlt(\s+noch)?\s*\??\s*$/i,
+  /genügt\s+(das|es|dies)/i,
+  /ausreichend\s+dokumentiert/i,
+];
+function needsExplicitFocus(text: string) {
+  return NEEDS_FOCUS_PATTERNS.some((pattern) => pattern.test(text));
+}
+// Nur bei ausdrücklich projektweiten Fragen darf der große Projektkontext (Matrix + vollständiges
+// Navigationsverzeichnis) überhaupt geladen werden.
+const PROJECT_WIDE_PATTERNS: RegExp[] = [
+  /gesamten?\s+jahresabschluss/i,
+  /gesamtbeurteilung/i,
+  /gesamtes?\s+projekt/i,
+  /gesamtprojekt/i,
+  /größten?\s+risiken?.*projekt/i,
+  /projektweite/i,
+  /komplett(e|en)?\s+abschluss/i,
+];
+function isExplicitProjectRequest(text: string) {
+  return PROJECT_WIDE_PATTERNS.some((pattern) => pattern.test(text));
 }
 const MATRIX_TYPE_LABELS: Record<string, string> = { task: "Aufgabe", process_date: "Prozess-Termin", milestone: "Meilenstein" };
 function formatGermanDate(value?: string | null) {
@@ -720,6 +748,22 @@ export function WorkflowShell({
         if (intent.kind === "measure") { await loadWorkspaceAction("measure", { ref: intent.ref }); return; }
         if (intent.kind === "search") { await loadWorkspaceAction("search", { query: intent.query }); return; }
       }
+    }
+    // V12-Nachschärfung: eine Review-Frage ("Reicht das für den WP?") ohne offene Maßnahme und
+    // ohne ausdrücklich projektweite Formulierung führt NICHT mehr automatisch zum vollen
+    // Projektkontext, sondern zu einer deterministischen, 0-Token-Fokusauswahl aus den eigenen
+    // offenen Aufgaben (bereits clientseitig geladen, kein zusätzlicher Fetch nötig).
+    if (mode === "chat" && !workspaceFocus && needsExplicitFocus(text) && !isExplicitProjectRequest(text)) {
+      setSparringLoading(false);
+      const candidateTasks: WorkspaceTaskRow[] = personalOpenTasks.slice(0, 10).map((task) => ({ id: task.id, number: task.sourceNumber, title: task.title, processStepCode: task.processStepCode || null, dueDate: task.dueDate || null, workStatus: task.workStatus, reviewStatus: task.reviewStatus }));
+      const focusCard: WorkspaceCard = { type: "taskList", title: "Welche Aufgabe möchtest du prüfen lassen?", tasks: candidateTasks };
+      setSparringMessages((current) => {
+        const next = [...current, { role: "assistant" as const, assistant, content: "Dafür brauche ich eine konkrete Maßnahme. Welche Aufgabe möchtest du durch KAI/KIRA prüfen lassen?", card: focusCard }];
+        try { window.sessionStorage.setItem(sparringStorageKey, JSON.stringify(next.slice(-12))); } catch {}
+        return next;
+      });
+      setLastActionKind("lumina");
+      return;
     }
     try {
       const response = await fetch("/api/ai/day-sparring", {
