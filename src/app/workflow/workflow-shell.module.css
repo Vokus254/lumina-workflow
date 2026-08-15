@@ -388,6 +388,7 @@
    workspaceTabs/workspaceTabBody) bleibt bewusst großzügiger, da dort echter Inhalt steht. */
 .workspaceCard{display:grid;gap:5px;margin-top:2px}
 .workspaceCard b.workspaceCardTitle{font-size:12.5px;text-transform:none;letter-spacing:normal;font-weight:650;color:var(--lumina-ink)}
+.workspaceCardSubTitle{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;color:var(--lumina-ink-3);margin-top:2px}
 .workspaceEmptyNote{margin:0;color:var(--lumina-ink-3);font-size:10px}
 /* V12-Nachschärfung: 47 zusammengequetschte Zeilen waren unlesbar. Eigener Scrollbereich mit
    fester Höhe (~10 Zeilen sichtbar), Zeilenhöhe ~40px, Titel klar lesbar statt ellipsiert auf

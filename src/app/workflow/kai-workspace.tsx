@@ -22,7 +22,7 @@ export type WorkspaceMessage = { id: string; subject: string; body: string; stat
 export type WorkspaceSearchResult = { kind: "task" | "step" | "tool"; ref: string; label: string; status: string | null; dueDate: string | null };
 
 export type WorkspaceCard =
-  | { type: "start"; greeting: string; chips: WorkspaceChip[] }
+  | { type: "start"; greeting: string; nextOpenTasks: WorkspaceTaskRow[]; chips: WorkspaceChip[] }
   | { type: "taskList"; title: string; tasks: WorkspaceTaskRow[] }
   | { type: "processSteps"; parentCode: string | null; parentName: string | null; steps: WorkspaceStepRow[] }
   | { type: "measure" } & WorkspaceMeasure
@@ -51,7 +51,19 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
   onChip: (action: string) => void;
 }) {
-  if (card.type === "start") return <div className={styles.workspaceCard}><b className={styles.workspaceCardTitle}>{card.greeting}</b><div className={styles.workspaceChips}>{card.chips.map((chip) => <button key={chip.action} type="button" className={styles.workspaceChip} onClick={() => onChip(chip.action)}>{chip.label}{typeof chip.count === "number" ? <b>{chip.count}</b> : null}</button>)}</div></div>;
+  if (card.type === "start") return <div className={styles.workspaceCard}>
+    <b className={styles.workspaceCardTitle}>{card.greeting}</b>
+    {card.nextOpenTasks.length ? <>
+      <small className={styles.workspaceCardSubTitle}>Als Nächstes offen</small>
+      <div className={styles.workspaceTaskRows}>{card.nextOpenTasks.map((task) => <button key={task.id} type="button" className={styles.workspaceTaskRow} onClick={() => onOpenMeasure("task", task.number)}>
+        <span className={styles.workspaceTaskNumber}>{task.number || "–"}</span>
+        <span className={styles.workspaceTaskTitle}>{task.title}</span>
+        <span className={styles.workspaceTaskDue}>{formatGermanDate(task.dueDate)}</span>
+        <span className={styles.workspaceTaskChip}>{WORK_LABELS[task.workStatus] || task.workStatus}</span>
+      </button>)}</div>
+    </> : null}
+    <div className={styles.workspaceChips}>{card.chips.map((chip) => <button key={chip.action} type="button" className={styles.workspaceChip} onClick={() => onChip(chip.action)}>{chip.label}{typeof chip.count === "number" ? <b>{chip.count}</b> : null}</button>)}</div>
+  </div>;
 
   if (card.type === "notFound") return <div className={styles.workspaceCard}>
     <p className={styles.workspaceEmptyNote}>{card.message}</p>

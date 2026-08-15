@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan, resolveToolTitle } from "@/app/workflow/special-tools";
+import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -54,11 +55,16 @@ export async function POST(request: Request) {
 
   try {
     if (action === "start") {
-      // Nur Zaehlspalten der PERSOENLICH zugewiesenen Aufgaben - keine Volltexte, keine
-      // vollstaendige Projektaufgabenliste.
+      // V12: der KAI/KIRA-Start ist vollstaendig 0-Token - keine day-sparring-/LLM-Anfrage.
+      // "Als Naechstes offen" liest dieselbe RLS-gebundene, PERSOENLICH zugewiesene Aufgabenmenge
+      // wie "Mein Tag" (responsibility_role_id in roleIds) und sortiert sie ueber genau dieselbe
+      // Prioritaetslogik (sortMeinTagTasks, siehe src/lib/mein-tag-priority.ts) - keine eigene,
+      // abweichende Reihenfolge, keine KI-Interpretation/Risikoeinschaetzung, keine erfundene
+      // Priorisierung.
       const today = new Date().toISOString().slice(0, 10);
+      const weekEndIso = weekEndIsoFrom(today);
       const { data: taskRows } = roleIds.size
-        ? await supabase.from("tasks").select("id,work_status,review_status,due_date,due_date_override,required_documents_text").eq("project_id", projectId).in("responsibility_role_id", Array.from(roleIds))
+        ? await supabase.from("tasks").select("id,source_number,title,process_step_id,work_status,review_status,due_date,due_date_override,required_documents_text").eq("project_id", projectId).in("responsibility_role_id", Array.from(roleIds))
         : { data: [] as any[] };
       const rows = taskRows || [];
       const open = rows.filter((row: any) => row.work_status !== "completed");
@@ -66,6 +72,23 @@ export async function POST(request: Request) {
       const dueToday = open.filter((row: any) => (row.due_date_override || row.due_date) === today);
       const reviewIssues = open.filter((row: any) => row.review_status === "question" || row.review_status === "changes_required");
       const missingEvidence = open.filter((row: any) => String(row.required_documents_text || "").trim());
+
+      const stepIds = Array.from(new Set(open.map((row: any) => row.process_step_id).filter(Boolean)));
+      const { data: stepRows } = stepIds.length ? await supabase.from("process_steps").select("id,code").in("id", stepIds) : { data: [] as any[] };
+      const stepById = new Map((stepRows || []).map((step: any) => [String(step.id), step]));
+      const openForSort = open.map((row: any) => ({
+        id: row.id,
+        number: row.source_number || "",
+        title: row.title || "",
+        processStepCode: row.process_step_id ? stepById.get(String(row.process_step_id))?.code || null : null,
+        dueDate: row.due_date_override || row.due_date || null,
+        workStatus: row.work_status,
+        reviewStatus: row.review_status,
+        sourceNumber: row.source_number || "",
+      }));
+      const nextOpenTasks = sortMeinTagTasks(openForSort, today, weekEndIso).slice(0, 5).map((row) => ({
+        id: row.id, number: row.number, title: row.title, processStepCode: row.processStepCode, dueDate: row.dueDate, workStatus: row.workStatus, reviewStatus: row.reviewStatus,
+      }));
 
       const chips: { label: string; action: string; count?: number }[] = [
         { label: "Meine offenen Aufgaben", action: "myOpenTasks", count: open.length },
@@ -78,7 +101,7 @@ export async function POST(request: Request) {
       if (roleTier === "steuerung") chips.splice(1, 0, { label: "Meine überfälligen Aufgaben", action: "myOverdueTasks", count: overdue.length });
       if (roleTier === "bearbeiter") chips.push({ label: "Aufgaben ohne Nachweis", action: "missingEvidence", count: missingEvidence.length });
 
-      return NextResponse.json({ card: { type: "start", greeting: `Hallo ${firstName}, was machen wir heute?`, chips } });
+      return NextResponse.json({ card: { type: "start", greeting: `Hallo ${firstName}, was machen wir heute?`, nextOpenTasks, chips } });
     }
 
     if (action === "myOpenTasks" || action === "myOverdueTasks" || action === "dueToday" || action === "reviewIssues" || action === "missingEvidence") {
