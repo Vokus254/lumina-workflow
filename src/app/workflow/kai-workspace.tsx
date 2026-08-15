@@ -107,7 +107,9 @@ function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpen
 }) {
   const [tab, setTab] = useState<"overview" | "guidance" | "review">("overview");
   const { task, step, responsibility, guidance, tool } = measure;
-  const title = task ? `${task.number} · ${task.title}` : tool ? `${tool.code} · ${tool.title}` : step ? `${step.code} · ${step.name}` : "Maßnahme";
+  // Defensiv: falls "title" je null/leer ankommt (z. B. unbekannter Werkzeugcode), niemals
+  // wörtlich "· null" rendern.
+  const title = task ? `${task.number} · ${task.title}` : tool ? `${tool.code}${tool.title ? ` · ${tool.title}` : ""}` : step ? `${step.code} · ${step.name}` : "Maßnahme";
   return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>{title}</b>
     <div className={styles.workspaceMeasureMeta}>

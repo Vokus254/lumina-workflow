@@ -580,6 +580,10 @@ export function WorkflowShell({
   // (strukturierte, RLS-gebundene Daten) - niemals gegen day-sparring/route.ts, also kein
   // LLM-Aufruf, keine Tokens, kein Zeitlimit-Risiko.
   async function loadWorkspaceAction(action: string, params: Record<string, any> = {}) {
+    // Bugfix: ein schneller Doppelklick (z. B. auf eine Suchtrefferzeile) konnte zwei parallele
+    // Aufrufe auslösen und dieselbe Karte doppelt an den Verlauf anhängen. Solange bereits eine
+    // Workspace-Aktion läuft, wird ein weiterer Aufruf ignoriert statt parallel zu laden.
+    if (workspaceLoading) return;
     setWorkspaceLoading(true);
     setSparringError("");
     try {
@@ -625,7 +629,11 @@ export function WorkflowShell({
   }
   function handleLoadDocuments(taskId: string) { void loadWorkspaceAction("documents", { taskId }); }
   function handleLoadCommunication(taskId: string) { void loadWorkspaceAction("communication", { taskId }); }
+  // Bugfix: fehlte hier (anders als im gleichwertigen openEntityReference weiter unten) - ohne
+  // setSparringOpen(false) öffnete "In LUMINA öffnen" die Aufgabe zwar korrekt im State, der
+  // Drawer blieb aber sichtbar darüber liegen, sodass es wirkte, als wäre nichts passiert.
   function handleOpenEntityFromWorkspace(kind: "task" | "tool", idOrCode: string) {
+    setSparringOpen(false);
     if (kind === "task") openTask(idOrCode); else openTool(idOrCode);
   }
   function handleWorkspaceBreadcrumbClick(index: number) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan } from "@/app/workflow/special-tools";
+import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan, resolveToolTitle } from "@/app/workflow/special-tools";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -18,9 +18,6 @@ function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" 
   return "bearbeiter";
 }
 
-function toolLabel(code: string) {
-  return SPECIAL_TOOL_SUBITEMS[code] || null;
-}
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -191,6 +188,7 @@ export async function POST(request: Request) {
       // Der ursprünglich angefragte Code hat Vorrang vor dem (evtl. nur zur Guidance-Auflösung
       // verwendeten) Elternschritt - "3.17.1" muss als 3.17.1 zurückgegeben werden, nicht als 3.17.
       const toolCode = SPECIAL_TOOL_SUBITEMS[stepCodeCandidate || ""] ? stepCodeCandidate : (step?.code && SPECIAL_TOOL_STEP_CODES.has(step.code) ? step.code : null);
+      const toolTitle = resolveToolTitle(toolCode, step?.name);
 
       return NextResponse.json({
         card: {
@@ -199,7 +197,7 @@ export async function POST(request: Request) {
           step: step ? { id: step.id, code: step.code, name: step.name } : null,
           responsibility: role ? { role: role.display_name || role.role_key, person: [role.first_name, role.last_name].filter(Boolean).join(" ") || null, email: role.email || null } : null,
           guidance: guidanceResult.data || null,
-          tool: toolCode ? { code: toolCode, title: toolLabel(toolCode) } : null,
+          tool: toolCode ? { code: toolCode, title: toolTitle } : null,
         },
       });
     }

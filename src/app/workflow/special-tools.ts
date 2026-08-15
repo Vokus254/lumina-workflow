@@ -47,3 +47,12 @@ export function resolveStepLookupPlan(ref: string): { exactCode: string; parentF
   const parent = SPECIAL_TOOL_SUBITEMS[ref] ? specialToolParentCode(ref) : null;
   return { exactCode: ref, parentFallbackCode: parent };
 }
+
+// V12-Bugfix: SPECIAL_TOOL_SUBITEMS kennt nur Titel für Unterwerkzeuge (z. B. "3.17.1"), nicht für
+// den übergeordneten Werkzeug-Code selbst ("3.17"). Ohne Fallback lieferte "öffne 3.17" tool.title
+// = null, was im Workspace wörtlich als "3.17 · null" gerendert wurde. Für Top-Level-Codes auf den
+// echten Namen des Prozessschritts zurückfallen, statt null durchzureichen.
+export function resolveToolTitle(toolCode: string | null | undefined, stepName?: string | null): string | null {
+  if (!toolCode) return null;
+  return SPECIAL_TOOL_SUBITEMS[toolCode] || stepName || null;
+}
