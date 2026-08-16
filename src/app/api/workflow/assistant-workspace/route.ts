@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan, resolveToolTitle } from "@/app/workflow/special-tools";
 import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 import { nextOnboardingStatus, type OnboardingStatus } from "@/lib/onboarding-status";
+import { deriveStructuralDependencies } from "@/lib/task-dependency";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -12,7 +13,7 @@ import { nextOnboardingStatus, type OnboardingStatus } from "@/lib/onboarding-st
 // "start" liefert nur die Chip-Definitionen; ein Chip-Klick ruft dieselbe Action erneut mit der
 // konkreten Teilmenge auf (myOpenTasks/myOverdueTasks/dueToday/reviewIssues/missingEvidence) -
 // fachlich weiterhin "start"-Familie, technisch eigene Actions fuer schlankes, gezieltes Laden.
-type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance";
+type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview";
 
 function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" | "bearbeiter" {
   if (role === "owner" || role === "manager") return "steuerung";
@@ -300,6 +301,66 @@ export async function POST(request: Request) {
         ...(toolMatches.map(([code, title]) => ({ kind: "tool", ref: code, label: `${code} · ${title}`, status: null, dueDate: null }))),
       ].slice(0, 25);
       return NextResponse.json({ card: { type: "search", query, results } });
+    }
+
+    if (action === "bearbeiterOverview") {
+      // Abschluss-Chat V1 (Briefing "Shell-Umstellung"): Sidebar-Datenquelle fuer die Bearbeiter-
+      // Chat-Shell. Ausschliesslich echte, RLS-gebundene Daten - keine Mockup-Zahlen, keine
+      // erfundenen Personen. Abhaengigkeits-Chips sind bewusst strukturell/vorlaeufig (siehe
+      // src/lib/task-dependency.ts) statt der im Mockup gezeigten semantischen Cross-Task-Verweise,
+      // fuer die es noch keine echte Datenquelle gibt (V15-Architekturentscheidung).
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: taskRows } = roleIds.size
+        ? await supabase.from("tasks").select("id,source_number,title,process_step_id,work_status,review_status,due_date,due_date_override").eq("project_id", projectId).in("responsibility_role_id", Array.from(roleIds))
+        : { data: [] as any[] };
+      const rows = taskRows || [];
+      const stepIds = Array.from(new Set(rows.map((row: any) => row.process_step_id).filter(Boolean)));
+      const { data: stepRows } = stepIds.length ? await supabase.from("process_steps").select("id,code,name,parent_id").in("id", stepIds) : { data: [] as any[] };
+      const stepById = new Map((stepRows || []).map((step: any) => [String(step.id), step]));
+
+      const depInput = rows.map((row: any) => {
+        const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
+        return { id: row.id, parentStepId: step?.parent_id ? String(step.parent_id) : row.process_step_id ? String(row.process_step_id) : null, sortKey: row.source_number || row.id, workStatus: row.work_status };
+      });
+      const dependencies = deriveStructuralDependencies(depInput);
+
+      const phaseTotals = new Map<string, { code: string; count: number }>();
+      for (const row of rows) {
+        const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
+        const phaseCode = (step?.code || "").split(".")[0] || "?";
+        const entry = phaseTotals.get(phaseCode) || { code: phaseCode, count: 0 };
+        entry.count += 1;
+        phaseTotals.set(phaseCode, entry);
+      }
+      const phases = Array.from(phaseTotals.values()).sort((a, b) => a.code.localeCompare(b.code, "de", { numeric: true }));
+
+      const done = rows.filter((row: any) => row.work_status === "completed");
+      const open = rows.filter((row: any) => row.work_status !== "completed");
+      const overdue = open.filter((row: any) => (row.due_date_override || row.due_date) && (row.due_date_override || row.due_date) < today);
+      const blocking = Array.from(dependencies.values()).filter((dep) => dep.kind === "blocks").length;
+      const waiting = Array.from(dependencies.values()).filter((dep) => dep.kind === "waits").length;
+
+      const currentTasks = sortMeinTagTasks(
+        open.map((row: any) => {
+          const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
+          return { id: row.id, number: row.source_number || "", title: row.title || "", processStepCode: step?.code || null, dueDate: row.due_date_override || row.due_date || null, workStatus: row.work_status, reviewStatus: row.review_status, sourceNumber: row.source_number || "" };
+        }),
+        today,
+        weekEndIsoFrom(today),
+      ).slice(0, 8).map((row: any) => ({ id: row.id, number: row.number, title: row.title, processStepCode: row.processStepCode, dueDate: row.dueDate, workStatus: row.workStatus, reviewStatus: row.reviewStatus, dependency: dependencies.get(row.id) || { kind: "free", label: "keine weitere Aufgabe in diesem Prozessschritt" } }));
+
+      const roleRow = roleIds.size ? await supabase.from("responsibility_roles").select("display_name,role_key").in("id", Array.from(roleIds)).limit(1).maybeSingle() : { data: null };
+      const roleLabel = roleRow.data?.display_name || roleRow.data?.role_key || (securityRole ? SECURITY_ROLE_LABELS[securityRole] || null : null);
+
+      return NextResponse.json({
+        card: {
+          type: "bearbeiterOverview",
+          person: { name: displayName, role: roleLabel, email: claims.email || null },
+          phases,
+          kpis: { done: done.length, total: rows.length, overdue: overdue.length, blocking, waiting },
+          currentTasks,
+        },
+      });
     }
 
     if (action === "colleagues") {

@@ -42,10 +42,15 @@ describe("V14 Aufgaben-Mini-App: Statusaktionen nur per explizitem Klick", () =>
     expect(WORKSPACE_SOURCE).toMatch(/onClick=\{\(\) => onSetTaskStatus\(/);
   });
 
-  it("handleSetTaskStatus im Shell ruft die bereits bestehende, autorisierende RPC auf - keine neue Berechtigungslogik", () => {
-    expect(SHELL_SOURCE).toContain('.rpc("update_task_state"');
-    const rpcSites = SHELL_SOURCE.match(/\.rpc\("update_task_state"/g) || [];
+  it("handleSetTaskStatus im Shell ruft die geteilte, autorisierende RPC-Hilfsfunktion auf - keine neue/doppelte Berechtigungslogik", () => {
+    expect(SHELL_SOURCE).toContain("submitTaskStatus(supabase, taskId, workStatus, reviewStatus)");
+    // update_task_state selbst wird nur noch an genau einer Stelle im ganzen Projekt aufgerufen:
+    // src/lib/task-status.ts. workflow-shell.tsx und die Bearbeiter-Chat-Shell teilen sich diese
+    // eine Implementierung statt sie zu duplizieren.
+    const taskStatusSource = readFileSync(new URL("../../lib/task-status.ts", import.meta.url), "utf8");
+    const rpcSites = taskStatusSource.match(/\.rpc\("update_task_state"/g) || [];
     expect(rpcSites.length).toBe(1);
+    expect(SHELL_SOURCE).not.toContain('.rpc("update_task_state"');
   });
 });
 
