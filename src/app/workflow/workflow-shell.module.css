@@ -55,8 +55,10 @@
 @media(max-width:900px){.searchWrap{display:none}.topbar{gap:9px}.contextSelectors{flex:1}.selector{min-width:0;flex:1}.rail{overflow-x:auto}.station{min-width:145px}.nav{width:64px}.navGroup,.navItem span:not(.navIcon):not(.navCount),.navFooter{display:none}.navItem{justify-content:center}.navCount{position:absolute;margin:0;transform:translate(13px,-12px)}.content{margin-left:64px;padding:22px 18px 80px}.contentProcess{padding:0}.taskRow{grid-template-columns:58px minmax(180px,1fr) auto}.taskRow .chip:nth-of-type(2),.taskRow .due{display:none}.documentList button{grid-template-columns:30px 1fr}.documentList button>span:nth-child(3),.documentList time,.messageList button>span:nth-child(2),.messageList time{display:none}.messageList button{grid-template-columns:1fr}}
 @media(max-width:680px){.contextSelectors .selector:first-child{display:none}.roleBadge{display:none}.topbar{padding:0 10px}.brand strong{display:none}.pageHead{align-items:flex-start;flex-direction:column}.kpis{grid-template-columns:1fr 1fr}.taskRow{grid-template-columns:52px 1fr}.taskRow .chip{display:none}.previewSwitch{max-width:calc(100vw - 20px);overflow-x:auto;left:10px;right:10px;transform:none}.previewSwitch>span{display:none}}
 
-/* P1A preview skins: one component set, token-only appearance variants. */
-.shell[data-skin="blue"]{
+/* Abschluss-Chat V1: EIN gemeinsamer 5-Skin-Token-Satz (Lumina/Claude/ChatGPT/Grok/SAP), geteilt
+   zwischen der klassischen Shell und der Abschluss-Chat-Bearbeiter-Shell (dort dieselben 5 Werte
+   in abschluss-chat.module.css) - ein Skin-State, kein "aussen SAP / innen Claude". */
+.shell[data-skin="sap"]{
   --lumina-ink:#1D2D3E;
   --lumina-ink-2:#475E75;
   --lumina-ink-3:#6A7F93;
@@ -72,7 +74,7 @@
   --lumina-radius:6px;
   --lumina-shadow:0 1px 2px rgba(29,45,62,.08),0 3px 10px rgba(29,45,62,.06);
 }
-.shell[data-skin="light"]{
+.shell[data-skin="chatgpt"]{
   --lumina-ink:#202123;
   --lumina-ink-2:#565869;
   --lumina-ink-3:#8E8EA0;
@@ -88,13 +90,13 @@
   --lumina-radius:10px;
   --lumina-shadow:0 1px 2px rgba(0,0,0,.04);
 }
-.shell[data-skin="light"] .nav{border-right:1px solid var(--lumina-line)}
-.shell[data-skin="light"] .navGroup,.shell[data-skin="light"] .navFooter{color:#8E8EA0}
-.shell[data-skin="light"] .navFooter b{color:#343541}
-.shell[data-skin="light"] .navItem:hover{background:#F2F2F3;color:#202123}
-.shell[data-skin="light"] .navItemActive{color:#202123}
-.shell[data-skin="light"] .navItemActive .navIcon{color:var(--lumina-primary)}
-.shell[data-skin="yellow"]{
+.shell[data-skin="chatgpt"] .nav{border-right:1px solid var(--lumina-line)}
+.shell[data-skin="chatgpt"] .navGroup,.shell[data-skin="chatgpt"] .navFooter{color:#8E8EA0}
+.shell[data-skin="chatgpt"] .navFooter b{color:#343541}
+.shell[data-skin="chatgpt"] .navItem:hover{background:#F2F2F3;color:#202123}
+.shell[data-skin="chatgpt"] .navItemActive{color:#202123}
+.shell[data-skin="chatgpt"] .navItemActive .navIcon{color:var(--lumina-primary)}
+.shell[data-skin="claude"]{
   --lumina-ink:#2D2926;
   --lumina-ink-2:#655D57;
   --lumina-ink-3:#8A817A;
@@ -110,17 +112,37 @@
   --lumina-radius:14px;
   --lumina-shadow:0 1px 2px rgba(74,58,46,.05),0 5px 18px rgba(74,58,46,.06);
 }
-.shell[data-skin="yellow"] .nav{border-right:1px solid var(--lumina-line)}
-.shell[data-skin="yellow"] .navGroup,.shell[data-skin="yellow"] .navFooter{color:#92877E}
-.shell[data-skin="yellow"] .navFooter b{color:#4F4742}
-.shell[data-skin="yellow"] .navItem:hover{background:#E9E1D5;color:#2D2926}
-.shell[data-skin="yellow"] .navItemActive{color:#2D2926}
-.shell[data-skin="yellow"] .navItemActive .navIcon{color:var(--lumina-primary)}
+.shell[data-skin="claude"] .nav{border-right:1px solid var(--lumina-line)}
+.shell[data-skin="claude"] .navGroup,.shell[data-skin="claude"] .navFooter{color:#92877E}
+.shell[data-skin="claude"] .navFooter b{color:#4F4742}
+.shell[data-skin="claude"] .navItem:hover{background:#E9E1D5;color:#2D2926}
+.shell[data-skin="claude"] .navItemActive{color:#2D2926}
+.shell[data-skin="claude"] .navItemActive .navIcon{color:var(--lumina-primary)}
+.shell[data-skin="grok"]{
+  --lumina-ink:#F0F2F4;
+  --lumina-ink-2:#C7CDD3;
+  --lumina-ink-3:#8B929B;
+  --lumina-bg:#0B0C0E;
+  --lumina-card:#141619;
+  --lumina-line:#2A2E34;
+  --lumina-primary:#4B9FFF;
+  --lumina-primary-dark:#2E7FE0;
+  --lumina-primary-soft:#12283F;
+  --lumina-sidebar:#101215;
+  --lumina-sidebar-text:#8B929B;
+  --lumina-sidebar-active:#1B1E22;
+  --lumina-radius:12px;
+  --lumina-shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+}
+.shell[data-skin="grok"] .topbar{background:rgba(11,12,14,.98);border-bottom-color:var(--lumina-line)}
+.shell[data-skin="grok"] .card,.shell[data-skin="grok"] .kpi,.shell[data-skin="grok"] .searchWrap,.shell[data-skin="grok"] .searchResults,.shell[data-skin="grok"] .selector,.shell[data-skin="grok"] .taskRow,.shell[data-skin="grok"] .table,.shell[data-skin="grok"] .avatar{background:var(--lumina-card);color:var(--lumina-ink)}
+.shell[data-skin="grok"] .nav{border-right:1px solid var(--lumina-line)}
 .skinDot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;border:1px solid rgba(255,255,255,.45);vertical-align:-1px}
 .skinDot[data-skin-dot="lumina"]{background:#0E8C6D}
-.skinDot[data-skin-dot="blue"]{background:#0A6ED1}
-.skinDot[data-skin-dot="light"]{background:#E5E5E5}
-.skinDot[data-skin-dot="yellow"]{background:#C15F3C}
+.skinDot[data-skin-dot="claude"]{background:#C15F3C}
+.skinDot[data-skin-dot="chatgpt"]{background:#10A37F}
+.skinDot[data-skin-dot="grok"]{background:#4B9FFF}
+.skinDot[data-skin-dot="sap"]{background:#0A6ED1}
 
 /* ============================================================
    P1A FIX3 — Prozesskacheln statt Stationsreiter
@@ -356,6 +378,20 @@
 .sparringDrawerTop small b{color:var(--lumina-primary-dark)}
 @media(max-width:900px){.sparringGlobalButton{right:16px;bottom:16px;min-width:auto}.sparringGlobalButton b{display:none}.sparringProgressBox{max-width:94%}.sparringProgressHead{align-items:flex-start;flex-direction:column;gap:3px}.sparringProgressHead span{white-space:normal}}
 .sparringDrawerBackdrop{z-index:90}
+/* V14: Conversational Workspace - dasselbe Sparring-Panel wie das bisherige Modal-Drawer, aber
+   angedockt statt als Overlay: keine Backdrop-Abdunklung, keine feste Groesse, fuellt den
+   Content-Bereich (kein linkes Desktop-Menue mehr, siehe dockedConversational in workflow-shell.tsx). */
+.sparringDocked{position:fixed;top:calc(var(--topbar-h) + var(--rail-h));left:0;right:0;bottom:0;z-index:50;display:flex;justify-content:center;background:var(--lumina-bg);padding:18px 28px 22px}
+.sparringDockedPanel{width:min(1180px,96vw);height:100%;display:grid;grid-template-rows:auto auto 1fr;border:1px solid var(--lumina-line);border-radius:12px;background:var(--lumina-card,#fff);box-shadow:var(--lumina-shadow);overflow:hidden}
+.sparringDesktopButton{border:1px solid var(--lumina-line);background:#fff;color:var(--lumina-ink);border-radius:8px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer}
+.sparringDesktopButton:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark)}
+@media(max-width:680px){.sparringDocked{padding:8px}.sparringDockedPanel{border-radius:8px}}
+/* "SAP"-Skin (data-skin="blue"): dichter/tabellarischer, wie gefordert - nur Abstaende/Radius im
+   angedockten Panel, keine neue Farb-/Funktionslogik (die Farbtoken kommen weiter aus dem
+   bestehenden [data-skin="blue"]-Block oben). */
+.shell[data-skin="blue"] .sparringDockedPanel{border-radius:8px}
+.shell[data-skin="blue"] .sparringDockedPanel .sparringBubble{padding:8px 11px}
+.shell[data-skin="blue"] .sparringDockedPanel .workspaceTaskRow{padding:6px 9px;min-height:32px}
 
 /* KAI/KIRA V8 – sichtbarer Status des dauerhaften Arbeitsgedächtnisses */
 .sparringMemoryBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:7px 20px;border-top:1px solid var(--lumina-line);background:color-mix(in srgb,var(--lumina-primary-soft) 38%,#fff);font-size:9.75px;color:var(--lumina-ink-3)}
@@ -390,6 +426,11 @@
 .workspaceCard b.workspaceCardTitle{font-size:12.5px;text-transform:none;letter-spacing:normal;font-weight:650;color:var(--lumina-ink)}
 .workspaceCardSubTitle{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;color:var(--lumina-ink-3);margin-top:2px}
 .workspaceEmptyNote{margin:0;color:var(--lumina-ink-3);font-size:10px}
+/* V13: First-Login-Onboarding-Karte - bewusst dieselbe schlanke Kartenoptik wie die uebrigen
+   Workspace-Karten, keine eigene Dashboard-Aesthetik. */
+.workspaceOnboardingIntro{margin:0;font-size:11px;line-height:1.45;color:var(--lumina-ink-2)}
+.workspaceOnboardingSignOff{color:var(--lumina-ink-3);font-size:10px;margin-top:1px}
+.workspaceOnboardingValue{margin:0;font-size:11px;color:var(--lumina-ink-2)}
 /* V12-Nachschärfung: 47 zusammengequetschte Zeilen waren unlesbar. Eigener Scrollbereich mit
    fester Höhe (~10 Zeilen sichtbar), Zeilenhöhe ~40px, Titel klar lesbar statt ellipsiert auf
    Pixelbreite gequetscht. */

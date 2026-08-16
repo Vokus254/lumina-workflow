@@ -27,7 +27,7 @@ export function LegacyDashboard({
   onTaskSaved?: (update: { taskId: string; workStatus?: string; reviewStatus?: string; dueDate?: string | null; hasDocument?: boolean }) => void;
   onTaskClose?: () => void;
   onTabChange?: (tab: string) => void;
-  skin?: "lumina" | "blue" | "light" | "yellow";
+  skin?: "lumina" | "claude" | "chatgpt" | "grok" | "sap";
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const router = useRouter();
@@ -131,9 +131,10 @@ export function LegacyDashboard({
     if (!embedded) return;
     const palettes = {
       lumina: { bg:"#F4F6F4", card:"#FFFFFF", line:"#E2E7E3", ink:"#10201B", ink2:"#3C4A45", ink3:"#77837E", primary:"#0E8C6D", primaryDark:"#0A6B53", primarySoft:"#E3F2EC", radius:"10px" },
-      blue: { bg:"#F5F6F7", card:"#FFFFFF", line:"#D5DADD", ink:"#1D2D3E", ink2:"#475E75", ink3:"#6A7F93", primary:"#0A6ED1", primaryDark:"#075CAF", primarySoft:"#EAF3FC", radius:"6px" },
-      light: { bg:"#F7F7F8", card:"#FFFFFF", line:"#E5E5E5", ink:"#202123", ink2:"#565869", ink3:"#8E8EA0", primary:"#10A37F", primaryDark:"#0B7F63", primarySoft:"#E8F7F2", radius:"10px" },
-      yellow: { bg:"#FAF9F5", card:"#FFFDF8", line:"#E8E1D7", ink:"#2D2926", ink2:"#655D57", ink3:"#8A817A", primary:"#C15F3C", primaryDark:"#9D472B", primarySoft:"#F7E9E2", radius:"14px" },
+      sap: { bg:"#F5F6F7", card:"#FFFFFF", line:"#D5DADD", ink:"#1D2D3E", ink2:"#475E75", ink3:"#6A7F93", primary:"#0A6ED1", primaryDark:"#075CAF", primarySoft:"#EAF3FC", radius:"6px" },
+      chatgpt: { bg:"#F7F7F8", card:"#FFFFFF", line:"#E5E5E5", ink:"#202123", ink2:"#565869", ink3:"#8E8EA0", primary:"#10A37F", primaryDark:"#0B7F63", primarySoft:"#E8F7F2", radius:"10px" },
+      claude: { bg:"#FAF9F5", card:"#FFFDF8", line:"#E8E1D7", ink:"#2D2926", ink2:"#655D57", ink3:"#8A817A", primary:"#C15F3C", primaryDark:"#9D472B", primarySoft:"#F7E9E2", radius:"14px" },
+      grok: { bg:"#0B0C0E", card:"#141619", line:"#2A2E34", ink:"#F0F2F4", ink2:"#C7CDD3", ink3:"#8B929B", primary:"#4B9FFF", primaryDark:"#2E7FE0", primarySoft:"#12283F", radius:"12px" },
     } as const;
     const apply = () => {
       try {

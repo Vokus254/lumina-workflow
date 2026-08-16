@@ -20,14 +20,25 @@ export type WorkspaceMeasure = {
 export type WorkspaceDocument = { id: string; displayName: string; status: string | null; createdAt: string | null };
 export type WorkspaceMessage = { id: string; subject: string; body: string; status: string | null; type: string; createdAt: string | null };
 export type WorkspaceSearchResult = { kind: "task" | "step" | "tool"; ref: string; label: string; status: string | null; dueDate: string | null };
+export type WorkspaceColleague = { role: string; person: string | null };
 
 export type WorkspaceCard =
   | { type: "start"; greeting: string; nextOpenTasks: WorkspaceTaskRow[]; chips: WorkspaceChip[] }
+  | {
+      type: "onboarding";
+      greeting: string;
+      role: string | null;
+      tasks: { open: number; overdue: number; dueToday: number; upcoming: number };
+      nextTask: WorkspaceTaskRow | null;
+      nextMilestone: { label: string; date: string | null } | null;
+      colleagues: WorkspaceColleague[];
+    }
   | { type: "taskList"; title: string; tasks: WorkspaceTaskRow[] }
   | { type: "processSteps"; parentCode: string | null; parentName: string | null; steps: WorkspaceStepRow[] }
   | { type: "measure" } & WorkspaceMeasure
   | { type: "documents"; taskId: string; documents: WorkspaceDocument[] }
   | { type: "communication"; taskId: string; messages: WorkspaceMessage[] }
+  | { type: "colleagues"; colleagues: WorkspaceColleague[] }
   | { type: "search"; query: string; results: WorkspaceSearchResult[] }
   | { type: "denied"; reason: string }
   | { type: "notFound"; message: string; suggestions: WorkspaceSearchResult[] };
@@ -42,7 +53,7 @@ function formatGermanDate(value?: string | null) {
 const WORK_LABELS: Record<string, string> = { open: "Offen", in_progress: "In Bearbeitung", submitted: "Eingereicht", completed: "Abgeschlossen" };
 const REVIEW_LABELS: Record<string, string> = { unreviewed: "Ungeprüft", changes_required: "Nachbesserung", question: "Rückfrage", accepted: "Akzeptiert" };
 
-export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocuments, onLoadCommunication, onOpenEntity, onChip }: {
+export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocuments, onLoadCommunication, onOpenEntity, onChip, onSetTaskStatus }: {
   card: WorkspaceCard;
   onOpenMeasure: (kind: "task" | "step", ref: string) => void;
   onOpenStep: (stepCode: string) => void;
@@ -50,6 +61,7 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   onLoadCommunication: (taskId: string) => void;
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
   onChip: (action: string) => void;
+  onSetTaskStatus?: (taskId: string, workStatus: string, reviewStatus: string) => void;
 }) {
   if (card.type === "start") return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>{card.greeting}</b>
@@ -63,6 +75,51 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
       </button>)}</div>
     </> : null}
     <div className={styles.workspaceChips}>{card.chips.map((chip) => <button key={chip.action} type="button" className={styles.workspaceChip} onClick={() => onChip(chip.action)}>{chip.label}{typeof chip.count === "number" ? <b>{chip.count}</b> : null}</button>)}</div>
+  </div>;
+
+  if (card.type === "onboarding") return <div className={styles.workspaceCard}>
+    <b className={styles.workspaceCardTitle}>{card.greeting}</b>
+    <p className={styles.workspaceOnboardingIntro}>Ich erkläre dir kurz, welche Aufgaben auf dich entfallen und wie der Zeitplan aussieht.</p>
+    <p className={styles.workspaceOnboardingIntro}>Fragen an andere LUMINA-Teilnehmer kannst du über Kommunikation stellen. Mich erreichst du jederzeit direkt hier im Chat.</p>
+    <p className={styles.workspaceOnboardingIntro}>Wenn du eine zusätzliche fachliche Prüfung oder einen zweiten Blick möchtest, holen wir KIRA dazu.</p>
+    <p className={styles.workspaceOnboardingIntro}>Ansonsten: viel Erfolg beim Abschluss-Erstellen.</p>
+    <small className={styles.workspaceOnboardingSignOff}>Liebe Grüße, dein KAI</small>
+
+    <small className={styles.workspaceCardSubTitle}>Deine Rolle</small>
+    <p className={styles.workspaceOnboardingValue}>{card.role || "In LUMINA noch keine Rolle hinterlegt."}</p>
+
+    <small className={styles.workspaceCardSubTitle}>Deine Aufgaben</small>
+    <div className={styles.workspaceChips}>
+      <span className={styles.workspaceChip}>Offen<b>{card.tasks.open}</b></span>
+      <span className={styles.workspaceChip}>Überfällig<b>{card.tasks.overdue}</b></span>
+      <span className={styles.workspaceChip}>Heute fällig<b>{card.tasks.dueToday}</b></span>
+      <span className={styles.workspaceChip}>Demnächst<b>{card.tasks.upcoming}</b></span>
+    </div>
+
+    <small className={styles.workspaceCardSubTitle}>Dein Zeitplan</small>
+    <p className={styles.workspaceOnboardingValue}>
+      {card.nextTask ? <>Nächster Termin: <b>{card.nextTask.title}</b> · {formatGermanDate(card.nextTask.dueDate)}</> : "Aktuell kein persönlicher Termin fällig."}
+    </p>
+    <p className={styles.workspaceOnboardingValue}>
+      {card.nextMilestone ? <>Nächster Meilenstein: <b>{card.nextMilestone.label}</b> · {formatGermanDate(card.nextMilestone.date)}</> : "Kein weiterer Projektmeilenstein hinterlegt."}
+    </p>
+
+    <small className={styles.workspaceCardSubTitle}>Wer arbeitet mit dir?</small>
+    {card.colleagues.length ? <ul className={styles.workspaceList}>{card.colleagues.slice(0, 4).map((colleague, index) => <li key={`${colleague.role}-${index}`}><b>{colleague.role}</b>{colleague.person ? <small>{colleague.person}</small> : null}</li>)}</ul> : <p className={styles.workspaceEmptyNote}>Für dieses Projekt sind noch keine weiteren Zuständigkeiten hinterlegt.</p>}
+
+    <div className={styles.workspaceChips}>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("myOpenTasks")}>Meine Aufgaben ansehen</button>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("schedule")}>Zeitplan ansehen</button>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("colleagues")}>Wer arbeitet mit mir?</button>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("openCommunication")}>Kommunikation öffnen</button>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("dismissOnboarding")}>KAI etwas fragen</button>
+      <button type="button" className={styles.workspaceChip} onClick={() => onChip("switchKira")}>KIRA um zweiten Blick bitten</button>
+    </div>
+  </div>;
+
+  if (card.type === "colleagues") return <div className={styles.workspaceCard}>
+    <b className={styles.workspaceCardTitle}>Wer arbeitet mit dir?</b>
+    {card.colleagues.length ? <ul className={styles.workspaceList}>{card.colleagues.map((colleague, index) => <li key={`${colleague.role}-${index}`}><b>{colleague.role}</b>{colleague.person ? <small>{colleague.person}</small> : null}</li>)}</ul> : <p className={styles.workspaceEmptyNote}>Für dieses Projekt sind noch keine weiteren Zuständigkeiten hinterlegt.</p>}
   </div>;
 
   if (card.type === "notFound") return <div className={styles.workspaceCard}>
@@ -89,7 +146,7 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
     </button>)}</div>
   </div>;
 
-  if (card.type === "measure") return <MeasureCardView measure={card} onLoadDocuments={onLoadDocuments} onLoadCommunication={onLoadCommunication} onOpenEntity={onOpenEntity}/>;
+  if (card.type === "measure") return <MeasureCardView measure={card} onLoadDocuments={onLoadDocuments} onLoadCommunication={onLoadCommunication} onOpenEntity={onOpenEntity} onSetTaskStatus={onSetTaskStatus}/>;
 
   if (card.type === "documents") return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>Dokumente</b>
@@ -111,11 +168,22 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   return <div className={styles.workspaceCard}><p className={styles.workspaceEmptyNote}>{card.reason}</p></div>;
 }
 
-function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpenEntity }: {
+// V14: die Aufgabe als erste vollstaendige Mini-App im Conversational Workspace. Zeigt echte
+// LUMINA-Daten (kein LLM) und bietet - wo bereits eine autorisierte, geprueft bestehende RPC
+// existiert (update_task_state, siehe assistant-workspace/route.ts-Nachbarschaft) - echte
+// Statusaktionen direkt hier statt nur im Legacy-Desktop. Jede Aktion ist ein expliziter
+// Button-Klick, keine automatische Statusaenderung aus KI-Text (Sicherheitsregel V14 §13).
+const WORK_STATUS_ACTIONS: { from: string[]; to: string; label: string }[] = [
+  { from: ["open", "accepted"], to: "in_progress", label: "In Bearbeitung setzen" },
+  { from: ["in_progress"], to: "submitted", label: "Einreichen" },
+];
+
+function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpenEntity, onSetTaskStatus }: {
   measure: { type: "measure" } & WorkspaceMeasure;
   onLoadDocuments: (taskId: string) => void;
   onLoadCommunication: (taskId: string) => void;
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
+  onSetTaskStatus?: (taskId: string, workStatus: string, reviewStatus: string) => void;
 }) {
   const [tab, setTab] = useState<"overview" | "guidance" | "review">("overview");
   const { task, step, responsibility, guidance, tool } = measure;
@@ -149,6 +217,12 @@ function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpen
       {guidance.arbeitshilfe_name ? <p><b>Empfohlene Arbeitshilfe:</b> {guidance.arbeitshilfe_name}</p> : null}
     </div> : null}
     {tab === "review" && task ? <div className={styles.workspaceTabBody}><p><b>Reviewstatus:</b> {REVIEW_LABELS[task.reviewStatus] || task.reviewStatus}</p></div> : null}
+    {task && onSetTaskStatus ? (() => {
+      const nextAction = WORK_STATUS_ACTIONS.find((entry) => entry.from.includes(task.workStatus));
+      return nextAction ? <div className={styles.workspaceChips}>
+        <button type="button" className={styles.workspaceChip} onClick={() => onSetTaskStatus(task.id, nextAction.to, task.reviewStatus)}>{nextAction.label}</button>
+      </div> : null;
+    })() : null}
     <div className={styles.sparringRefs}>
       {task ? <button type="button" className={styles.sparringRefButton} onClick={() => onOpenEntity("task", task.id)}>In LUMINA öffnen</button> : null}
       {tool ? <button type="button" className={styles.sparringRefButton} onClick={() => onOpenEntity("tool", tool.code)}>Werkzeug öffnen · {tool.code}</button> : null}

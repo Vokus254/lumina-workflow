@@ -12,6 +12,9 @@ import { isFullMatrixRequest, routeIntent, needsExplicitFocus, isExplicitProject
 import { resolveAccessibleTaskIdSet, isMatrixTaskRowAuthorized } from "@/lib/schedule-matrix-auth";
 import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 import { resolveLastActionLabel, resolveLastQueryUsageLabel, resolveSessionUsageLabel } from "@/lib/usage-bar";
+import { onboardingTargetStatusForChip, type OnboardingStatus } from "@/lib/onboarding-status";
+import { submitTaskStatus } from "@/lib/task-status";
+import { AbschlussChatBearbeiter } from "./abschluss-chat-bearbeiter";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -72,7 +75,10 @@ export type ShellMessage = {
 };
 
 type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
-type Skin = "lumina" | "blue" | "light" | "yellow";
+// Abschluss-Chat V1: EIN gemeinsamer Skin-State fuer die gesamte Experience (klassische Shell +
+// Abschluss-Chat-Bearbeiter-Shell) - dieselben 5 Werte wie im verbindlichen Mockup, keine
+// getrennten Skin-Systeme mehr ("aussen SAP / innen Claude").
+type Skin = "lumina" | "claude" | "chatgpt" | "grok" | "sap";
 type ShellView = "start" | "process" | "messages" | "status" | "admin";
 type MyDaySort = "due" | "number" | "process";
 type SparringAssistant = "KAI" | "KIRA";
@@ -339,6 +345,13 @@ export function WorkflowShell({
   const router = useRouter();
   const [view, setView] = useState<ShellView>(initialView);
   const [skin, setSkin] = useState<Skin>("lumina");
+  // V14: Conversational Workspace ist der neue Standard-Arbeitsmodus fuer normale Rollen-Nutzer
+  // (nicht Admin/Superadmin - deren Verhalten bleibt unveraendert, siehe isAdmin-Gate unten).
+  // "Desktop oeffnen" schaltet den klassischen Shell-Desktop sichtbar; "Zurueck zu KAI" schaltet
+  // zurueck. sparringMessages/workspaceBreadcrumb/activeTaskId etc. bleiben beim Umschalten
+  // unveraendert im State - kein Chatverlust, kein Kontextverlust (Testfall D/P).
+  const [desktopMode, setDesktopMode] = useState(false);
+  const dockedConversational = !isAdmin && !desktopMode;
   const [search, setSearch] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
@@ -388,6 +401,13 @@ export function WorkflowShell({
     });
     return () => cancelAnimationFrame(frame);
   }, [sparringOpen, sparringMessages.length, sparringLoading]);
+
+  // V14: im Conversational-Workspace-Modus ist das Sparring-Panel immer "offen" (kein Floating-
+  // Button/Backdrop-Modal noetig) - dieselben bestehenden sparringOpen-gebundenen Effekte/Aktionen
+  // (0-Token-Start, askSparring, etc.) bleiben dadurch unveraendert wiederverwendet.
+  useEffect(() => {
+    if (dockedConversational) setSparringOpen(true);
+  }, [dockedConversational]);
 
   useEffect(() => {
     setView(initialView);
@@ -633,10 +653,28 @@ export function WorkflowShell({
     }
   }
 
-  function handleWorkspaceChip(action: string) {
+  // V13: einzige Stelle, die "onboardingAdvance" ausloest - ausschliesslich als direkte Folge eines
+  // Klicks auf eine der sechs Onboarding-Aktionsschaltflaechen (kai-workspace.tsx), niemals durch
+  // automatisches Rendern. Fehler werden bewusst verschluckt: ein fehlgeschlagener Statuswechsel
+  // darf die eigentliche Navigation nicht blockieren.
+  async function advanceOnboarding(targetStatus: OnboardingStatus) {
+    try {
+      await fetch("/api/workflow/assistant-workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProjectId, action: "onboardingAdvance", params: { targetStatus } }),
+      });
+    } catch {}
+  }
+
+  async function handleWorkspaceChip(action: string) {
+    const lastCard = sparringMessages[sparringMessages.length - 1]?.card;
+    if (lastCard?.type === "onboarding") await advanceOnboarding(onboardingTargetStatusForChip(action));
     if (action === "schedule") { void loadFullScheduleMatrix(sparringAssistant); return; }
     if (action === "switchKira") { setSparringAssistant("KIRA"); return; }
-    const labelByAction: Record<string, string> = { processTree: "Abschlussprozess", myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis" };
+    if (action === "openCommunication") { setSparringOpen(false); navigateShellView("messages"); return; }
+    if (action === "dismissOnboarding") { setWorkspaceBreadcrumb([]); void loadWorkspaceAction("start", {}); return; }
+    const labelByAction: Record<string, string> = { processTree: "Abschlussprozess", myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis", colleagues: "Wer arbeitet mit mir?" };
     setWorkspaceBreadcrumb([{ label: labelByAction[action] || action, action, params: {} }]);
     void loadWorkspaceAction(action, {});
   }
@@ -651,6 +689,24 @@ export function WorkflowShell({
   }
   function handleLoadDocuments(taskId: string) { void loadWorkspaceAction("documents", { taskId }); }
   function handleLoadCommunication(taskId: string) { void loadWorkspaceAction("communication", { taskId }); }
+  // V14: echte Statusaktion aus der Aufgaben-Mini-App heraus - ruft dieselbe bereits bestehende,
+  // autorisierende RPC auf, die bisher nur die Legacy-Oberflaeche nutzte (update_task_state prueft
+  // intern private.is_project_member, siehe Migration). Kein neuer Berechtigungscode, kein
+  // LLM-Aufruf; ausgeloest ausschliesslich durch den expliziten Button-Klick in kai-workspace.tsx.
+  async function handleSetTaskStatus(taskId: string, workStatus: string, reviewStatus: string) {
+    if (workspaceLoading) return;
+    setSparringError("");
+    try {
+      const supabase = createClient();
+      const { error } = await submitTaskStatus(supabase, taskId, workStatus, reviewStatus);
+      if (error) throw new Error(error.message || "Status konnte nicht gespeichert werden.");
+      applyTaskUpdate({ taskId, workStatus });
+      const taskNumber = workspaceFocus?.taskNumber;
+      if (taskNumber) await loadWorkspaceAction("measure", { taskNumber });
+    } catch (error) {
+      setSparringError(error instanceof Error ? error.message : "Status konnte nicht gespeichert werden.");
+    }
+  }
   // Bugfix: fehlte hier (anders als im gleichwertigen openEntityReference weiter unten) - ohne
   // setSparringOpen(false) öffnete "In LUMINA öffnen" die Aufgabe zwar korrekt im State, der
   // Drawer blieb aber sichtbar darüber liegen, sodass es wirkte, als wäre nichts passiert.
@@ -1091,16 +1147,20 @@ export function WorkflowShell({
         {searchResults.length > 0 ? <div className={styles.searchResults}>{searchResults.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id)}><b>{task.sourceNumber}</b><span>{task.title}</span></button>)}</div> : null}
       </div>
       <div className={styles.topbarRight}>
-        {allowSkinPreview ? <div className={styles.headerSkinSwitch} aria-label="Vercel Preview Skin-Auswahl">{([
-          ["lumina", "LUMINA"], ["blue", "Blau"], ["light", "Hell"], ["yellow", "Gelb"],
+        {allowSkinPreview ? <div className={styles.headerSkinSwitch} aria-label="Skin-Auswahl">{([
+          // Abschluss-Chat V1: EIN gemeinsamer Skin-State (siehe "skin"/"setSkin" oben) fuer
+          // klassische Shell UND Abschluss-Chat-Bearbeiter-Shell - dieselben 5 Werte, dieselbe
+          // Tokenstruktur wie im verbindlichen Mockup, kein paralleler Zustand.
+          ["lumina", "LUMINA"], ["claude", "Claude"], ["chatgpt", "ChatGPT"], ["grok", "Grok"], ["sap", "SAP"],
         ] as const).map(([value, label]) => <button key={value} type="button" title={`Skin ${label}`} className={skin === value ? styles.headerSkinActive : ""} onClick={() => setSkin(value)}><i className={styles.skinDot} data-skin-dot={value}/><span>{label}</span></button>)}</div> : null}
         {deadlineDays !== null ? <div className={styles.deadline} title={`${nextDeadlineLabel || "Nächste Frist"}: ${formatDate(nextDeadlineDate)}`}><strong>{deadlineDays < 0 ? `${Math.abs(deadlineDays)} T` : `${deadlineDays} T`}</strong><span>{deadlineDays < 0 ? "Frist überschritten" : (nextDeadlineLabel || "bis nächste Frist")}</span></div> : null}
         <span className={styles.roleBadge}>{visibleRoleLabel}</span>
+        {!isAdmin && desktopMode ? <button className={styles.secondaryButton} type="button" onClick={() => setDesktopMode(false)}>Zurück zu KAI</button> : null}
         <button className={styles.avatar} type="button" onClick={signOut} title={`${userEmail} · Abmelden`}>{initials}</button>
       </div>
     </header>
 
-    <aside className={styles.nav}>
+    {!dockedConversational ? <aside className={styles.nav}>
       <div className={styles.navGroup}>Arbeiten</div>
       {roleView !== "cfo" ? navButton("start", "Mein Tag", "◉", personalOpenTasks.length) : null}
       {navButton("process", "Abschlussprozess", "▦", undefined, openProcessOverview)}
@@ -1109,9 +1169,9 @@ export function WorkflowShell({
       {roleView !== "cfo" ? navButton("status", "Statusbericht", "◔") : null}
       {isAdmin ? navButton("admin", "Administration", "⚙") : null}
       <div className={styles.navFooter}><b>{companyName}</b><span>{projectName}</span><span>Stichtag {formatDate(reportingDate)}</span></div>
-    </aside>
+    </aside> : null}
 
-    <main className={`${styles.content} ${view === "process" ? styles.contentProcess : ""}`}>
+    {!dockedConversational ? <main className={`${styles.content} ${view === "process" ? styles.contentProcess : ""}`}>
       {view === "start" && roleView !== "cfo" ? <section>
         <div className={styles.pageHead}><div><h1>Mein Tag</h1><p>{personalOpenTasks.length} eigene offene Aufgaben · {personalOverdue.length} überfällig · {personalReviewIssues.length} Rückfragen/Nachbesserungen</p></div>{kaiTarget ? <button className={styles.primaryButton} type="button" onClick={() => openTask(kaiTarget.id, kaiTargetTab)}>Nächste Aufgabe öffnen</button> : null}</div>
         <div className={styles.daySummary}><span><b>{stationWorkGroups.length}</b> aktive Stationen</span><span><b>{personalOverdue.length}</b> überfällig</span><span><b>{personalReviewIssues.length}</b> Rückfragen</span><span><b>{nextDeadlineDate ? formatDate(nextDeadlineDate) : "–"}</b> nächste Frist</span></div>
@@ -1183,13 +1243,29 @@ export function WorkflowShell({
           {adminError ? <section className={styles.card}><p className={styles.emptyBlock}>{adminError}</p></section> : !adminData ? <section className={styles.card}><p className={styles.emptyBlock}>Projektmitglieder werden geladen …</p></section> : <section className={styles.card}><div className={styles.cardHead}><h2>Projektmitglieder · {projectName}</h2><span>{adminMembers.length} aktiv</span></div><table className={styles.table}><thead><tr><th>Name / E-Mail</th><th>Projektrolle</th><th>Letzter Login</th><th>Status</th></tr></thead><tbody>{adminMembers.map(({ member, user }) => <tr key={member.user_id}><td><b>{[user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.displayName || user?.email}</b><small className={styles.tableSub}>{user?.email}</small></td><td>{roleLabel(member.security_role)}</td><td>{formatDateTime(user?.lastSignInAt)}</td><td><span className={`${styles.chip} ${user?.blocked ? styles.chipReviewIssue : styles.chipDone}`}>{user?.blocked ? "Gesperrt" : "Aktiv"}</span></td></tr>)}</tbody></table></section>}
         </>}
       </section> : null}
-    </main>
+    </main> : null}
 
-    <button type="button" className={styles.sparringGlobalButton} onClick={() => setSparringOpen(true)} aria-label="KAI oder KIRA zum aktuellen Kontext öffnen">
+    {!dockedConversational ? <button type="button" className={styles.sparringGlobalButton} onClick={() => setSparringOpen(true)} aria-label="KAI oder KIRA zum aktuellen Kontext öffnen">
       <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : activeToolCode || viewLabels[view]}</b>
-    </button>
+    </button> : null}
 
-    {sparringOpen ? <div className={`${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSparringOpen(false); }}><section className={`${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role="dialog" aria-modal="true" aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div><button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button><button className={styles.sparringClose} type="button" onClick={() => setSparringOpen(false)} aria-label="Chat schließen">×</button></div></div><div className={styles.workspaceNav}><div className={styles.workspaceBreadcrumb}><button type="button" onClick={handleWorkspaceHome}>Mein Tag</button>{workspaceBreadcrumb.map((entry, index) => <span key={`${entry.action}-${index}`}>›<button type="button" onClick={() => handleWorkspaceBreadcrumbClick(index)}>{entry.label}</button></span>)}</div><div className={styles.workspaceNavActions}><button type="button" onClick={() => handleWorkspaceChip("processTree")}>Prozess</button><button type="button" onClick={() => handleWorkspaceChip("myOpenTasks")}>Meine Aufgaben</button><button type="button" onClick={() => handleWorkspaceChip("schedule")}>Termine</button><button type="button" onClick={handleWorkspaceHome}>Zurück</button></div><form className={styles.workspaceSearch} onSubmit={(event) => { event.preventDefault(); handleWorkspaceSearchSubmit(); }}><input value={workspaceSearch} onChange={(event) => setWorkspaceSearch(event.target.value)} placeholder="Maßnahme, Aufgabe oder Nummer suchen" aria-label="Maßnahme, Aufgabe oder Dokument suchen"/><button type="submit">Suchen</button></form></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix || message.card ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b>{message.content ? <p>{message.content}</p> : null}{message.matrix ? <ScheduleMatrixTable rows={message.matrix} onOpenMeasure={handleOpenMeasure} accessibleTaskIds={resolveAccessibleTaskIdSet(message.matrixAccessibleTaskIds)}/> : null}{message.card ? <><WorkspaceCardView card={message.card} onOpenMeasure={handleOpenMeasure} onOpenStep={handleOpenProcessStep} onLoadDocuments={handleLoadDocuments} onLoadCommunication={handleLoadCommunication} onOpenEntity={handleOpenEntityFromWorkspace} onChip={handleWorkspaceChip}/><small className={styles.workspaceZeroToken}>Direkt aus LUMINA · 0 KI-Tokens</small></> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : workspaceLoading ? "LUMINA-Daten werden geladen …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span><b>Letzte Aktion:</b> {resolveLastActionLabel(lastActionKind, sparringUsage)}</span><span>{resolveLastQueryUsageLabel(lastActionKind, sparringUsage) || "Token- und Kostenschätzung erscheint nach der ersten echten KI-Antwort."}</span>{resolveSessionUsageLabel(sparringSessionUsage) ? <span>{resolveSessionUsageLabel(sparringSessionUsage)}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
+    {dockedConversational && roleView === "bearbeiter" ? <div className={styles.sparringDocked}>
+      <AbschlussChatBearbeiter
+        activeProjectId={activeProjectId}
+        onOpenDesktop={() => setDesktopMode(true)}
+        skin={skin}
+        setSkin={setSkin}
+        advanceOnboarding={advanceOnboarding}
+        sparringAssistant={sparringAssistant}
+        setSparringAssistant={setSparringAssistant}
+        sparringMessages={sparringMessages}
+        sparringLoading={sparringLoading}
+        sparringError={sparringError}
+        askSparring={askSparring}
+        sparringInput={sparringInput}
+        setSparringInput={setSparringInput}
+      />
+    </div> : (sparringOpen || dockedConversational) ? <div className={dockedConversational ? styles.sparringDocked : `${styles.sparringDrawerBackdrop} ${sparringMaximized ? styles.sparringDrawerBackdropMaximized : ""}`} role="presentation" onMouseDown={(event) => { if (!dockedConversational && event.target === event.currentTarget) setSparringOpen(false); }}><section className={dockedConversational ? styles.sparringDockedPanel : `${styles.sparringDrawer} ${sparringMaximized ? styles.sparringDrawerMaximized : ""}`} role={dockedConversational ? undefined : "dialog"} aria-modal={dockedConversational ? undefined : true} aria-label="KAI und KIRA Sparring"><div className={styles.sparringDrawerTop}><div><span className={styles.sparringKicker}>Kontextbezogenes Sparring</span><h2>KAI & KIRA</h2><small><b>{contextTitle}</b> · {contextDetail}</small></div><div className={styles.sparringDrawerControls}><div className={styles.sparringSwitch} role="group" aria-label="KI-Sparringspartner wählen"><button type="button" className={sparringAssistant === "KAI" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KAI")}>KAI</button><button type="button" className={sparringAssistant === "KIRA" ? styles.sparringSwitchActive : ""} onClick={() => setSparringAssistant("KIRA")}>KIRA</button></div>{!dockedConversational ? <button className={styles.sparringMaximize} type="button" onClick={() => setSparringMaximized((current) => !current)} aria-label={sparringMaximized ? "Chat verkleinern" : "Chat maximieren"} title={sparringMaximized ? "Verkleinern" : "Maximieren"}>{sparringMaximized ? "⤡" : "⤢"}</button> : null}<button className={dockedConversational ? styles.sparringDesktopButton : styles.sparringClose} type="button" onClick={() => (dockedConversational ? setDesktopMode(true) : setSparringOpen(false))} aria-label={dockedConversational ? "Desktop öffnen" : "Chat schließen"}>{dockedConversational ? "Desktop öffnen" : "×"}</button></div></div><div className={styles.workspaceNav}><div className={styles.workspaceBreadcrumb}><button type="button" onClick={handleWorkspaceHome}>Mein Tag</button>{workspaceBreadcrumb.map((entry, index) => <span key={`${entry.action}-${index}`}>›<button type="button" onClick={() => handleWorkspaceBreadcrumbClick(index)}>{entry.label}</button></span>)}</div><div className={styles.workspaceNavActions}><button type="button" onClick={() => handleWorkspaceChip("processTree")}>Prozess</button><button type="button" onClick={() => handleWorkspaceChip("myOpenTasks")}>Meine Aufgaben</button><button type="button" onClick={() => handleWorkspaceChip("schedule")}>Termine</button><button type="button" onClick={handleWorkspaceHome}>Zurück</button></div><form className={styles.workspaceSearch} onSubmit={(event) => { event.preventDefault(); handleWorkspaceSearchSubmit(); }}><input value={workspaceSearch} onChange={(event) => setWorkspaceSearch(event.target.value)} placeholder="Maßnahme, Aufgabe oder Nummer suchen" aria-label="Maßnahme, Aufgabe oder Dokument suchen"/><button type="submit">Suchen</button></form></div><div className={styles.sparringDrawerBody}><div className={styles.sparringConversation}>{sparringMessages.length ? sparringMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.sparringBubble} ${message.role === "user" ? styles.sparringBubbleUser : styles.sparringBubbleAi} ${message.matrix || message.card ? styles.sparringBubbleMatrix : ""}`}><b>{message.role === "user" ? "Sie" : message.assistant}</b>{message.content ? <p>{message.content}</p> : null}{message.matrix ? <ScheduleMatrixTable rows={message.matrix} onOpenMeasure={handleOpenMeasure} accessibleTaskIds={resolveAccessibleTaskIdSet(message.matrixAccessibleTaskIds)}/> : null}{message.card ? <><WorkspaceCardView card={message.card} onOpenMeasure={handleOpenMeasure} onOpenStep={handleOpenProcessStep} onLoadDocuments={handleLoadDocuments} onLoadCommunication={handleLoadCommunication} onOpenEntity={handleOpenEntityFromWorkspace} onChip={handleWorkspaceChip} onSetTaskStatus={handleSetTaskStatus}/><small className={styles.workspaceZeroToken}>Direkt aus LUMINA · 0 KI-Tokens</small></> : null}{message.entityReferences?.length ? <div className={styles.sparringRefs}>{message.entityReferences.map((ref, refIndex) => <button key={`${ref.kind}-${refIndex}`} type="button" className={styles.sparringRefButton} onClick={() => openEntityReference(ref)}>{ref.kind === "task" ? "Aufgabe öffnen" : ref.kind === "tool" ? "Werkzeug öffnen" : "Kachel öffnen"} · {ref.label}</button>)}</div> : null}</div>) : <div className={styles.sparringEmpty}>{sparringLoading ? `${sparringAssistant} analysiert ${contextTitle} …` : workspaceLoading ? "LUMINA-Daten werden geladen …" : "Noch keine Analyse vorhanden."}</div>}{sparringLoading ? <div className={styles.sparringProgressBox}><div className={styles.sparringProgressHead}><b>{sparringProgressLabel}</b><span>voraussichtlich noch ca. {sparringRemainingSeconds} Sek.</span></div><i><b style={{ width: `${sparringProgress}%` }}/></i><small>{sparringProgress}% · die Zeit ist eine Schätzung aus bisherigen Antworten.</small></div> : null}<div ref={sparringEndRef} aria-hidden="true"/></div>{sparringError ? <div className={styles.sparringError}>{sparringError}</div> : null}<div className={styles.sparringPrompts}>{((activeTask || activeToolCode) ? (sparringAssistant === "KAI" ? ["Was ist in diesem Kontext jetzt konkret zu tun?", "Welche Termine und Zuständigkeiten sind hier relevant?", "Wo liegt hier das größte Risiko?"] : ["Ist diese Aufgabe prüfungssicher dokumentiert?", "Welche Nachweise würdest du hier erwarten?", "Was würdest du an dieser Aufgabe kritisch hinterfragen?"]) : (sparringAssistant === "KAI" ? ["Was hat jetzt Priorität?", "Wo droht mir ein Engpass?", "Was sollte ich als Nächstes tun?"] : ["Wo siehst du Abschlussrisiken?", "Welche Nachweise fehlen wahrscheinlich?", "Was würdest du kritisch hinterfragen?"])).map((prompt) => <button key={prompt} type="button" disabled={sparringLoading} onClick={() => void askSparring(sparringAssistant, prompt)}>{prompt}</button>)}</div><div className={styles.sparringComposer}><textarea autoFocus value={sparringInput} onChange={(event) => setSparringInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); } }} placeholder={`Mit ${sparringAssistant} über ${activeTask ? "diese Aufgabe" : activeToolCode ? "dieses Werkzeug" : "diesen Bereich"} sprechen …`} aria-label={`Frage an ${sparringAssistant}`}/><button type="button" disabled={sparringLoading || !sparringInput.trim()} onClick={() => { const value = sparringInput; setSparringInput(""); void askSparring(sparringAssistant, value); }}>Senden</button></div><div className={styles.sparringUsageBar}><span><b>Letzte Aktion:</b> {resolveLastActionLabel(lastActionKind, sparringUsage)}</span><span>{resolveLastQueryUsageLabel(lastActionKind, sparringUsage) || "Token- und Kostenschätzung erscheint nach der ersten echten KI-Antwort."}</span>{resolveSessionUsageLabel(sparringSessionUsage) ? <span>{resolveSessionUsageLabel(sparringSessionUsage)}</span> : null}</div><div className={styles.sparringMemoryBar}><span><b>Arbeitsgedächtnis</b>{sparringMemory ? ` · ${sparringMemory.active} aktiv · ${sparringMemory.used} für diese Antwort verwendet` : " · wird bei relevanten Entscheidungen und offenen Punkten aufgebaut"}</span>{sparringMemory?.added ? <span>+{sparringMemory.added} neue Erinnerung</span> : null}{sparringMemory?.resolved ? <span>{sparringMemory.resolved} erledigt</span> : null}{sparringMemory && !sparringMemory.persistent ? <span>DB-Migration noch nicht aktiv</span> : null}</div><div className={styles.sparringDisclaimer}>KI-Sparring · Quellenreihenfolge: LUMINA-Fakt → Arbeitsgedächtnis → Fachwissen → Empfehlung · Antworten fachlich prüfen · keine automatische Status- oder Datenänderung · Kosten sind Schätzwerte.</div></div></section></div> : null}
 
     {(activeTaskId || activeToolCode) ? <div className={`${styles.workspaceOverlay} ${workspaceReady ? styles.workspaceOverlayReady : styles.workspaceOverlayLoading}`} aria-hidden={!workspaceReady}>
       {activeToolCode ? <button type="button" className={styles.toolWorkspaceClose} onClick={closeTaskWorkspace} aria-label="Werkzeug schließen">×</button> : null}
