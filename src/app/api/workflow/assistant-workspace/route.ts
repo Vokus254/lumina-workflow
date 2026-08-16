@@ -14,7 +14,7 @@ import { requireLuminaAdmin } from "@/lib/lumina-admin";
 // "start" liefert nur die Chip-Definitionen; ein Chip-Klick ruft dieselbe Action erneut mit der
 // konkreten Teilmenge auf (myOpenTasks/myOverdueTasks/dueToday/reviewIssues/missingEvidence) -
 // fachlich weiterhin "start"-Familie, technisch eigene Actions fuer schlankes, gezieltes Laden.
-type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "awaitingReview" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview" | "myAllTasks" | "auditTrail" | "myRoleContext" | "reviewInbox" | "reviewerOverview" | "adminOverview";
+type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "awaitingReview" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview" | "myAllTasks" | "auditTrail" | "myRoleContext" | "reviewInbox" | "reviewerOverview" | "adminOverview" | "wpAcceptedOverview";
 
 function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" | "bearbeiter" {
   if (role === "owner" || role === "manager") return "steuerung";
@@ -421,6 +421,32 @@ export async function POST(request: Request) {
 
       if (action === "reviewInbox") return NextResponse.json({ card: { type: "taskList", title: "Review-Eingang", tasks: inbox } });
       return NextResponse.json({ card: { type: "reviewerOverview", kpis: { openReviews: inbox.length, changesRequired: changesRequired.length, ownOpen: ownOpen.length, ownOverdue: ownOverdue.length }, inbox: inbox.slice(0, 10) } });
+    }
+
+    if (action === "wpAcceptedOverview") {
+      // WP accepted-only Security-Fix (siehe can_access_task/can_access_folder/documents_access_select
+      // Migrationen): liest projektweit, aber die RLS scopt das Ergebnis serverseitig bereits auf
+      // review_status='accepted' fuer alle Rollen ausser dem eigenen role_user_assignments-Zweig -
+      // keine Client-seitige Filterung als Sicherheitsgrenze, nur als Anzeige-Komfort.
+      const { data: acceptedRows, error: acceptedError } = await supabase
+        .from("tasks")
+        .select("id,source_number,title,review_status,work_status,responsibility_role_id,required_documents_text")
+        .eq("project_id", projectId)
+        .eq("review_status", "accepted")
+        .order("source_number", { ascending: true })
+        .limit(60);
+      if (acceptedError) return NextResponse.json({ card: { type: "denied", reason: "Freigegebene Bestände sind für dich nicht verfügbar." } });
+      const ownIds = new Set((acceptedRows || []).filter((row: any) => roleIds.has(String(row.responsibility_role_id))).map((row: any) => row.id));
+      const foreign = (acceptedRows || []).filter((row: any) => !ownIds.has(row.id));
+      const roleIdsForAccepted = Array.from(new Set(foreign.map((row: any) => row.responsibility_role_id).filter(Boolean)));
+      const { data: roleRows } = roleIdsForAccepted.length ? await supabase.from("responsibility_roles").select("id,display_name,role_key").in("id", roleIdsForAccepted) : { data: [] as any[] };
+      const roleById = new Map((roleRows || []).map((row: any) => [String(row.id), row]));
+      const items = foreign.map((row: any) => ({
+        id: row.id, number: row.source_number || "", title: row.title || "",
+        role: roleById.get(String(row.responsibility_role_id))?.display_name || roleById.get(String(row.responsibility_role_id))?.role_key || null,
+        requiredDocuments: row.required_documents_text || null,
+      }));
+      return NextResponse.json({ card: { type: "wpAcceptedOverview", items } });
     }
 
     if (action === "adminOverview") {

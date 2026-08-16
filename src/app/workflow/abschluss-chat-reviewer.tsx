@@ -1,11 +1,18 @@
 "use client";
 
 // Abschluss-Chat V2 - Reviewer-View (RW-Leitung), primaerer Assistent KIRA.
-// Wiederverwendet: assistant-workspace "reviewerOverview"/"reviewInbox"/"measure"/"documents"/
-// "communication"/"auditTrail", submitTaskStatus() (P1-A/Reviewer-Least-Privilege-sicher, siehe
-// Migration 20260816170000), geteilte Gadgets aus abschluss-chat-shared.ts.
-// KIRA empfiehlt nur (LLM, explizite Nutzerfrage) - Datenaenderungen ausschliesslich per
-// explizitem Klick auf Akzeptieren/Änderungen anfordern/Rückfrage.
+// Mockup-Fidelity-Pass: Chat-Head, Thread-Flow (Divider -> KIRA-Bubble -> Dokument-/Versionskarte
+// -> Audit -> optionaler WhyBlock -> Review-Aktionen) statt einer statischen TaskCard, siehe
+// lumina-abschluss-chat-mockup-v2_1.html view-reviewer.
+//
+// Wiederverwendet unveraendert: assistant-workspace "reviewerOverview"/"reviewInbox"/"measure"/
+// "documents"/"communication"/"auditTrail", submitTaskStatus() (P1-A/Reviewer-Least-Privilege-
+// sicher). KIRA empfiehlt nur nach echter, expliziter Nutzerfrage (LLM) - Datenaenderungen
+// ausschliesslich per explizitem Klick auf Akzeptieren/Änderungen anfordern/Rückfrage.
+//
+// Findings-Datenmodell existiert noch nicht (siehe V2-Sicherheitsbericht) - der Layoutslot ist
+// vorhanden, zeigt aber ehrlich "noch nicht strukturiert verfügbar" statt einer erfundenen
+// Feststellung.
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -45,15 +52,15 @@ export function AbschlussChatReviewer({
   const [overviewError, setOverviewError] = useState("");
   const [filterTasks, setFilterTasks] = useState<InboxTask[] | null>(null);
   const [activeFilter, setActiveFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
   const [measure, setMeasure] = useState<MeasureData | null>(null);
   const [measureLoading, setMeasureLoading] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[] | null>(null);
-  const [communication, setCommunication] = useState<WorkspaceMessage[] | null>(null);
   const [audit, setAudit] = useState<AuditEvent[] | null>(null);
-  const [tab, setTab] = useState<"overview" | "documents" | "communication" | "audit">("overview");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [whyRequested, setWhyRequested] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,10 +74,16 @@ export function AbschlussChatReviewer({
 
   function openTaskNumber(number: string) {
     setSelectedNumber(number);
-    setMeasure(null); setDocuments(null); setCommunication(null); setAudit(null); setTab("overview"); setActionError("");
+    setMeasure(null); setDocuments(null); setAudit(null); setActionError(""); setWhyRequested(false);
     setMeasureLoading(true);
     callWorkspace(activeProjectId, "measure", { taskNumber: number })
-      .then((card) => setMeasure(card))
+      .then((card) => {
+        setMeasure(card);
+        if (card?.task) {
+          callWorkspace(activeProjectId, "documents", { taskId: card.task.id }).then((c: any) => setDocuments(c.documents || [])).catch(() => {});
+          callWorkspace(activeProjectId, "auditTrail", { taskId: card.task.id }).then((c: any) => setAudit(c.events || [])).catch(() => {});
+        }
+      })
       .catch((error) => setActionError(error instanceof Error ? error.message : "Aufgabe konnte nicht geladen werden."))
       .finally(() => setMeasureLoading(false));
   }
@@ -84,15 +97,13 @@ export function AbschlussChatReviewer({
       .catch((error) => setActionError(error instanceof Error ? error.message : "Filter konnte nicht geladen werden."));
   }
 
-  function loadDocuments() { if (measure?.task) callWorkspace(activeProjectId, "documents", { taskId: measure.task.id }).then((c: any) => setDocuments(c.documents || [])).catch((e) => setActionError(e instanceof Error ? e.message : "Dokumente konnten nicht geladen werden.")); }
-  function loadCommunication() { if (measure?.task) callWorkspace(activeProjectId, "communication", { taskId: measure.task.id }).then((c: any) => setCommunication(c.messages || [])).catch((e) => setActionError(e instanceof Error ? e.message : "Kommunikation konnte nicht geladen werden.")); }
-  function loadAudit() { if (measure?.task) callWorkspace(activeProjectId, "auditTrail", { taskId: measure.task.id }).then((c: any) => setAudit(c.events || [])).catch((e) => setActionError(e instanceof Error ? e.message : "Audit-Trail konnte nicht geladen werden.")); }
-  function selectTab(next: typeof tab) { setTab(next); if (next === "documents" && documents === null) loadDocuments(); if (next === "communication" && communication === null) loadCommunication(); if (next === "audit" && audit === null) loadAudit(); }
+  function submitSearch() {
+    const value = search.trim();
+    if (value) openTaskNumber(value);
+  }
 
-  // Review-Aktion: ausschliesslich per explizitem Klick, dieselbe geteilte, jetzt Reviewer-
-  // Least-Privilege-gesicherte submitTaskStatus()-Funktion wie Bearbeiter/V1. work_status wird nur
-  // bei changesRequired/question auf "in_progress" gesetzt (Rueckgabe an den Bearbeiter) -
-  // "accepted" laesst work_status unveraendert ("submitted" bleibt stehen).
+  // Review-Aktion: ausschliesslich per explizitem Klick, dieselbe geteilte, Reviewer-Least-
+  // Privilege-gesicherte submitTaskStatus()-Funktion wie Bearbeiter/V1.
   async function handleReview(nextReviewStatus: "accepted" | "changes_required" | "question") {
     if (!measure?.task || actionBusy) return;
     setActionBusy(true);
@@ -111,6 +122,12 @@ export function AbschlussChatReviewer({
     }
   }
 
+  function askWhy() {
+    if (!measure?.task) return;
+    setWhyRequested(true);
+    void askSparring("KIRA", `Warum empfiehlst du für Aufgabe ${measure.task.number} (${measure.task.title}) akzeptieren, Änderungen anfordern oder eine Rückfrage?`);
+  }
+
   function submitComposer() {
     const value = sparringInput.trim();
     if (!value) return;
@@ -119,6 +136,7 @@ export function AbschlussChatReviewer({
   }
 
   const visibleTasks = filterTasks ?? overview?.inbox ?? [];
+  const lastKiraAnswer = whyRequested ? [...sparringMessages].reverse().find((m) => m.role === "assistant" && m.assistant === "KIRA" && !m.card) : null;
 
   return <div className={styles.root} data-skin={skin}>
     <div className={styles.skinRow}>
@@ -133,69 +151,73 @@ export function AbschlussChatReviewer({
           <h3>Review-Instanz</h3>
           <div className={styles.role}>RW (Leitung) · KIRA-Modus</div>
           <div className={styles.kpis}>
-            <div className={styles.kpi}><small>Review-Eingang</small><b>{overview.kpis.openReviews}</b></div>
-            <div className={styles.kpi}><small>Nachbesserung</small><b>{overview.kpis.changesRequired}</b></div>
-            <div className={styles.kpi}><small>Eigene Aufgaben offen</small><b>{overview.kpis.ownOpen}</b></div>
-            <div className={styles.kpi}><small>Eigene überfällig</small><b>{overview.kpis.ownOverdue}</b></div>
+            <div className={styles.kpi}><small>Reviews offen</small><b>{overview.kpis.openReviews}</b></div>
+            <div className={styles.kpi} title="Findings-Datenmodell noch nicht verfügbar"><small>Feststellungen</small><b>–</b></div>
+            <div className={styles.kpi} title="Entscheidungspaket-Datenmodell noch nicht verfügbar"><small>Entscheidungen</small><b>–</b></div>
+            <div className={styles.kpi}><small>Überfällig</small><b>{overview.kpis.ownOverdue}</b></div>
           </div>
           <div className={styles.phase}><b>Review-Eingang</b>
             {overview.inbox.length ? overview.inbox.slice(0, 8).map((task) => <button key={task.id} type="button" className={`${styles.task} ${selectedNumber === task.number ? styles.now : ""}`} style={{ width: "100%", border: 0, textAlign: "left", background: "transparent" }} onClick={() => openTaskNumber(task.number)}>
               <span className={styles.dot} />{task.number} · {task.title}{task.submitterRole ? <small style={{ marginLeft: "auto", fontSize: 10 }}>{task.submitterRole}</small> : null}
             </button>) : <p className={styles.sidebarEmpty}>Aktuell keine eingereichten Aufgaben.</p>}
           </div>
+          <div className={styles.phase}><b>Feststellungen</b>
+            <p className={styles.sidebarEmpty}>Noch nicht strukturiert verfügbar.</p>
+          </div>
         </>}
       </aside>
 
       <div className={styles.chat}>
+        <div className={styles.chatHead}>
+          <div className={styles.who}>
+            <div className={`${styles.avatar} ${styles.ai}`}>KIR</div>
+            <div><b>KIRA · Wirtschaftsprüferin (KI)</b><small>Review-Modus · Vorprüfung mit Begründung, Feststellungen, Entscheidungspakete</small></div>
+          </div>
+          <span className={styles.badge}>{overview ? `${overview.kpis.openReviews} Review${overview.kpis.openReviews === 1 ? "" : "s"}` : "…"}</span>
+        </div>
+
         <div className={styles.filterbar}>
-          <input placeholder="Aufgabennummer öffnen, z. B. 70" onKeyDown={(event) => { if (event.key === "Enter") { const value = (event.target as HTMLInputElement).value.trim(); if (value) openTaskNumber(value); } }} />
-          {([["all", "Alle"], ["reviewInbox", "Eingereicht"], ["changesRequired", "Nachbesserung"], ["myOverdueTasks", "Eigene überfällig"]] as const).map(([action, label]) => <button key={action} type="button" className={`${styles.fchip} ${activeFilter === action ? styles.on : ""}`} onClick={() => runFilter(action)}>{label}</button>)}
+          <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitSearch(); }} placeholder="Suchen: Aufgabe, Rolle … (z. B. Aufgabennummer)" />
+          {([["all", "Alle"], ["reviewInbox", "Nur eingereicht"], ["changesRequired", "Feststellungen"], ["myOpenTasks", "Meine Aufgaben"], ["myOverdueTasks", "Nur überfällig"]] as const).map(([action, label]) => <button key={action} type="button" className={`${styles.fchip} ${activeFilter === action ? styles.on : ""}`} onClick={() => runFilter(action)}>{label}</button>)}
         </div>
 
         <div className={styles.thread}>
-          <div className={styles.divider}><b>Review</b></div>
+          <div className={styles.divider}><b>Review-Eingang</b></div>
           {actionError ? <div className={styles.bubble} style={{ color: "var(--danger)" }}>{actionError}</div> : null}
 
-          {!selectedNumber ? <div className={styles.msg}><div className={`${styles.avatar} ${styles.ai}`}>KIRA</div><div><div className={styles.bubble}>Wähle links eine eingereichte Aufgabe oder gib oben eine Aufgabennummer ein.</div></div></div>
+          {!selectedNumber ? <div className={styles.msg}><div className={`${styles.avatar} ${styles.ai}`}>KIR</div><div><div className={styles.bubble}>Wähle links eine eingereichte Aufgabe oder gib oben eine Aufgabennummer ein.</div></div></div>
             : measureLoading ? <div className={styles.bubble}>Aufgabe wird geladen …</div>
-            : measure?.task ? <div className={styles.card}>
-              <h4>{measure.task.number} · {measure.task.title}</h4>
-              <div className={styles.checks}>
-                <div className={styles.c}><span>Status: {WORK_LABELS[measure.task.workStatus] || measure.task.workStatus} · Review: {REVIEW_LABELS[measure.task.reviewStatus] || measure.task.reviewStatus} · Fällig: {formatGermanDate(measure.task.dueDate)}</span></div>
-                {measure.responsibility ? <div className={styles.c}><span>Eingereicht von: {[measure.responsibility.role, measure.responsibility.person].filter(Boolean).join(" – ") || "unbekannt"}</span></div> : null}
-                {measure.task.requiredDocuments ? <div className={`${styles.c} ${styles.open}`}><span>Gefordert: {measure.task.requiredDocuments}</span></div> : null}
-              </div>
+            : measure?.task ? <>
+              <div className={styles.msg}><div className={`${styles.avatar} ${styles.ai}`}>KIR</div><div style={{ maxWidth: "100%" }}>
+                <div className={styles.bubble}>
+                  <b>{measure.task.number} · {measure.task.title}</b> ist {WORK_LABELS[measure.task.workStatus]?.toLowerCase() || measure.task.workStatus} – Review: {REVIEW_LABELS[measure.task.reviewStatus] || measure.task.reviewStatus}.
+                  {measure.responsibility ? <> Eingereicht von {[measure.responsibility.role, measure.responsibility.person].filter(Boolean).join(" – ") || "unbekannt"}.</> : null}
+                </div>
 
-              <div className={styles.btnrow}>
-                <button type="button" className={tab === "overview" ? `${styles.btn} ${styles.primary}` : styles.btn} onClick={() => selectTab("overview")}>Übersicht</button>
-                <button type="button" className={tab === "documents" ? `${styles.btn} ${styles.primary}` : styles.btn} onClick={() => selectTab("documents")}>Dokumente</button>
-                <button type="button" className={tab === "communication" ? `${styles.btn} ${styles.primary}` : styles.btn} onClick={() => selectTab("communication")}>Kommunikation</button>
-                <button type="button" className={tab === "audit" ? `${styles.btn} ${styles.primary}` : styles.btn} onClick={() => selectTab("audit")}>Audit-Trail</button>
-              </div>
+                {measure.task.requiredDocuments || documents?.length ? <div className={styles.card}>
+                  <h4>Dokumente</h4>
+                  {measure.task.requiredDocuments ? <p style={{ fontSize: 12, margin: "0 0 7px" }}>Gefordert: {measure.task.requiredDocuments}</p> : null}
+                  <div className={styles.filelist}>
+                    {(documents || []).map((doc) => <span key={doc.id} className={styles.file}>{doc.displayName}{doc.status ? <span className={styles.ver}>{doc.status}</span> : null}</span>)}
+                    {documents !== null && documents.length === 0 ? <span style={{ fontSize: 12, color: "var(--text2)" }}>Keine Dokumente hinterlegt.</span> : null}
+                  </div>
+                </div> : null}
 
-              {tab === "overview" ? <div style={{ marginTop: 9, fontSize: 12.5 }}>
-                {measure.guidance?.ziel ? <p><b>Ziel:</b> {measure.guidance.ziel}</p> : null}
-                {measure.guidance?.erledigt_wenn ? <p><b>Erledigt, wenn:</b> {measure.guidance.erledigt_wenn}</p> : null}
-              </div> : null}
-              {tab === "documents" ? <div className={styles.filelist} style={{ marginTop: 9 }}>
-                {(documents || []).map((doc) => <span key={doc.id} className={styles.file}>{doc.displayName}{doc.status ? <span className={styles.ver}>{doc.status}</span> : null}</span>)}
-                {documents !== null && documents.length === 0 ? <span style={{ fontSize: 12, color: "var(--text2)" }}>Keine Dokumente hinterlegt.</span> : null}
-              </div> : null}
-              {tab === "communication" ? <div style={{ marginTop: 9, fontSize: 12.5 }}>
-                {(communication || []).map((msg) => <p key={msg.id}><b>{msg.subject}</b> · {formatGermanDate(msg.createdAt)}<br />{msg.body}</p>)}
-                {communication !== null && communication.length === 0 ? <p>Keine Nachrichten vorhanden.</p> : null}
-              </div> : null}
-              {tab === "audit" ? <ul className={styles.audit}>
-                {(audit || []).map((event) => <li key={event.id}><time>{formatGermanDateTime(event.createdAt)}</time><span>{AUDIT_EVENT_LABELS[event.eventType] || event.eventType}</span></li>)}
-                {audit !== null && audit.length === 0 ? <li><span>Keine Audit-Einträge vorhanden.</span></li> : null}
-              </ul> : null}
+                <ul className={styles.audit}>
+                  {(audit || []).map((event) => <li key={event.id}><time>{formatGermanDateTime(event.createdAt)}</time><span>{AUDIT_EVENT_LABELS[event.eventType] || event.eventType}</span></li>)}
+                  {audit !== null && audit.length === 0 ? <li><span>Keine Audit-Einträge vorhanden.</span></li> : null}
+                </ul>
 
-              {measure.task.workStatus === "submitted" ? <div className={styles.btnrow}>
-                <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={actionBusy} onClick={() => void handleReview("accepted")}>Akzeptieren</button>
-                <button type="button" className={styles.btn} disabled={actionBusy} onClick={() => void handleReview("changes_required")}>Änderungen anfordern</button>
-                <button type="button" className={styles.btn} disabled={actionBusy} onClick={() => void handleReview("question")}>Rückfrage</button>
-              </div> : null}
-            </div> : null}
+                {!whyRequested ? <div className={styles.btnrow}><button type="button" className={styles.btn} disabled={sparringLoading} onClick={askWhy}>Warum diese Empfehlung? (KIRA fragen)</button></div>
+                  : <details className={styles.why} open><summary>Warum empfehle ich das?</summary><div className={styles.whyBody}>{sparringLoading ? "KIRA analysiert …" : lastKiraAnswer?.content || "Noch keine Antwort."}</div></details>}
+
+                {measure.task.workStatus === "submitted" ? <div className={styles.btnrow}>
+                  <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={actionBusy} onClick={() => void handleReview("accepted")}>Akzeptieren</button>
+                  <button type="button" className={styles.btn} disabled={actionBusy} onClick={() => void handleReview("changes_required")}>Änderungen anfordern</button>
+                  <button type="button" className={styles.btn} disabled={actionBusy} onClick={() => void handleReview("question")}>Rückfrage</button>
+                </div> : null}
+              </div></div>
+            </> : null}
 
           {sparringMessages.filter((message) => !message.card).map((message, index) => <div key={`${message.role}-${index}`} className={`${styles.msg} ${message.role === "user" ? styles.user : ""}`}>
             <div className={`${styles.avatar} ${message.role === "assistant" ? styles.ai : ""}`}>{message.role === "user" ? "Ich" : message.assistant}</div>

@@ -76,6 +76,10 @@ export function AbschlussChatVorstand({
     }
   }
 
+  function runOverdueFilter() {
+    document.getElementById("decision-divider")?.scrollIntoView({ behavior: "smooth" });
+  }
+
   function submitComposer() {
     const value = sparringInput.trim();
     if (!value) return;
@@ -107,12 +111,20 @@ export function AbschlussChatVorstand({
       </aside>
 
       <div className={styles.chat}>
+        <div className={styles.chatHead}>
+          <div className={styles.who}>
+            <div className={`${styles.avatar} ${styles.ai}`}>KAI</div>
+            <div><b>KAI + KIRA · Management-Modus</b><small>Morgenlage, Entscheidungspunkte, Statusbericht – keine automatischen Aktionen</small></div>
+          </div>
+          <span className={styles.badge}>{overview ? `${overview.kpis.overdue} überfällig` : "…"}</span>
+        </div>
+
         <div className={styles.thread}>
-          <div className={styles.divider}><b>Morgenlage</b></div>
+          <div className={styles.divider}><b>MORGENLAGE</b></div>
           {error ? <div className={styles.bubble} style={{ color: "var(--danger)" }}>{error}</div> : null}
 
           <div className={styles.msg}><div className={`${styles.avatar} ${styles.ai}`}>KAI</div><div>
-            <div className={styles.bubble}>Ihre Lage im Projekt {overview ? <>· {overview.kpis.overdue} eigene überfällige Aufgabe{overview.kpis.overdue === 1 ? "" : "n"}{projectOverdueTotal !== null ? `, ${projectOverdueTotal} projektweit überfällig` : ""}</> : null}</div>
+            <div className={styles.bubble}>Guten Morgen. Ihre Lage im Projekt{overview ? <>: {overview.kpis.overdue} eigene überfällige Aufgabe{overview.kpis.overdue === 1 ? "" : "n"}{projectOverdueTotal !== null ? `, ${projectOverdueTotal} projektweit überfällig` : ""}.</> : "."}</div>
             {overview ? <div className={styles.card}>
               <h4>Status</h4>
               <div className={styles.checks}>
@@ -120,12 +132,17 @@ export function AbschlussChatVorstand({
                 {overview.kpis.overdue > 0 ? <div className={`${styles.c} ${styles.warn}`}><span>{overview.kpis.overdue} eigene Aufgabe(n) überfällig</span></div> : null}
                 {nextDeadlines?.length ? <div className={styles.c}><span>Nächste Fristen: {nextDeadlines.map((d) => `${d.label} (${formatGermanDate(d.date)})`).join(" · ")}</span></div> : null}
               </div>
+              <div className={styles.btnrow}>
+                {openDecisions[0] ? <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={() => document.getElementById(`decision-${openDecisions[0].id}`)?.scrollIntoView({ behavior: "smooth" })}>Kritischen Punkt bearbeiten</button> : null}
+                <button type="button" className={styles.btn} onClick={() => runOverdueFilter()}>Alle überfälligen zeigen</button>
+                <button type="button" className={styles.btn} onClick={onOpenDesktop}>Statusbericht öffnen</button>
+              </div>
             </div> : null}
           </div></div>
 
-          <div className={styles.divider}><b>Entscheidungspunkte</b></div>
-          {openDecisions.length ? openDecisions.map((task) => <div key={task.id} className={styles.card}>
-            <h4>{task.number} · {task.title}</h4>
+          <div id="decision-divider" className={styles.divider}><b>ENTSCHEIDUNGSPUNKTE</b></div>
+          {openDecisions.length ? openDecisions.map((task) => <div key={task.id} id={`decision-${task.id}`} className={styles.decision}>
+            <div className={styles.dhead}><b>Entscheidungspunkt · {task.number} · {task.title}</b></div>
             <div className={styles.checks}><div className={styles.c}><span>Status: {WORK_LABELS[task.workStatus] || task.workStatus} · Fällig: {formatGermanDate(task.dueDate)}</span></div></div>
             <div className={styles.btnrow}>
               <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={actionBusy === task.id} onClick={() => void decide(task, "in_progress")}>In Bearbeitung nehmen</button>

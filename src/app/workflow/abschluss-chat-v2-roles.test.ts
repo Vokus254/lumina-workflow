@@ -63,12 +63,22 @@ describe("V2 Vorstand: keine neue Batch-RPC, nur bereits bestehende Mechanismen"
   });
 });
 
-describe("V2 WP: keine simulierten Cross-Role-Daten, Sicherheitslücke transparent statt verdeckt", () => {
-  it("behauptet an keiner Stelle, fremde akzeptierte Bestände tatsächlich zu laden", () => {
-    expect(WP_SOURCE).not.toMatch(/documents.*task_id.*!=|other.*role.*accepted/i);
+describe("V2 WP: accepted-only Security ist inzwischen live - keine stale 'nicht verfügbar'-Meldung mehr, keine simulierten Daten", () => {
+  it("enthält NICHT mehr den veralteten Platzhaltertext (Security in einer vorigen Runde geschlossen)", () => {
+    expect(WP_SOURCE).not.toContain("benötigt noch eine zusätzliche, serverseitige Berechtigung");
+    expect(WP_SOURCE).not.toContain("Noch nicht verfügbar.");
   });
-  it("zeigt die fehlende Berechtigung explizit im UI-Text statt Daten zu simulieren", () => {
-    expect(WP_SOURCE).toContain("benötigt noch eine zusätzliche, serverseitige Berechtigung");
+  it("lädt echte, RLS-gescopte Cross-Role-Daten über die dedizierte 0-Token-Aktion, keine Client-seitige Fake-Filterung", () => {
+    expect(WP_SOURCE).toContain('callWorkspace(activeProjectId, "wpAcceptedOverview")');
+  });
+  it("zeigt bei leerem Ergebnis eine ehrliche Leerstandsmeldung statt Demodaten", () => {
+    expect(WP_SOURCE).toContain("Derzeit keine akzeptierten fremden Aufgaben verfügbar.");
+  });
+});
+
+describe("V2 assistant-workspace: wpAcceptedOverview verlässt sich auf RLS, keine Client-Sicherheitsgrenze", () => {
+  it("filtert serverseitig nach review_status='accepted', keine ungefilterte Projekt-Abfrage", () => {
+    expect(ROUTE_SOURCE).toContain('.eq("review_status", "accepted")');
   });
 });
 
@@ -86,5 +96,100 @@ describe("V2 Admin: bestehende Autorisierung wiederverwendet, kein neuer E-Mail-
   });
   it("bietet einen Weg zum bestehenden Admin Hub statt eine zweite Adminlogik nachzubauen", () => {
     expect(ADMIN_SOURCE).toContain("onOpenAdminHub");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// V2 – Mockup-Fidelity-Pass: Reviewer/Vorstand/WP als Chat-Arbeitslandschaft (Divider -> Bubble ->
+// Card -> Aktion), Admin als breites Cockpit-Grid. Rein strukturelle Quelltextpruefungen, siehe
+// lumina-abschluss-chat-mockup-v2_1.html.
+// ---------------------------------------------------------------------------------------------
+
+describe("V2 Mockup-Fidelity: Reviewer als Chat-Arbeitslandschaft", () => {
+  it("hat den KIRA-Chat-Head mit Review-Modus-Untertitel", () => {
+    expect(REVIEWER_SOURCE).toContain("KIRA · Wirtschaftsprüferin (KI)");
+    expect(REVIEWER_SOURCE).toContain("Review-Modus");
+  });
+  it("hat eine Filterbar mit Suchfeld und den fünf vorgesehenen Chips", () => {
+    expect(REVIEWER_SOURCE).toContain("Nur eingereicht");
+    expect(REVIEWER_SOURCE).toContain("Feststellungen");
+    expect(REVIEWER_SOURCE).toContain("Meine Aufgaben");
+    expect(REVIEWER_SOURCE).toContain("Nur überfällig");
+  });
+  it("rendert den Review-Thread als Divider -> KIRA-Bubble -> Karte -> Aktionen, nicht als einzelne statische TaskCard mit internen Tabs", () => {
+    expect(REVIEWER_SOURCE).toContain("Review-Eingang");
+    expect(REVIEWER_SOURCE).not.toMatch(/selectTab|tab === "overview"/);
+  });
+  it("zeigt einen WhyBlock nur nach expliziter Nutzeranfrage, nicht automatisch", () => {
+    expect(REVIEWER_SOURCE).toContain("askWhy");
+    expect(REVIEWER_SOURCE).toContain("whyRequested");
+    expect(REVIEWER_SOURCE).toContain("Warum diese Empfehlung?");
+  });
+  it("Feststellungen-Gadget zeigt eine ehrliche Leerstandsmeldung statt erfundener Findings", () => {
+    expect(REVIEWER_SOURCE).toContain("Noch nicht strukturiert verfügbar.");
+    expect(REVIEWER_SOURCE).not.toMatch(/FS-\d/);
+  });
+});
+
+describe("V2 Mockup-Fidelity: Vorstand mit Morgenlage und echten Entscheidungspunkten", () => {
+  it("hat die Morgenlage- und Entscheidungspunkte-Divider mit den vorgesehenen Buttons", () => {
+    expect(VORSTAND_SOURCE).toContain("MORGENLAGE");
+    expect(VORSTAND_SOURCE).toContain("ENTSCHEIDUNGSPUNKTE");
+    expect(VORSTAND_SOURCE).toContain("Kritischen Punkt bearbeiten");
+    expect(VORSTAND_SOURCE).toContain("Alle überfälligen zeigen");
+    expect(VORSTAND_SOURCE).toContain("Statusbericht öffnen");
+  });
+  it("nennt Entscheidungspunkte ehrlich 'Entscheidungspunkt', nicht 'Entscheidungspaket' (kein reales Paket-Datenmodell)", () => {
+    expect(VORSTAND_SOURCE).toContain("Entscheidungspunkt ·");
+    expect(VORSTAND_SOURCE).not.toContain("Entscheidungspaket");
+  });
+  it("kein automatischer LLM-Aufruf beim Laden der Morgenlage (nur bestehende 0-Token-Aktionen/RPC im useEffect)", () => {
+    const effectStart = VORSTAND_SOURCE.indexOf("useEffect(() => {");
+    const effectEnd = VORSTAND_SOURCE.indexOf("}, [activeProjectId]);");
+    const effectBody = VORSTAND_SOURCE.slice(effectStart, effectEnd);
+    expect(effectBody).not.toContain("askSparring");
+  });
+});
+
+describe("V2 Mockup-Fidelity: WP mit echtem Chat-Head und Unterlagen-Tabelle", () => {
+  it("hat den KIRA-Prüfungs-Modus-Chat-Head", () => {
+    expect(WP_SOURCE).toContain("KIRA · Wirtschaftsprüferin (KI)");
+    expect(WP_SOURCE).toContain("Prüfungs-Modus");
+  });
+  it("Prüfungsplanung wird nur durch expliziten Klick gestartet, nicht automatisch beim Laden", () => {
+    const effectStart = WP_SOURCE.indexOf("useEffect(() => {");
+    const effectEnd = WP_SOURCE.indexOf("}, [activeProjectId]);");
+    const effectBody = WP_SOURCE.slice(effectStart, effectEnd);
+    expect(effectBody).not.toContain("askSparring");
+    expect(WP_SOURCE).toContain("Prüfungsplanung starten");
+  });
+  it("rendert eine Unterlage/Rolle/Status-Tabelle aus echten required_documents_text-/Dokumentdaten", () => {
+    expect(WP_SOURCE).toContain("styles.fin");
+    expect(WP_SOURCE).toContain("requiredDocuments");
+  });
+});
+
+describe("V2 Mockup-Fidelity: Admin als breites zweispaltiges Cockpit-Grid", () => {
+  it("nutzt das breite adminGrid-Layout (1.5fr/1fr), nicht die schmale Chat-Spalte", () => {
+    expect(ADMIN_SOURCE).toContain("styles.adminGrid");
+    expect(ADMIN_SOURCE).toContain("styles.wide");
+    expect(ADMIN_SOURCE).not.toContain("styles.chat}");
+  });
+  it("enthält alle geforderten Panels (Rollen&Teilnehmer, Phasenfortschritt, Blockaden, Eskalationen, Fristenplan, Rollen-Setup, Audit)", () => {
+    for (const label of ["Rollen &amp; Teilnehmer", "Phasenfortschritt", "Blockaden", "Eskalationen", "Fristenplan", "Rollen-Setup", "Globaler Audit-Trail"]) {
+      expect(ADMIN_SOURCE).toContain(label);
+    }
+  });
+  it("Blockaden/Eskalationen/Feststellungen ohne echtes Datenmodell zeigen eine ehrliche Leerstandsmeldung", () => {
+    expect(ADMIN_SOURCE).toContain("Derzeit keine strukturierte Blockadenauswertung");
+    expect(ADMIN_SOURCE).toContain("Derzeit keine Eskalationen hinterlegt.");
+  });
+});
+
+describe("V2 Mockup-Fidelity: Bearbeiter-V1 bleibt Regressionsgrenze, unverändert in dieser Runde", () => {
+  it("Bearbeiter-Komponente wurde in dieser Mockup-Fidelity-Runde nicht angefasst", () => {
+    const BEARBEITER_SOURCE = readFileSync(new URL("./abschluss-chat-bearbeiter.tsx", import.meta.url), "utf8");
+    expect(BEARBEITER_SOURCE).toContain("submitTaskStatus");
+    expect(BEARBEITER_SOURCE).toContain("SKIN_OPTIONS");
   });
 });
