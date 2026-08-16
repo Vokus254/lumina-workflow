@@ -15,6 +15,10 @@ import { resolveLastActionLabel, resolveLastQueryUsageLabel, resolveSessionUsage
 import { onboardingTargetStatusForChip, type OnboardingStatus } from "@/lib/onboarding-status";
 import { submitTaskStatus } from "@/lib/task-status";
 import { AbschlussChatBearbeiter } from "./abschluss-chat-bearbeiter";
+import { AbschlussChatReviewer } from "./abschluss-chat-reviewer";
+import { AbschlussChatVorstand } from "./abschluss-chat-vorstand";
+import { AbschlussChatWp } from "./abschluss-chat-wp";
+import { AbschlussChatAdmin } from "./abschluss-chat-admin";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -351,7 +355,31 @@ export function WorkflowShell({
   // zurueck. sparringMessages/workspaceBreadcrumb/activeTaskId etc. bleiben beim Umschalten
   // unveraendert im State - kein Chatverlust, kein Kontextverlust (Testfall D/P).
   const [desktopMode, setDesktopMode] = useState(false);
-  const dockedConversational = !isAdmin && !desktopMode;
+  // V2: Admin bekommt jetzt ebenfalls die angedockte Chat-Shell (Admin-Cockpit) statt automatisch
+  // im klassischen Desktop zu landen - "Desktop öffnen" bleibt fuer alle Rollen der Fallback.
+  const dockedConversational = !desktopMode;
+  // V2: reine Routing-Hilfe, KEINE Sicherheitsentscheidung (siehe assistant-workspace
+  // "myRoleContext"-Kommentar) - waehlt nur, welche Chat-Shell angedockt wird. Jede View bleibt
+  // unabhaengig davon vollstaendig ueber bestehende RLS/RPCs autorisiert.
+  const [roleContext, setRoleContext] = useState<{ securityRole: string | null; roleKeys: string[] } | null>(null);
+  useEffect(() => {
+    if (isAdmin) return;
+    let cancelled = false;
+    fetch("/api/workflow/assistant-workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: activeProjectId, action: "myRoleContext" }) })
+      .then((response) => response.json())
+      .then((payload) => { if (!cancelled && payload?.card) setRoleContext({ securityRole: payload.card.securityRole, roleKeys: payload.card.roleKeys || [] }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeProjectId, isAdmin]);
+  const chatRoleMode: "admin" | "reviewer" | "vorstand" | "wp" | "bearbeiter" = isAdmin
+    ? "admin"
+    : roleContext?.securityRole === "reviewer"
+      ? "reviewer"
+      : roleContext?.roleKeys.some((key) => key.startsWith("VO"))
+        ? "vorstand"
+        : roleContext?.roleKeys.some((key) => key.startsWith("WP"))
+          ? "wp"
+          : "bearbeiter";
   const [search, setSearch] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(selectedTaskId || null);
@@ -1249,7 +1277,54 @@ export function WorkflowShell({
       <span>KAI / KIRA</span><b>{activeTask ? taskNumber(activeTask) : activeToolCode || viewLabels[view]}</b>
     </button> : null}
 
-    {dockedConversational && roleView === "bearbeiter" ? <div className={styles.sparringDocked}>
+    {dockedConversational && chatRoleMode === "admin" ? <div className={styles.sparringDocked}>
+      <AbschlussChatAdmin activeProjectId={activeProjectId} onOpenDesktop={() => setDesktopMode(true)} onOpenAdminHub={() => setDesktopMode(true)} skin={skin} setSkin={setSkin} />
+    </div> : dockedConversational && chatRoleMode === "reviewer" ? <div className={styles.sparringDocked}>
+      <AbschlussChatReviewer
+        activeProjectId={activeProjectId}
+        onOpenDesktop={() => setDesktopMode(true)}
+        skin={skin}
+        setSkin={setSkin}
+        sparringAssistant={sparringAssistant}
+        setSparringAssistant={setSparringAssistant}
+        sparringMessages={sparringMessages}
+        sparringLoading={sparringLoading}
+        sparringError={sparringError}
+        askSparring={askSparring}
+        sparringInput={sparringInput}
+        setSparringInput={setSparringInput}
+      />
+    </div> : dockedConversational && chatRoleMode === "vorstand" ? <div className={styles.sparringDocked}>
+      <AbschlussChatVorstand
+        activeProjectId={activeProjectId}
+        onOpenDesktop={() => setDesktopMode(true)}
+        skin={skin}
+        setSkin={setSkin}
+        sparringAssistant={sparringAssistant}
+        setSparringAssistant={setSparringAssistant}
+        sparringMessages={sparringMessages}
+        sparringLoading={sparringLoading}
+        sparringError={sparringError}
+        askSparring={askSparring}
+        sparringInput={sparringInput}
+        setSparringInput={setSparringInput}
+      />
+    </div> : dockedConversational && chatRoleMode === "wp" ? <div className={styles.sparringDocked}>
+      <AbschlussChatWp
+        activeProjectId={activeProjectId}
+        onOpenDesktop={() => setDesktopMode(true)}
+        skin={skin}
+        setSkin={setSkin}
+        sparringAssistant={sparringAssistant}
+        setSparringAssistant={setSparringAssistant}
+        sparringMessages={sparringMessages}
+        sparringLoading={sparringLoading}
+        sparringError={sparringError}
+        askSparring={askSparring}
+        sparringInput={sparringInput}
+        setSparringInput={setSparringInput}
+      />
+    </div> : dockedConversational && chatRoleMode === "bearbeiter" ? <div className={styles.sparringDocked}>
       <AbschlussChatBearbeiter
         activeProjectId={activeProjectId}
         onOpenDesktop={() => setDesktopMode(true)}

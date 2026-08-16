@@ -4,6 +4,7 @@ import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan, 
 import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 import { nextOnboardingStatus, type OnboardingStatus } from "@/lib/onboarding-status";
 import { deriveStructuralDependencies } from "@/lib/task-dependency";
+import { requireLuminaAdmin } from "@/lib/lumina-admin";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -13,7 +14,7 @@ import { deriveStructuralDependencies } from "@/lib/task-dependency";
 // "start" liefert nur die Chip-Definitionen; ein Chip-Klick ruft dieselbe Action erneut mit der
 // konkreten Teilmenge auf (myOpenTasks/myOverdueTasks/dueToday/reviewIssues/missingEvidence) -
 // fachlich weiterhin "start"-Familie, technisch eigene Actions fuer schlankes, gezieltes Laden.
-type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "awaitingReview" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview" | "myAllTasks" | "auditTrail";
+type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "awaitingReview" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview" | "myAllTasks" | "auditTrail" | "myRoleContext" | "reviewInbox" | "reviewerOverview" | "adminOverview";
 
 function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" | "bearbeiter" {
   if (role === "owner" || role === "manager") return "steuerung";
@@ -384,6 +385,111 @@ export async function POST(request: Request) {
       const { data, error } = await supabase.from("task_activity_events").select("id,event_type,event_data,created_at").eq("task_id", taskId).order("created_at", { ascending: false }).limit(30);
       if (error) return NextResponse.json({ card: { type: "denied", reason: "Audit-Trail für diese Aufgabe ist für dich nicht verfügbar." } });
       return NextResponse.json({ card: { type: "auditTrail", taskId, events: (data || []).map((row: any) => ({ id: String(row.id), eventType: row.event_type, eventData: row.event_data || {}, createdAt: row.created_at })) } });
+    }
+
+    if (action === "myRoleContext") {
+      // V2: reine Routing-Hilfe (welche Rollen-Chat-Shell wird angedockt) - KEINE
+      // Sicherheitsentscheidung. Datenzugriff bleibt in jeder View ausschliesslich ueber
+      // bestehende RLS/RPCs gesteuert, unabhaengig davon, welche Shell gerendert wird.
+      const roleRows = roleIds.size ? await supabase.from("responsibility_roles").select("role_key").in("id", Array.from(roleIds)) : { data: [] as any[] };
+      return NextResponse.json({ card: { type: "roleContext", securityRole, roleKeys: (roleRows.data || []).map((row: any) => row.role_key) } });
+    }
+
+    if (action === "reviewerOverview" || action === "reviewInbox") {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: ownRows } = roleIds.size
+        ? await supabase.from("tasks").select("id,due_date,due_date_override,work_status").eq("project_id", projectId).in("responsibility_role_id", Array.from(roleIds))
+        : { data: [] as any[] };
+      const ownOpen = (ownRows || []).filter((row: any) => row.work_status !== "completed");
+      const ownOverdue = ownOpen.filter((row: any) => (row.due_date_override || row.due_date) && (row.due_date_override || row.due_date) < today);
+
+      // Review-Eingang: projektweite eingereichte Aufgaben. Nur lesbar, weil
+      // project_members.security_role='reviewer' bereits ueber die bestehende can_access_task-
+      // Bedingung is_project_member(p.id) vollen Task-Lesezugriff gewaehrt - keine neue Query-
+      // Logik jenseits von RLS, keine Client-seitige Umgehung.
+      const { data: submittedRows, error: submittedError } = await supabase.from("tasks").select("id,source_number,title,work_status,review_status,due_date,due_date_override,responsibility_role_id").eq("project_id", projectId).eq("work_status", "submitted");
+      if (submittedError) return NextResponse.json({ error: "Review-Eingang konnte nicht geladen werden." }, { status: 500 });
+      const roleIdsForSubmitted = Array.from(new Set((submittedRows || []).map((row: any) => row.responsibility_role_id).filter(Boolean)));
+      const { data: roleRows } = roleIdsForSubmitted.length ? await supabase.from("responsibility_roles").select("id,display_name,role_key").in("id", roleIdsForSubmitted) : { data: [] as any[] };
+      const roleById = new Map((roleRows || []).map((row: any) => [String(row.id), row]));
+      const inbox = (submittedRows || []).map((row: any) => ({
+        id: row.id, number: row.source_number || "", title: row.title || "", workStatus: row.work_status, reviewStatus: row.review_status,
+        dueDate: row.due_date_override || row.due_date || null,
+        submitterRole: roleById.get(String(row.responsibility_role_id))?.display_name || roleById.get(String(row.responsibility_role_id))?.role_key || null,
+      })).sort((a: any, b: any) => String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")));
+      const changesRequired = inbox.filter((row: any) => row.reviewStatus === "changes_required" || row.reviewStatus === "question");
+
+      if (action === "reviewInbox") return NextResponse.json({ card: { type: "taskList", title: "Review-Eingang", tasks: inbox } });
+      return NextResponse.json({ card: { type: "reviewerOverview", kpis: { openReviews: inbox.length, changesRequired: changesRequired.length, ownOpen: ownOpen.length, ownOverdue: ownOverdue.length }, inbox: inbox.slice(0, 10) } });
+    }
+
+    if (action === "adminOverview") {
+      // Admin-Cockpit: nutzt dieselbe bestehende Autorisierung wie /api/admin
+      // (requireLuminaAdmin - lumina_admins, service-role NUR fuer die Autorisierungspruefung
+      // selbst, nicht fuer die eigentlichen Daten). Die Datenabfragen laufen ueber den normalen,
+      // RLS-gebundenen Client dieser Route - private.is_lumina_admin() ist bereits ein
+      // bestehender Zweig in can_access_task() und gewaehrt vollen, projektgebundenen Lesezugriff.
+      const adminCheck = await requireLuminaAdmin();
+      if (!adminCheck.ok) return NextResponse.json({ error: adminCheck.error }, { status: adminCheck.status });
+
+      const today = new Date().toISOString().slice(0, 10);
+      const [taskRowsResult, roleRowsResult, assignmentRowsResult, auditRowsResult] = await Promise.all([
+        supabase.from("tasks").select("id,work_status,review_status,due_date,due_date_override,responsibility_role_id,process_step_id").eq("project_id", projectId),
+        supabase.from("responsibility_roles").select("id,display_name,role_key").eq("project_id", projectId),
+        supabase.from("role_user_assignments").select("role_id,user_id"),
+        supabase.from("task_activity_events").select("id,event_type,event_data,created_at,actor_user_id").eq("project_id", projectId).order("created_at", { ascending: false }).limit(15),
+      ]);
+      const taskRows = taskRowsResult.data || [];
+      const roleRows = roleRowsResult.data || [];
+      const assignmentRows = assignmentRowsResult.data || [];
+      const stepIds = Array.from(new Set(taskRows.map((row: any) => row.process_step_id).filter(Boolean)));
+      const { data: stepRows } = stepIds.length ? await supabase.from("process_steps").select("id,code").in("id", stepIds) : { data: [] as any[] };
+      const stepById = new Map((stepRows || []).map((step: any) => [String(step.id), step]));
+
+      const assignedRoleIds = new Set(assignmentRows.map((row: any) => String(row.role_id)));
+      const kpis = {
+        total: taskRows.length,
+        open: taskRows.filter((row: any) => row.work_status !== "completed" && row.work_status !== "submitted").length,
+        submitted: taskRows.filter((row: any) => row.work_status === "submitted").length,
+        completed: taskRows.filter((row: any) => row.work_status === "completed").length,
+        overdue: taskRows.filter((row: any) => (row.due_date_override || row.due_date) && (row.due_date_override || row.due_date) < today && row.work_status !== "completed").length,
+        reviewIssues: taskRows.filter((row: any) => row.review_status === "question" || row.review_status === "changes_required").length,
+        rolesTotal: roleRows.length,
+        rolesAssigned: roleRows.filter((role: any) => assignedRoleIds.has(String(role.id))).length,
+      };
+
+      const roles = roleRows.map((role: any) => {
+        const roleTasks = taskRows.filter((row: any) => String(row.responsibility_role_id) === String(role.id));
+        const roleOverdue = roleTasks.filter((row: any) => (row.due_date_override || row.due_date) && (row.due_date_override || row.due_date) < today && row.work_status !== "completed");
+        return { id: role.id, label: role.display_name || role.role_key, taskCount: roleTasks.length, overdue: roleOverdue.length, assigned: assignedRoleIds.has(String(role.id)) };
+      }).sort((a: any, b: any) => b.taskCount - a.taskCount);
+
+      const phaseTotals = new Map<string, { code: string; total: number; done: number }>();
+      for (const row of taskRows) {
+        const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
+        const phaseCode = (step?.code || "").split(".")[0] || "?";
+        const entry = phaseTotals.get(phaseCode) || { code: phaseCode, total: 0, done: 0 };
+        entry.total += 1;
+        if (row.work_status === "completed") entry.done += 1;
+        phaseTotals.set(phaseCode, entry);
+      }
+      const phases = Array.from(phaseTotals.values()).sort((a, b) => a.code.localeCompare(b.code, "de", { numeric: true }));
+
+      const dueBuckets = new Map<string, number>();
+      for (const row of taskRows) {
+        const due = row.due_date_override || row.due_date;
+        if (!due) continue;
+        dueBuckets.set(due, (dueBuckets.get(due) || 0) + 1);
+      }
+      const upcomingDeadlines = Array.from(dueBuckets.entries()).filter(([due]) => due >= today).sort((a, b) => a[0].localeCompare(b[0])).slice(0, 6).map(([due, count]) => ({ date: due, count }));
+
+      const auditRows = auditRowsResult.data || [];
+      const actorIds = Array.from(new Set(auditRows.map((row: any) => row.actor_user_id).filter(Boolean)));
+      const actorLookups = await Promise.all(actorIds.map((id: string) => adminCheck.admin.auth.admin.getUserById(id)));
+      const actorEmailById = new Map(actorLookups.map((lookup: any, index: number) => [String(actorIds[index]), lookup.data?.user?.email || null]));
+      const audit = auditRows.map((row: any) => ({ id: String(row.id), eventType: row.event_type, eventData: row.event_data || {}, createdAt: row.created_at, actorEmail: row.actor_user_id ? actorEmailById.get(String(row.actor_user_id)) || null : null }));
+
+      return NextResponse.json({ card: { type: "adminOverview", kpis, roles, phases, upcomingDeadlines, audit, isSuperAdmin: adminCheck.isSuperAdmin } });
     }
 
     if (action === "colleagues") {

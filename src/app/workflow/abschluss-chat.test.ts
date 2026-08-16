@@ -20,10 +20,15 @@ describe("Abschluss-Chat V1: keine Mockup-Fakedaten hartcodiert", () => {
   });
 });
 
-describe("Abschluss-Chat V1: Rollenbeschränkung Phase 1 (nur Bearbeiter)", () => {
-  it("wird im Shell ausschließlich für roleView 'bearbeiter' im docked Modus gerendert, Admin/CFO/Projektleitung unverändert", () => {
-    expect(SHELL_SOURCE).toContain('dockedConversational && roleView === "bearbeiter" ? <div className={styles.sparringDocked}>');
+describe("Abschluss-Chat V1/V2: Rollenbeschränkung (chatRoleMode-Dispatcher)", () => {
+  it("die Bearbeiter-Shell wird ausschließlich für chatRoleMode 'bearbeiter' im docked Modus gerendert", () => {
+    expect(SHELL_SOURCE).toContain('dockedConversational && chatRoleMode === "bearbeiter" ? <div className={styles.sparringDocked}>');
     expect(SHELL_SOURCE).toContain("<AbschlussChatBearbeiter");
+  });
+  it("chatRoleMode wird ausschließlich aus bestehenden Rollen-/Security-Daten abgeleitet (isAdmin/securityRole/role_key), nicht aus E-Mail oder Anzeige-Label", () => {
+    const chatRoleModeBlock = SHELL_SOURCE.slice(SHELL_SOURCE.indexOf("const chatRoleMode"), SHELL_SOURCE.indexOf("const chatRoleMode") + 500);
+    expect(chatRoleModeBlock).not.toMatch(/@volkerkusch\.de/);
+    expect(chatRoleModeBlock).toContain("roleContext?.securityRole");
   });
 });
 
@@ -49,7 +54,11 @@ describe("Abschluss-Chat V1: fünf echte Skins mit Mockup-Tokenstruktur", () => 
       expect(CSS_SOURCE).toContain(`.root[data-skin="${skin}"]{`);
     }
     // "lumina" ist der Basis-Skin (.root ohne [data-skin]-Zusatz), kein eigener Block noetig.
-    expect(COMPONENT_SOURCE).toContain('{ value: "lumina", label: "Lumina" }');
+    // SKIN_OPTIONS liegt seit V2 zentral in abschluss-chat-shared.ts (von allen 5 Rollen-Shells
+    // importiert statt fuenffach kopiert).
+    const SHARED_SOURCE = readFileSync(new URL("./abschluss-chat-shared.ts", import.meta.url), "utf8");
+    expect(SHARED_SOURCE).toContain('{ value: "lumina", label: "Lumina" }');
+    expect(COMPONENT_SOURCE).toContain('from "./abschluss-chat-shared"');
   });
 });
 
