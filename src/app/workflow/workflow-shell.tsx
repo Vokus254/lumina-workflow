@@ -12,6 +12,7 @@ import { isFullMatrixRequest, routeIntent, needsExplicitFocus, isExplicitProject
 import { resolveAccessibleTaskIdSet, isMatrixTaskRowAuthorized } from "@/lib/schedule-matrix-auth";
 import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 import { resolveLastActionLabel, resolveLastQueryUsageLabel, resolveSessionUsageLabel } from "@/lib/usage-bar";
+import { onboardingTargetStatusForChip, type OnboardingStatus } from "@/lib/onboarding-status";
 import styles from "./workflow-shell.module.css";
 
 export type ShellStation = {
@@ -637,7 +638,7 @@ export function WorkflowShell({
   // Klicks auf eine der sechs Onboarding-Aktionsschaltflaechen (kai-workspace.tsx), niemals durch
   // automatisches Rendern. Fehler werden bewusst verschluckt: ein fehlgeschlagener Statuswechsel
   // darf die eigentliche Navigation nicht blockieren.
-  async function advanceOnboarding(targetStatus: "introduced" | "active") {
+  async function advanceOnboarding(targetStatus: OnboardingStatus) {
     try {
       await fetch("/api/workflow/assistant-workspace", {
         method: "POST",
@@ -649,7 +650,7 @@ export function WorkflowShell({
 
   async function handleWorkspaceChip(action: string) {
     const lastCard = sparringMessages[sparringMessages.length - 1]?.card;
-    if (lastCard?.type === "onboarding") await advanceOnboarding("active");
+    if (lastCard?.type === "onboarding") await advanceOnboarding(onboardingTargetStatusForChip(action));
     if (action === "schedule") { void loadFullScheduleMatrix(sparringAssistant); return; }
     if (action === "switchKira") { setSparringAssistant("KIRA"); return; }
     if (action === "openCommunication") { setSparringOpen(false); navigateShellView("messages"); return; }

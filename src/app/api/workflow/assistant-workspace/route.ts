@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SPECIAL_TOOL_STEP_CODES, SPECIAL_TOOL_SUBITEMS, resolveStepLookupPlan, resolveToolTitle } from "@/app/workflow/special-tools";
 import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
+import { nextOnboardingStatus, type OnboardingStatus } from "@/lib/onboarding-status";
 
 // V12: strukturierte 0-LLM-Datenschicht fuer den KAI/KIRA-Workspace. Nutzt exakt denselben
 // RLS-gebundenen Supabase-Server-Client wie day-sparring/route.ts - keine Service-Role, keine
@@ -310,15 +311,19 @@ export async function POST(request: Request) {
       // V13: einzige Schreibstelle fuer user_project_onboarding - wird ausschliesslich durch eine
       // explizite Nutzeraktion im Client ausgeloest (Klick auf eine Onboarding-Aktion), nie durch
       // ein automatisches Initial-Rendern.
-      const targetStatus = params.targetStatus === "introduced" ? "introduced" : "active";
+      const requestedStatus: OnboardingStatus = params.targetStatus === "active" ? "active" : "introduced";
       const nowIso = new Date().toISOString();
-      const { data: existing } = await supabase.from("user_project_onboarding").select("introduced_at").eq("user_id", userId).eq("project_id", projectId).maybeSingle();
-      const patch: Record<string, any> = { user_id: userId, project_id: projectId, status: targetStatus };
-      if (!existing?.introduced_at) patch.introduced_at = nowIso;
-      if (targetStatus === "active") patch.activated_at = nowIso;
+      const { data: existing } = await supabase.from("user_project_onboarding").select("status,introduced_at").eq("user_id", userId).eq("project_id", projectId).maybeSingle();
+      const currentStatus: OnboardingStatus = (existing?.status as OnboardingStatus) || "not_started";
+      // Monoton: not_started -> introduced -> active, nie rueckwaerts (siehe nextOnboardingStatus).
+      // "active" bleibt "active", auch wenn hier versehentlich erneut "introduced" ankaeme.
+      const nextStatus = nextOnboardingStatus(currentStatus, requestedStatus);
+      const patch: Record<string, any> = { user_id: userId, project_id: projectId, status: nextStatus };
+      if (nextStatus !== "not_started" && !existing?.introduced_at) patch.introduced_at = nowIso;
+      if (nextStatus === "active" && currentStatus !== "active") patch.activated_at = nowIso;
       const { error } = await supabase.from("user_project_onboarding").upsert(patch, { onConflict: "user_id,project_id" });
       if (error) return NextResponse.json({ error: "Onboarding-Status konnte nicht gespeichert werden." }, { status: 500 });
-      return NextResponse.json({ ok: true, status: targetStatus });
+      return NextResponse.json({ ok: true, status: nextStatus });
     }
 
     return NextResponse.json({ error: "Unbekannte Aktion." }, { status: 400 });
