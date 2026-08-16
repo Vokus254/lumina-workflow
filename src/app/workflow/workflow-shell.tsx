@@ -633,10 +633,28 @@ export function WorkflowShell({
     }
   }
 
-  function handleWorkspaceChip(action: string) {
+  // V13: einzige Stelle, die "onboardingAdvance" ausloest - ausschliesslich als direkte Folge eines
+  // Klicks auf eine der sechs Onboarding-Aktionsschaltflaechen (kai-workspace.tsx), niemals durch
+  // automatisches Rendern. Fehler werden bewusst verschluckt: ein fehlgeschlagener Statuswechsel
+  // darf die eigentliche Navigation nicht blockieren.
+  async function advanceOnboarding(targetStatus: "introduced" | "active") {
+    try {
+      await fetch("/api/workflow/assistant-workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: activeProjectId, action: "onboardingAdvance", params: { targetStatus } }),
+      });
+    } catch {}
+  }
+
+  async function handleWorkspaceChip(action: string) {
+    const lastCard = sparringMessages[sparringMessages.length - 1]?.card;
+    if (lastCard?.type === "onboarding") await advanceOnboarding("active");
     if (action === "schedule") { void loadFullScheduleMatrix(sparringAssistant); return; }
     if (action === "switchKira") { setSparringAssistant("KIRA"); return; }
-    const labelByAction: Record<string, string> = { processTree: "Abschlussprozess", myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis" };
+    if (action === "openCommunication") { setSparringOpen(false); navigateShellView("messages"); return; }
+    if (action === "dismissOnboarding") { setWorkspaceBreadcrumb([]); void loadWorkspaceAction("start", {}); return; }
+    const labelByAction: Record<string, string> = { processTree: "Abschlussprozess", myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis", colleagues: "Wer arbeitet mit mir?" };
     setWorkspaceBreadcrumb([{ label: labelByAction[action] || action, action, params: {} }]);
     void loadWorkspaceAction(action, {});
   }

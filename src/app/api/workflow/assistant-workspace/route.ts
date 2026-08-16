@@ -11,12 +11,26 @@ import { sortMeinTagTasks, weekEndIsoFrom } from "@/lib/mein-tag-priority";
 // "start" liefert nur die Chip-Definitionen; ein Chip-Klick ruft dieselbe Action erneut mit der
 // konkreten Teilmenge auf (myOpenTasks/myOverdueTasks/dueToday/reviewIssues/missingEvidence) -
 // fachlich weiterhin "start"-Familie, technisch eigene Actions fuer schlankes, gezieltes Laden.
-type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "processTree" | "measure" | "documents" | "communication" | "search";
+type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance";
 
 function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" | "bearbeiter" {
   if (role === "owner" || role === "manager") return "steuerung";
   if (role === "reviewer") return "review";
   return "bearbeiter";
+}
+
+const SECURITY_ROLE_LABELS: Record<string, string> = { owner: "Projektinhaber", manager: "Projektleitung", reviewer: "Review", contributor: "Mitwirkende:r", viewer: "Beobachter:in" };
+
+// V13: liest die kollegiale Verantwortungsuebersicht ("Wer arbeitet mit dir?") ausschliesslich aus
+// responsibility_roles - derselben Tabelle, die "measure" schon projektweit fuer "Zustaendig: ..."
+// nutzt (RLS: private.can_access_project). Keine neue Tabelle/RPC, keine role_user_assignments-Zeilen
+// anderer Nutzer (die bleiben laut bestehender RLS self-only).
+async function loadColleagues(supabase: Awaited<ReturnType<typeof createClient>>, projectId: string, ownRoleIds: Set<string>) {
+  const { data } = await supabase.from("responsibility_roles").select("id,display_name,role_key,first_name,last_name").eq("project_id", projectId).order("display_name", { ascending: true }).limit(30);
+  return (data || [])
+    .filter((row: any) => !ownRoleIds.has(String(row.id)))
+    .map((row: any) => ({ role: row.display_name || row.role_key, person: [row.first_name, row.last_name].filter(Boolean).join(" ") || null }))
+    .slice(0, 8);
 }
 
 
@@ -89,6 +103,35 @@ export async function POST(request: Request) {
       const nextOpenTasks = sortMeinTagTasks(openForSort, today, weekEndIso).slice(0, 5).map((row) => ({
         id: row.id, number: row.number, title: row.title, processStepCode: row.processStepCode, dueDate: row.dueDate, workStatus: row.workStatus, reviewStatus: row.reviewStatus,
       }));
+
+      // V13: First-Login-Onboarding. Der Status wird NUR gelesen, nie durch dieses Rendern
+      // geschrieben (siehe user_project_onboarding-Migration/RLS) - das Fortschreiben passiert
+      // ausschliesslich ueber die explizite Aktion "onboardingAdvance" (Nutzerklick im Client).
+      const { data: onboardingRow } = await supabase.from("user_project_onboarding").select("status").eq("user_id", userId).eq("project_id", projectId).maybeSingle();
+      if (!onboardingRow || onboardingRow.status !== "active") {
+        const upcoming = open.filter((row: any) => {
+          const due = row.due_date_override || row.due_date;
+          return due && due > today && due <= weekEndIso;
+        });
+        const [roleRowsResult, milestoneResult, colleagues] = await Promise.all([
+          roleIds.size ? supabase.from("responsibility_roles").select("display_name,role_key").in("id", Array.from(roleIds)).limit(3) : Promise.resolve({ data: [] as any[] }),
+          supabase.from("project_milestones").select("label,milestone_date").eq("project_id", projectId).gte("milestone_date", today).order("milestone_date", { ascending: true }).limit(1).maybeSingle(),
+          loadColleagues(supabase, projectId, roleIds),
+        ]);
+        const roleLabel = (roleRowsResult.data || [])[0]?.display_name || (roleRowsResult.data || [])[0]?.role_key || (securityRole ? SECURITY_ROLE_LABELS[securityRole] || null : null);
+        const milestone = milestoneResult.data;
+        return NextResponse.json({
+          card: {
+            type: "onboarding",
+            greeting: `Hallo ${firstName}, schön dich hier das erste Mal zu sehen.`,
+            role: roleLabel,
+            tasks: { open: open.length, overdue: overdue.length, dueToday: dueToday.length, upcoming: upcoming.length },
+            nextTask: nextOpenTasks[0] || null,
+            nextMilestone: milestone ? { label: milestone.label, date: milestone.milestone_date } : null,
+            colleagues,
+          },
+        });
+      }
 
       const chips: { label: string; action: string; count?: number }[] = [
         { label: "Meine offenen Aufgaben", action: "myOpenTasks", count: open.length },
@@ -256,6 +299,26 @@ export async function POST(request: Request) {
         ...(toolMatches.map(([code, title]) => ({ kind: "tool", ref: code, label: `${code} · ${title}`, status: null, dueDate: null }))),
       ].slice(0, 25);
       return NextResponse.json({ card: { type: "search", query, results } });
+    }
+
+    if (action === "colleagues") {
+      const colleagues = await loadColleagues(supabase, projectId, roleIds);
+      return NextResponse.json({ card: { type: "colleagues", colleagues } });
+    }
+
+    if (action === "onboardingAdvance") {
+      // V13: einzige Schreibstelle fuer user_project_onboarding - wird ausschliesslich durch eine
+      // explizite Nutzeraktion im Client ausgeloest (Klick auf eine Onboarding-Aktion), nie durch
+      // ein automatisches Initial-Rendern.
+      const targetStatus = params.targetStatus === "introduced" ? "introduced" : "active";
+      const nowIso = new Date().toISOString();
+      const { data: existing } = await supabase.from("user_project_onboarding").select("introduced_at").eq("user_id", userId).eq("project_id", projectId).maybeSingle();
+      const patch: Record<string, any> = { user_id: userId, project_id: projectId, status: targetStatus };
+      if (!existing?.introduced_at) patch.introduced_at = nowIso;
+      if (targetStatus === "active") patch.activated_at = nowIso;
+      const { error } = await supabase.from("user_project_onboarding").upsert(patch, { onConflict: "user_id,project_id" });
+      if (error) return NextResponse.json({ error: "Onboarding-Status konnte nicht gespeichert werden." }, { status: 500 });
+      return NextResponse.json({ ok: true, status: targetStatus });
     }
 
     return NextResponse.json({ error: "Unbekannte Aktion." }, { status: 400 });
