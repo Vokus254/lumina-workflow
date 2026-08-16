@@ -356,6 +356,20 @@
 .sparringDrawerTop small b{color:var(--lumina-primary-dark)}
 @media(max-width:900px){.sparringGlobalButton{right:16px;bottom:16px;min-width:auto}.sparringGlobalButton b{display:none}.sparringProgressBox{max-width:94%}.sparringProgressHead{align-items:flex-start;flex-direction:column;gap:3px}.sparringProgressHead span{white-space:normal}}
 .sparringDrawerBackdrop{z-index:90}
+/* V14: Conversational Workspace - dasselbe Sparring-Panel wie das bisherige Modal-Drawer, aber
+   angedockt statt als Overlay: keine Backdrop-Abdunklung, keine feste Groesse, fuellt den
+   Content-Bereich (kein linkes Desktop-Menue mehr, siehe dockedConversational in workflow-shell.tsx). */
+.sparringDocked{position:fixed;top:calc(var(--topbar-h) + var(--rail-h));left:0;right:0;bottom:0;z-index:50;display:flex;justify-content:center;background:var(--lumina-bg);padding:18px 28px 22px}
+.sparringDockedPanel{width:min(1180px,96vw);height:100%;display:grid;grid-template-rows:auto auto 1fr;border:1px solid var(--lumina-line);border-radius:12px;background:var(--lumina-card,#fff);box-shadow:var(--lumina-shadow);overflow:hidden}
+.sparringDesktopButton{border:1px solid var(--lumina-line);background:#fff;color:var(--lumina-ink);border-radius:8px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer}
+.sparringDesktopButton:hover{border-color:var(--lumina-primary);color:var(--lumina-primary-dark)}
+@media(max-width:680px){.sparringDocked{padding:8px}.sparringDockedPanel{border-radius:8px}}
+/* "SAP"-Skin (data-skin="blue"): dichter/tabellarischer, wie gefordert - nur Abstaende/Radius im
+   angedockten Panel, keine neue Farb-/Funktionslogik (die Farbtoken kommen weiter aus dem
+   bestehenden [data-skin="blue"]-Block oben). */
+.shell[data-skin="blue"] .sparringDockedPanel{border-radius:8px}
+.shell[data-skin="blue"] .sparringDockedPanel .sparringBubble{padding:8px 11px}
+.shell[data-skin="blue"] .sparringDockedPanel .workspaceTaskRow{padding:6px 9px;min-height:32px}
 
 /* KAI/KIRA V8 – sichtbarer Status des dauerhaften Arbeitsgedächtnisses */
 .sparringMemoryBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:7px 20px;border-top:1px solid var(--lumina-line);background:color-mix(in srgb,var(--lumina-primary-soft) 38%,#fff);font-size:9.75px;color:var(--lumina-ink-3)}

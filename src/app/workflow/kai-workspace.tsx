@@ -53,7 +53,7 @@ function formatGermanDate(value?: string | null) {
 const WORK_LABELS: Record<string, string> = { open: "Offen", in_progress: "In Bearbeitung", submitted: "Eingereicht", completed: "Abgeschlossen" };
 const REVIEW_LABELS: Record<string, string> = { unreviewed: "Ungeprüft", changes_required: "Nachbesserung", question: "Rückfrage", accepted: "Akzeptiert" };
 
-export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocuments, onLoadCommunication, onOpenEntity, onChip }: {
+export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocuments, onLoadCommunication, onOpenEntity, onChip, onSetTaskStatus }: {
   card: WorkspaceCard;
   onOpenMeasure: (kind: "task" | "step", ref: string) => void;
   onOpenStep: (stepCode: string) => void;
@@ -61,6 +61,7 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   onLoadCommunication: (taskId: string) => void;
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
   onChip: (action: string) => void;
+  onSetTaskStatus?: (taskId: string, workStatus: string, reviewStatus: string) => void;
 }) {
   if (card.type === "start") return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>{card.greeting}</b>
@@ -145,7 +146,7 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
     </button>)}</div>
   </div>;
 
-  if (card.type === "measure") return <MeasureCardView measure={card} onLoadDocuments={onLoadDocuments} onLoadCommunication={onLoadCommunication} onOpenEntity={onOpenEntity}/>;
+  if (card.type === "measure") return <MeasureCardView measure={card} onLoadDocuments={onLoadDocuments} onLoadCommunication={onLoadCommunication} onOpenEntity={onOpenEntity} onSetTaskStatus={onSetTaskStatus}/>;
 
   if (card.type === "documents") return <div className={styles.workspaceCard}>
     <b className={styles.workspaceCardTitle}>Dokumente</b>
@@ -167,11 +168,22 @@ export function WorkspaceCardView({ card, onOpenMeasure, onOpenStep, onLoadDocum
   return <div className={styles.workspaceCard}><p className={styles.workspaceEmptyNote}>{card.reason}</p></div>;
 }
 
-function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpenEntity }: {
+// V14: die Aufgabe als erste vollstaendige Mini-App im Conversational Workspace. Zeigt echte
+// LUMINA-Daten (kein LLM) und bietet - wo bereits eine autorisierte, geprueft bestehende RPC
+// existiert (update_task_state, siehe assistant-workspace/route.ts-Nachbarschaft) - echte
+// Statusaktionen direkt hier statt nur im Legacy-Desktop. Jede Aktion ist ein expliziter
+// Button-Klick, keine automatische Statusaenderung aus KI-Text (Sicherheitsregel V14 §13).
+const WORK_STATUS_ACTIONS: { from: string[]; to: string; label: string }[] = [
+  { from: ["open", "accepted"], to: "in_progress", label: "In Bearbeitung setzen" },
+  { from: ["in_progress"], to: "submitted", label: "Einreichen" },
+];
+
+function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpenEntity, onSetTaskStatus }: {
   measure: { type: "measure" } & WorkspaceMeasure;
   onLoadDocuments: (taskId: string) => void;
   onLoadCommunication: (taskId: string) => void;
   onOpenEntity: (kind: "task" | "tool", idOrCode: string) => void;
+  onSetTaskStatus?: (taskId: string, workStatus: string, reviewStatus: string) => void;
 }) {
   const [tab, setTab] = useState<"overview" | "guidance" | "review">("overview");
   const { task, step, responsibility, guidance, tool } = measure;
@@ -205,6 +217,12 @@ function MeasureCardView({ measure, onLoadDocuments, onLoadCommunication, onOpen
       {guidance.arbeitshilfe_name ? <p><b>Empfohlene Arbeitshilfe:</b> {guidance.arbeitshilfe_name}</p> : null}
     </div> : null}
     {tab === "review" && task ? <div className={styles.workspaceTabBody}><p><b>Reviewstatus:</b> {REVIEW_LABELS[task.reviewStatus] || task.reviewStatus}</p></div> : null}
+    {task && onSetTaskStatus ? (() => {
+      const nextAction = WORK_STATUS_ACTIONS.find((entry) => entry.from.includes(task.workStatus));
+      return nextAction ? <div className={styles.workspaceChips}>
+        <button type="button" className={styles.workspaceChip} onClick={() => onSetTaskStatus(task.id, nextAction.to, task.reviewStatus)}>{nextAction.label}</button>
+      </div> : null;
+    })() : null}
     <div className={styles.sparringRefs}>
       {task ? <button type="button" className={styles.sparringRefButton} onClick={() => onOpenEntity("task", task.id)}>In LUMINA öffnen</button> : null}
       {tool ? <button type="button" className={styles.sparringRefButton} onClick={() => onOpenEntity("tool", tool.code)}>Werkzeug öffnen · {tool.code}</button> : null}
