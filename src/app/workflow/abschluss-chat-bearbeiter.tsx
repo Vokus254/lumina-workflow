@@ -23,15 +23,9 @@ import { submitTaskStatus } from "@/lib/task-status";
 import { onboardingTargetStatusForChip, type OnboardingStatus } from "@/lib/onboarding-status";
 import styles from "./abschluss-chat.module.css";
 import type { WorkspaceCard, WorkspaceDocument, WorkspaceMessage } from "./kai-workspace";
+import { callWorkspace, formatGermanDate, formatGermanDateTime, WORK_LABELS, REVIEW_LABELS, SKIN_OPTIONS, type ChatSkin } from "./abschluss-chat-shared";
 
-export type ChatSkin = "lumina" | "claude" | "chatgpt" | "grok" | "sap";
-const SKIN_OPTIONS: { value: ChatSkin; label: string }[] = [
-  { value: "lumina", label: "Lumina" },
-  { value: "claude", label: "Claude" },
-  { value: "chatgpt", label: "ChatGPT" },
-  { value: "grok", label: "Grok" },
-  { value: "sap", label: "SAP" },
-];
+export type { ChatSkin } from "./abschluss-chat-shared";
 
 type SidebarPhase = { code: string; count: number };
 type SidebarDependency = { kind: "blocks" | "waits" | "free"; label: string };
@@ -51,8 +45,6 @@ type MeasureData = {
 
 type AuditEvent = { id: string; eventType: string; eventData: Record<string, unknown>; createdAt: string | null };
 
-const WORK_LABELS: Record<string, string> = { open: "Offen", accepted: "Angenommen", in_progress: "In Bearbeitung", submitted: "Eingereicht", completed: "Abgeschlossen", not_relevant: "Nicht relevant" };
-const REVIEW_LABELS: Record<string, string> = { unreviewed: "Ungeprüft", question: "Rückfrage", changes_required: "Nachbesserung", accepted: "Akzeptiert" };
 const DEP_LABELS: Record<SidebarDependency["kind"], string> = { blocks: "an der Reihe", waits: "wartet strukturell", free: "frei" };
 const AUDIT_EVENT_LABELS: Record<string, string> = { document_uploaded: "Dokument hochgeladen", "task.updated": "Statusänderung" };
 
@@ -61,32 +53,6 @@ const AUDIT_EVENT_LABELS: Record<string, string> = { document_uploaded: "Dokumen
 // bestehenden Verhalten von finalize_document_upload, das bei bestehendem Approval-Workflow einen
 // neuen Upload ebenfalls auf review_status="unreviewed" zuruecksetzt.
 const REVIEW_STATUSES_RESET_ON_RESUBMIT = new Set(["question", "changes_required"]);
-
-function formatGermanDate(value?: string | null) {
-  if (!value) return "–";
-  const parts = String(value).slice(0, 10).split("-");
-  if (parts.length !== 3) return String(value);
-  const [y, m, d] = parts;
-  return `${d}.${m}.${y}`;
-}
-
-function formatGermanDateTime(value?: string | null) {
-  if (!value) return "–";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return `${formatGermanDate(value)} ${date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-async function callWorkspace(projectId: string, action: string, params: Record<string, unknown> = {}) {
-  const response = await fetch("/api/workflow/assistant-workspace", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId, action, params }),
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || "LUMINA-Daten konnten nicht geladen werden.");
-  return payload.card;
-}
 
 export function AbschlussChatBearbeiter({
   activeProjectId,
