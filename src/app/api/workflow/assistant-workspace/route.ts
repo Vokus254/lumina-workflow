@@ -13,7 +13,7 @@ import { deriveStructuralDependencies } from "@/lib/task-dependency";
 // "start" liefert nur die Chip-Definitionen; ein Chip-Klick ruft dieselbe Action erneut mit der
 // konkreten Teilmenge auf (myOpenTasks/myOverdueTasks/dueToday/reviewIssues/missingEvidence) -
 // fachlich weiterhin "start"-Familie, technisch eigene Actions fuer schlankes, gezieltes Laden.
-type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview";
+type Action = "start" | "myOpenTasks" | "myOverdueTasks" | "dueToday" | "reviewIssues" | "missingEvidence" | "awaitingReview" | "processTree" | "measure" | "documents" | "communication" | "search" | "colleagues" | "onboardingAdvance" | "bearbeiterOverview" | "myAllTasks" | "auditTrail";
 
 function roleTierFromSecurityRole(role?: string | null): "steuerung" | "review" | "bearbeiter" {
   if (role === "owner" || role === "manager") return "steuerung";
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ card: { type: "start", greeting: `Hallo ${firstName}, was machen wir heute?`, nextOpenTasks, chips } });
     }
 
-    if (action === "myOpenTasks" || action === "myOverdueTasks" || action === "dueToday" || action === "reviewIssues" || action === "missingEvidence") {
+    if (action === "myOpenTasks" || action === "myOverdueTasks" || action === "dueToday" || action === "reviewIssues" || action === "missingEvidence" || action === "awaitingReview") {
       const today = new Date().toISOString().slice(0, 10);
       const { data: taskRows, error } = roleIds.size
         ? await supabase.from("tasks").select("id,source_number,title,process_step_id,due_date,due_date_override,work_status,review_status,required_documents_text").eq("project_id", projectId).in("responsibility_role_id", Array.from(roleIds))
@@ -158,12 +158,18 @@ export async function POST(request: Request) {
       const stepIds = Array.from(new Set((taskRows || []).map((row: any) => row.process_step_id).filter(Boolean)));
       const { data: stepRows } = stepIds.length ? await supabase.from("process_steps").select("id,code,name").in("id", stepIds) : { data: [] as any[] };
       const stepById = new Map((stepRows || []).map((step: any) => [String(step.id), step]));
-      let rows = (taskRows || []).filter((row: any) => row.work_status !== "completed");
+      // "awaitingReview" lässt bewusst bereits eingereichte (nicht "completed") Aufgaben zu, die
+      // anderen Filter blenden work_status="completed" grundsätzlich aus - genau wie bisher.
+      let rows = action === "awaitingReview" ? (taskRows || []) : (taskRows || []).filter((row: any) => row.work_status !== "completed");
       if (action === "myOverdueTasks") rows = rows.filter((row: any) => (row.due_date_override || row.due_date) && (row.due_date_override || row.due_date) < today);
       if (action === "dueToday") rows = rows.filter((row: any) => (row.due_date_override || row.due_date) === today);
+      // Fachlich korrekt getrennt: "reviewIssues" = Rueckfrage/Nachbesserung (review_status),
+      // "awaitingReview" = eingereicht und noch nicht akzeptiert (work_status="submitted" UND
+      // review_status <> "accepted") - zwei unterschiedliche, nicht austauschbare Filter.
       if (action === "reviewIssues") rows = rows.filter((row: any) => row.review_status === "question" || row.review_status === "changes_required");
+      if (action === "awaitingReview") rows = rows.filter((row: any) => row.work_status === "submitted" && row.review_status !== "accepted");
       if (action === "missingEvidence") rows = rows.filter((row: any) => String(row.required_documents_text || "").trim());
-      const titleByAction: Record<string, string> = { myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfragen", missingEvidence: "Aufgaben ohne Nachweis" };
+      const titleByAction: Record<string, string> = { myOpenTasks: "Meine offenen Aufgaben", myOverdueTasks: "Meine überfälligen Aufgaben", dueToday: "Heute fällig", reviewIssues: "Rückfrage / Nachbesserung", missingEvidence: "Aufgaben ohne Nachweis", awaitingReview: "Eingereicht / wartet auf Review" };
       const tasks = rows.slice(0, 60).map((row: any) => {
         const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
         return { id: row.id, number: row.source_number || "", title: row.title || "", processStepCode: step?.code || null, dueDate: row.due_date_override || row.due_date || null, workStatus: row.work_status, reviewStatus: row.review_status };
@@ -303,10 +309,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ card: { type: "search", query, results } });
     }
 
-    if (action === "bearbeiterOverview") {
-      // Abschluss-Chat V1 (Briefing "Shell-Umstellung"): Sidebar-Datenquelle fuer die Bearbeiter-
-      // Chat-Shell. Ausschliesslich echte, RLS-gebundene Daten - keine Mockup-Zahlen, keine
-      // erfundenen Personen. Abhaengigkeits-Chips sind bewusst strukturell/vorlaeufig (siehe
+    if (action === "bearbeiterOverview" || action === "myAllTasks") {
+      // Abschluss-Chat V1 (Briefing "Shell-Umstellung"): gemeinsame Datenquelle fuer Sidebar
+      // (bearbeiterOverview, kompakt) und "Alle Aufgaben anzeigen" (myAllTasks, vollstaendig) -
+      // dieselbe Abfrage/Ableitung, nur unterschiedlich weit geschnitten, keine zweite Logik.
+      // Ausschliesslich echte, RLS-gebundene Daten - keine Mockup-Zahlen, keine erfundenen
+      // Personen. Abhaengigkeits-Chips sind bewusst strukturell/vorlaeufig (siehe
       // src/lib/task-dependency.ts) statt der im Mockup gezeigten semantischen Cross-Task-Verweise,
       // fuer die es noch keine echte Datenquelle gibt (V15-Architekturentscheidung).
       const today = new Date().toISOString().slice(0, 10);
@@ -320,9 +328,23 @@ export async function POST(request: Request) {
 
       const depInput = rows.map((row: any) => {
         const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
-        return { id: row.id, parentStepId: step?.parent_id ? String(step.parent_id) : row.process_step_id ? String(row.process_step_id) : null, sortKey: row.source_number || row.id, workStatus: row.work_status };
+        return { id: row.id, parentStepId: step?.parent_id ? String(step.parent_id) : row.process_step_id ? String(row.process_step_id) : null, sortKey: row.source_number || row.id, workStatus: row.work_status, reviewStatus: row.review_status };
       });
       const dependencies = deriveStructuralDependencies(depInput);
+      const defaultDependency = { kind: "free" as const, label: "keine weitere Aufgabe in diesem Prozessschritt" };
+
+      const annotatedOpen = sortMeinTagTasks(
+        rows.filter((row: any) => row.work_status !== "completed").map((row: any) => {
+          const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
+          return { id: row.id, number: row.source_number || "", title: row.title || "", processStepCode: step?.code || null, dueDate: row.due_date_override || row.due_date || null, workStatus: row.work_status, reviewStatus: row.review_status, sourceNumber: row.source_number || "" };
+        }),
+        today,
+        weekEndIsoFrom(today),
+      ).map((row: any) => ({ id: row.id, number: row.number, title: row.title, processStepCode: row.processStepCode, dueDate: row.dueDate, workStatus: row.workStatus, reviewStatus: row.reviewStatus, dependency: dependencies.get(row.id) || defaultDependency }));
+
+      if (action === "myAllTasks") {
+        return NextResponse.json({ card: { type: "taskList", title: `Alle meine Aufgaben (${rows.length})`, tasks: annotatedOpen } });
+      }
 
       const phaseTotals = new Map<string, { code: string; count: number }>();
       for (const row of rows) {
@@ -340,15 +362,6 @@ export async function POST(request: Request) {
       const blocking = Array.from(dependencies.values()).filter((dep) => dep.kind === "blocks").length;
       const waiting = Array.from(dependencies.values()).filter((dep) => dep.kind === "waits").length;
 
-      const currentTasks = sortMeinTagTasks(
-        open.map((row: any) => {
-          const step: any = row.process_step_id ? stepById.get(String(row.process_step_id)) : null;
-          return { id: row.id, number: row.source_number || "", title: row.title || "", processStepCode: step?.code || null, dueDate: row.due_date_override || row.due_date || null, workStatus: row.work_status, reviewStatus: row.review_status, sourceNumber: row.source_number || "" };
-        }),
-        today,
-        weekEndIsoFrom(today),
-      ).slice(0, 8).map((row: any) => ({ id: row.id, number: row.number, title: row.title, processStepCode: row.processStepCode, dueDate: row.dueDate, workStatus: row.workStatus, reviewStatus: row.reviewStatus, dependency: dependencies.get(row.id) || { kind: "free", label: "keine weitere Aufgabe in diesem Prozessschritt" } }));
-
       const roleRow = roleIds.size ? await supabase.from("responsibility_roles").select("display_name,role_key").in("id", Array.from(roleIds)).limit(1).maybeSingle() : { data: null };
       const roleLabel = roleRow.data?.display_name || roleRow.data?.role_key || (securityRole ? SECURITY_ROLE_LABELS[securityRole] || null : null);
 
@@ -358,9 +371,19 @@ export async function POST(request: Request) {
           person: { name: displayName, role: roleLabel, email: claims.email || null },
           phases,
           kpis: { done: done.length, total: rows.length, overdue: overdue.length, blocking, waiting },
-          currentTasks,
+          currentTasks: annotatedOpen.slice(0, 8),
         },
       });
+    }
+
+    if (action === "auditTrail") {
+      // Zeigt ausschliesslich echte task_activity_events (RLS: events_access_select nutzt bereits
+      // can_access_task) - keine erfundenen Audit-Zeilen, keine neue Event-Struktur.
+      const taskId = String(params.taskId || "");
+      if (!taskId) return NextResponse.json({ error: "Aufgabe fehlt." }, { status: 400 });
+      const { data, error } = await supabase.from("task_activity_events").select("id,event_type,event_data,created_at").eq("task_id", taskId).order("created_at", { ascending: false }).limit(30);
+      if (error) return NextResponse.json({ card: { type: "denied", reason: "Audit-Trail für diese Aufgabe ist für dich nicht verfügbar." } });
+      return NextResponse.json({ card: { type: "auditTrail", taskId, events: (data || []).map((row: any) => ({ id: String(row.id), eventType: row.event_type, eventData: row.event_data || {}, createdAt: row.created_at })) } });
     }
 
     if (action === "colleagues") {

@@ -13,9 +13,18 @@ export type DependencyTaskInput = {
   parentStepId: string | null;
   sortKey: string;
   workStatus: string;
+  reviewStatus?: string | null;
 };
 
-const DONE_STATUSES = new Set(["completed", "submitted"]);
+// Konservativ per bestehendem zweidimensionalem Statusmodell (work_status + review_status):
+// "wirklich erledigt/freigebend" ist NUR work_status='completed', oder - falls fachlich erreicht -
+// 'submitted' UND review_status='accepted'. 'submitted' allein (eingereicht, aber noch nicht
+// akzeptiert) gilt bewusst NICHT als erledigt, sonst wuerde eine nur eingereichte, noch nicht
+// geprueft-akzeptierte Aufgabe faelschlich als "hat keinen Nachfolger mehr blockiert" erscheinen.
+function isDone(task: DependencyTaskInput): boolean {
+  if (task.workStatus === "completed") return true;
+  return task.workStatus === "submitted" && task.reviewStatus === "accepted";
+}
 
 export function deriveStructuralDependencies<T extends DependencyTaskInput>(tasks: T[]): Map<string, StructuralDependency> {
   const byParent = new Map<string, T[]>();
@@ -32,14 +41,14 @@ export function deriveStructuralDependencies<T extends DependencyTaskInput>(task
       continue;
     }
     const sorted = [...group].sort((a, b) => a.sortKey.localeCompare(b.sortKey, "de", { numeric: true }));
-    const firstOpenIndex = sorted.findIndex((task) => !DONE_STATUSES.has(task.workStatus));
+    const firstOpenIndex = sorted.findIndex((task) => !isDone(task));
     sorted.forEach((task, index) => {
-      if (DONE_STATUSES.has(task.workStatus)) {
+      if (isDone(task)) {
         result.set(task.id, { kind: "free", label: "erledigt" });
         return;
       }
       if (firstOpenIndex === -1 || index === firstOpenIndex) {
-        const laterOpen = sorted.slice(index + 1).some((other) => !DONE_STATUSES.has(other.workStatus));
+        const laterOpen = sorted.slice(index + 1).some((other) => !isDone(other));
         result.set(task.id, laterOpen
           ? { kind: "blocks", label: "an der Reihe · weitere Aufgaben dieses Schritts folgen danach" }
           : { kind: "free", label: "an der Reihe · keine weitere Aufgabe wartet" });

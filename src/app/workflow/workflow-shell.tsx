@@ -75,7 +75,10 @@ export type ShellMessage = {
 };
 
 type RoleView = "bearbeiter" | "projektleitung" | "cfo" | "admin";
-type Skin = "lumina" | "blue" | "light" | "yellow";
+// Abschluss-Chat V1: EIN gemeinsamer Skin-State fuer die gesamte Experience (klassische Shell +
+// Abschluss-Chat-Bearbeiter-Shell) - dieselben 5 Werte wie im verbindlichen Mockup, keine
+// getrennten Skin-Systeme mehr ("aussen SAP / innen Claude").
+type Skin = "lumina" | "claude" | "chatgpt" | "grok" | "sap";
 type ShellView = "start" | "process" | "messages" | "status" | "admin";
 type MyDaySort = "due" | "number" | "process";
 type SparringAssistant = "KAI" | "KIRA";
@@ -1144,12 +1147,11 @@ export function WorkflowShell({
         {searchResults.length > 0 ? <div className={styles.searchResults}>{searchResults.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id)}><b>{task.sourceNumber}</b><span>{task.title}</span></button>)}</div> : null}
       </div>
       <div className={styles.topbarRight}>
-        {allowSkinPreview ? <div className={styles.headerSkinSwitch} aria-label="Vercel Preview Skin-Auswahl">{([
-          // V14: dieselben vier bestehenden Token-Sets - "blue"/"light"/"yellow" entsprachen
-          // farblich bereits SAP/ChatGPT/Claude (Fiori-Blau, OpenAI-Gruen auf Weissraum,
-          // Anthropic-Terrakotta auf warmem Papier). Nur die Beschriftung wird an V14 angepasst,
-          // keine neuen Skin-Werte/CSS-Bloecke - "keine vier separaten Apps bauen".
-          ["lumina", "LUMINA"], ["blue", "SAP"], ["light", "ChatGPT"], ["yellow", "Claude"],
+        {allowSkinPreview ? <div className={styles.headerSkinSwitch} aria-label="Skin-Auswahl">{([
+          // Abschluss-Chat V1: EIN gemeinsamer Skin-State (siehe "skin"/"setSkin" oben) fuer
+          // klassische Shell UND Abschluss-Chat-Bearbeiter-Shell - dieselben 5 Werte, dieselbe
+          // Tokenstruktur wie im verbindlichen Mockup, kein paralleler Zustand.
+          ["lumina", "LUMINA"], ["claude", "Claude"], ["chatgpt", "ChatGPT"], ["grok", "Grok"], ["sap", "SAP"],
         ] as const).map(([value, label]) => <button key={value} type="button" title={`Skin ${label}`} className={skin === value ? styles.headerSkinActive : ""} onClick={() => setSkin(value)}><i className={styles.skinDot} data-skin-dot={value}/><span>{label}</span></button>)}</div> : null}
         {deadlineDays !== null ? <div className={styles.deadline} title={`${nextDeadlineLabel || "Nächste Frist"}: ${formatDate(nextDeadlineDate)}`}><strong>{deadlineDays < 0 ? `${Math.abs(deadlineDays)} T` : `${deadlineDays} T`}</strong><span>{deadlineDays < 0 ? "Frist überschritten" : (nextDeadlineLabel || "bis nächste Frist")}</span></div> : null}
         <span className={styles.roleBadge}>{visibleRoleLabel}</span>
@@ -1251,6 +1253,9 @@ export function WorkflowShell({
       <AbschlussChatBearbeiter
         activeProjectId={activeProjectId}
         onOpenDesktop={() => setDesktopMode(true)}
+        skin={skin}
+        setSkin={setSkin}
+        advanceOnboarding={advanceOnboarding}
         sparringAssistant={sparringAssistant}
         setSparringAssistant={setSparringAssistant}
         sparringMessages={sparringMessages}
